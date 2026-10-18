@@ -24,6 +24,7 @@ pub fn run() {
             commands::project_write,
             commands::project_import_file,
             commands::project_allow_assets,
+            commands::asset_allow_file,
             commands::backup_create,
             commands::backup_list,
             commands::backup_prune,

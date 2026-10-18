@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use crate::atomic::{write_atomic, write_atomic_with};
 use crate::error::{AtPath, ErrorCode, Result, StorageError};
 use crate::model::FileText;
-use crate::paths::{is_root_folder, is_valid_segment, to_slash, validate_rel_path, PROJECT_FILE};
+use crate::paths::{
+    is_valid_segment, to_slash, validate_file_path, validate_rel_path, PROJECT_FILE,
+};
 
 /// Top-level folders whose subfolders belong to the user and disappear once emptied.
 const USER_FOLDER_ROOTS: &[&str] = &["documents", "assets"];
@@ -29,14 +31,6 @@ pub(crate) fn validate_writes(files: &[FileText]) -> Result<Vec<ValidWrite<'_>>>
             })
         })
         .collect()
-}
-
-fn validate_file_path(rel: &str) -> Result<PathBuf> {
-    let native = validate_rel_path(rel)?;
-    if is_root_folder(&native) {
-        return Err(StorageError::invalid_path(rel));
-    }
-    Ok(native)
 }
 
 /// Writes each file atomically, creating parent folders as needed.

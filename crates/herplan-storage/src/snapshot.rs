@@ -15,7 +15,7 @@ use crate::clock::unix_ms;
 use crate::error::{AtPath, Result, StorageError};
 use crate::layout::require_project;
 use crate::model::{AssetInfo, DamageReason, DamagedFile, FileText, ProjectSnapshot};
-use crate::paths::{validate_rel_path, PROJECT_FILE};
+use crate::paths::{validate_file_path, PROJECT_FILE};
 use crate::walk::{walk, Found};
 
 const MAX_READER_THREADS: usize = 8;
@@ -63,7 +63,7 @@ pub fn read_project(dir: &Path) -> Result<ProjectSnapshot> {
 
 /// Reads one project file as text; `None` if it does not exist.
 pub fn read_project_file(dir: &Path, rel: &str) -> Result<Option<String>> {
-    let target = dir.join(validate_rel_path(rel)?);
+    let target = dir.join(validate_file_path(rel)?);
     match fs::read(&target) {
         Ok(bytes) => {
             let text = String::from_utf8(strip_bom(bytes)).map_err(|e| {
@@ -361,7 +361,9 @@ mod tests {
             Some("{\"tabs\":[]}".to_owned())
         );
         assert_eq!(read_project_file(dir, "data/none.json").unwrap(), None);
-        let err = read_project_file(dir, "../secret").unwrap_err();
-        assert_eq!(err.code, ErrorCode::InvalidPath);
+        for bad in ["../secret", "data", "backups/auto/x.zip"] {
+            let err = read_project_file(dir, bad).unwrap_err();
+            assert_eq!(err.code, ErrorCode::InvalidPath, "{bad}");
+        }
     }
 }

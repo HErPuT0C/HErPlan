@@ -119,6 +119,15 @@ pub fn project_allow_assets(app: AppHandle, dir: String) -> CommandResult<()> {
         .map_err(shell_error)
 }
 
+/// Lets `<img>` show one outside file the user just picked, e.g. a cover before the project exists.
+#[tauri::command]
+pub fn asset_allow_file(app: AppHandle, path: String) -> CommandResult<()> {
+    let path = absolute(&path)?;
+    app.asset_protocol_scope()
+        .allow_file(&path)
+        .map_err(shell_error)
+}
+
 #[tauri::command]
 pub async fn backup_create(
     dir: String,

@@ -33,8 +33,17 @@ pub fn validate_rel_path(rel: &str) -> Result<PathBuf> {
     Ok(segments.iter().collect())
 }
 
-/// True for a bare top-level folder (`data`, `assets`…): those are never written or deleted as a whole.
-pub(crate) fn is_root_folder(rel: &Path) -> bool {
+/// Like [`validate_rel_path`], but for a file: a bare top-level folder (`data`, `assets`…) is
+/// never read, written or deleted as a whole.
+pub(crate) fn validate_file_path(rel: &str) -> Result<PathBuf> {
+    let native = validate_rel_path(rel)?;
+    if is_root_folder(&native) {
+        return Err(StorageError::invalid_path(rel));
+    }
+    Ok(native)
+}
+
+fn is_root_folder(rel: &Path) -> bool {
     let mut components = rel.components();
     matches!(
         (components.next(), components.next()),
@@ -176,10 +185,14 @@ mod tests {
     }
 
     #[test]
-    fn recognises_root_folders() {
-        assert!(is_root_folder(Path::new("assets")));
-        assert!(!is_root_folder(Path::new("project.json")));
-        assert!(!is_root_folder(&Path::new("assets").join("a.png")));
+    fn file_paths_exclude_bare_roots() {
+        for root in ["data", "documents", "assets", ".herplan"] {
+            assert!(validate_rel_path(root).is_ok(), "{root} as a folder");
+            let err = validate_file_path(root).unwrap_err();
+            assert_eq!(err.code, ErrorCode::InvalidPath, "{root} as a file");
+        }
+        assert!(validate_file_path("project.json").is_ok());
+        assert!(validate_file_path("assets/a.png").is_ok());
     }
 
     #[test]
