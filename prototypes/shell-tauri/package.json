@@ -1,0 +1,14 @@
+{
+  "name": "herplan-prototype-shell-tauri",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Tauri 2 shell around the F0 web prototype (ADR-001 candidate).",
+  "scripts": {
+    "tauri": "tauri",
+    "icons": "tauri icon ../assets/icon-source.png",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.1"
+  }
+}

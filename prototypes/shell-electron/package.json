@@ -1,0 +1,30 @@
+{
+  "name": "herplan-prototype-shell-electron",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Electron shell around the F0 web prototype (ADR-001 candidate).",
+  "author": "HErPlan",
+  "license": "MIT",
+  "main": "main.cjs",
+  "scripts": {
+    "copy-web": "node -e \"require('fs').cpSync('../web/dist','web',{recursive:true})\"",
+    "build": "npm run copy-web && electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "dev.herplan.proto.electron",
+    "productName": "HErPlan Proto Electron",
+    "files": ["main.cjs", "preload.cjs", "web/**/*"],
+    "directories": { "output": "release" },
+    "win": { "target": "nsis", "icon": "../assets/icon-source.png" },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

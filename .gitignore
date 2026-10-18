@@ -30,3 +30,7 @@ desktop.ini
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Prototype build inputs and outputs
+prototypes/shell-electron/web/
+prototypes/web/bench-results/

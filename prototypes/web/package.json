@@ -1,0 +1,27 @@
+{
+  "name": "herplan-prototype-web",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Throwaway prototypes for phase F0: canvas renderer benchmark and text editor candidate.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1",
+    "typescript": "6.0.3",
+    "vite": "8.3.4"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.4",
+    "@tiptap/core": "^3.32.0",
+    "@tiptap/extension-image": "^3.32.0",
+    "@tiptap/extension-table": "^3.32.0",
+    "@tiptap/markdown": "^3.32.0",
+    "@tiptap/pm": "^3.32.0",
+    "@tiptap/starter-kit": "^3.32.0"
+  }
+}
