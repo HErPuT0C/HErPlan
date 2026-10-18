@@ -1,11 +1,3 @@
-/* Placeholder look until the design tokens of task F1-03. */
-:root {
-  color-scheme: dark;
-  --bg: #14161b;
-  --text: #e6e9ef;
-  --muted: #8d95a3;
-}
-
 html,
 body,
 #root {
@@ -16,10 +8,23 @@ body,
 body {
   background: var(--bg);
   color: var(--text);
-  font:
-    14px/1.45 system-ui,
-    'Segoe UI',
-    sans-serif;
+  font: var(--fs-md) / var(--lh) var(--font-ui);
+}
+
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.logo-word {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.logo-word b {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .splash {
@@ -28,16 +33,11 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-}
-
-.splash h1 {
-  margin: 0;
-  font-size: 32px;
+  gap: var(--space-2);
 }
 
 .tagline,
 .status {
   margin: 0;
-  color: var(--muted);
+  color: var(--text-muted);
 }

@@ -1,0 +1,79 @@
+/*
+ * HErPlan design tokens (task F1-03, docs/brand).
+ * One dark neutral base and three accents; the accent is chosen in settings and set as
+ * <html data-accent="mint|indigo|amber">. Mint is the default. All text pairs pass WCAG AA,
+ * UI elements and input borders pass 3:1 (docs/brand/palette-*.json).
+ * Light style: no blur, glow or heavy animation.
+ */
+:root {
+  color-scheme: dark;
+
+  --bg: #121418;
+  --surface: #1a1d23;
+  --surface-2: #22262e;
+  --surface-3: #2a2f38;
+  --line: #2e333d;
+  --border-input: #6b7383;
+  --text: #e7e9ee;
+  --text-muted: #9aa1ae;
+  --success: #3fb97a;
+  --warning: #e0a63a;
+  --danger: #e5534b;
+  --overlay: rgb(8 9 12 / 0.6);
+
+  --accent: #34c9a5;
+  --accent-hover: #5ad6b8;
+  --on-accent: #08130f;
+  --accent-soft: rgb(52 201 165 / 0.14);
+
+  --font-ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Mono', Consolas, monospace;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 28px;
+  --lh: 1.45;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  --control-h: 32px;
+  --control-h-sm: 26px;
+  --shadow-popup: 0 6px 20px rgb(0 0 0 / 0.45);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+  --duration: 120ms;
+}
+
+:root[data-accent='indigo'] {
+  --accent: #7b86ff;
+  --accent-hover: #949dff;
+  --on-accent: #0e0f14;
+  --accent-soft: rgb(123 134 255 / 0.16);
+}
+
+:root[data-accent='amber'] {
+  --accent: #f0a43c;
+  --accent-hover: #f5b965;
+  --on-accent: #17120a;
+  --accent-soft: rgb(240 164 60 / 0.14);
+  /* The default warning hue is too close to amber. */
+  --warning: #d8d24a;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration: 0ms;
+  }
+}

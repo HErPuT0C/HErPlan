@@ -21,4 +21,6 @@ export default tseslint.config(
     },
   },
   { files: ['src/**/*.test.{ts,tsx}', 'e2e/**'], rules: { 'no-restricted-syntax': 'off' } },
+  // Scripts run in Node and pass callbacks into the browser (Playwright), so both sets of globals apply.
+  { files: ['scripts/**', '*.config.{js,ts}'], languageOptions: { globals: { ...globals.node, ...globals.browser } } },
 );
