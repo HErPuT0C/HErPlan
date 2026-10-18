@@ -23,6 +23,7 @@ import { exportProject } from '../project/exportProject';
 import { HistoryDialog } from '../project/HistoryDialog';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import { Dashboard } from './Dashboard';
+import { StoryEditor } from '../canvas/StoryEditor';
 import { ModulePlaceholder } from './ModulePlaceholder';
 import { ProjectHeader } from './ProjectHeader';
 import { TabStrip } from './TabStrip';
@@ -78,7 +79,9 @@ export function Workspace({ project }: { project: OpenProject }) {
         onCloseOthers={(id) => setTabs((s) => closeOtherTabs(s, id))}
       />
       <main className="workspace-content" role="tabpanel" aria-label={t('tabs.content')}>
-        {activeTab ? (
+        {activeTab?.kind === 'story' ? (
+          <StoryEditor key={activeTab.id} project={project} />
+        ) : activeTab ? (
           <ModulePlaceholder key={activeTab.id} kind={activeTab.kind} />
         ) : (
           <Dashboard project={project} view={dashboardView} onOpen={(kind) => setTabs((s) => openTab(s, kind))} />

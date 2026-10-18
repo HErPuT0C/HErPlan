@@ -39,11 +39,11 @@ test('start screen: empty state, then a new project opens in the workspace', asy
   await expect(page.getByRole('heading', { name: 'Модули' })).toBeVisible();
 
   // Two tabs of the same editor, then back to the start screen.
-  await page.getByRole('button', { name: /Сценарий/ }).click();
-  await expect(page.getByText('Этот редактор появится в версии 0.2.')).toBeVisible();
+  await page.getByRole('button', { name: /База данных/ }).click();
+  await expect(page.getByText('Этот редактор появится в версии 0.3.')).toBeVisible();
   await page.getByRole('button', { name: 'Открыть редактор' }).click();
-  await page.getByRole('menuitem', { name: 'Сценарий' }).click();
-  await expect(page.getByRole('tab', { name: 'Сценарий 2' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'База данных' }).click();
+  await expect(page.getByRole('tab', { name: 'База данных 2' })).toBeVisible();
   await page.waitForTimeout(700);
   await page.getByRole('button', { name: 'Закрыть проект' }).click();
 

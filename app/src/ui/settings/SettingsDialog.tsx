@@ -1,4 +1,4 @@
-import { Bug, Check, ExternalLink, MessageSquare } from 'lucide-react';
+import { Bug, Check, ExternalLink, Gauge, MessageSquare } from 'lucide-react';
 import { useState } from 'react';
 import type { BackupKeep } from '../../core/project/types';
 import { useAtom, useStore } from '../../core/useStore';
@@ -256,6 +256,13 @@ function About() {
         </Button>
         <Button variant="ghost" icon={<ExternalLink size={16} />} onClick={() => void p.openUrl(REPO_URL)}>
           {t('settings.sourceCode')}
+        </Button>
+        <Button
+          variant="ghost"
+          icon={<Gauge size={16} />}
+          onClick={() => (window.location.hash = '#/dev/canvas-bench')}
+        >
+          {t('bench.title')}
         </Button>
       </div>
       <ReportDialog open={reporting} onClose={() => setReporting(false)} />

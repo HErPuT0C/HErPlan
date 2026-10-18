@@ -1,0 +1,395 @@
+/* Canvas (ADR-002): the WebGL layer fills the element, DOM nodes sit above it in a camera-transformed layer. */
+
+.canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  outline: none;
+  user-select: none;
+  touch-action: none;
+}
+.canvas:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.canvas[data-hover='port'] {
+  cursor: crosshair;
+}
+.canvas[data-space='true'] {
+  cursor: grab;
+}
+.canvas[data-gesture='pan'] {
+  cursor: grabbing;
+}
+
+.canvas-gl {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.canvas-dom {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+/* --- Nodes up close --- */
+.cnode {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  pointer-events: auto;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.cnode-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.cnode-found {
+  border-color: var(--warning);
+  box-shadow: 0 0 0 1px var(--warning);
+}
+.cnode-current {
+  box-shadow: 0 0 0 2px var(--warning);
+}
+.cnode-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 0 10px;
+  border-radius: 7px 7px 0 0;
+  background: var(--node-color);
+  color: #fff;
+  font-weight: 600;
+  min-width: 0;
+}
+.cnode-icon {
+  flex: none;
+  opacity: 0.9;
+}
+.cnode-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cnode-body {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 10px;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+.cnode-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  opacity: 0.8;
+}
+.cnode-edit {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  outline: none;
+  font: inherit;
+  color: inherit;
+  background: rgb(0 0 0 / 0.18);
+  user-select: text;
+}
+input.cnode-edit {
+  height: 22px;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+textarea.cnode-edit {
+  resize: none;
+  height: 100%;
+}
+.cnode-sticker {
+  border: 0;
+  background: color-mix(in srgb, var(--node-color) 35%, var(--surface));
+}
+.cnode-sticker .cnode-body {
+  padding: 10px 12px;
+}
+.cnode-sticker.cnode-selected {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.cnode-port {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin-top: -6px;
+  border: 1.5px solid var(--text-muted);
+  border-radius: 50%;
+  background: var(--surface-2);
+}
+.cnode-port-in {
+  left: -6px;
+}
+.cnode-port-out {
+  right: -6px;
+}
+.cnode:hover .cnode-port-out {
+  border-color: var(--accent);
+}
+.cnode-comment-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fff;
+  opacity: 0.85;
+}
+.cnode-resize {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, var(--accent) 50%);
+  border-bottom-right-radius: 8px;
+}
+
+.cgroup-title {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  pointer-events: none;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+}
+.cgroup-text {
+  pointer-events: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* --- Panels over the canvas --- */
+.canvas-toolbar,
+.canvas-selbar,
+.canvas-search {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-popup);
+}
+.canvas-toolbar {
+  left: 12px;
+  top: 12px;
+}
+.canvas-selbar {
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  padding-left: 10px;
+}
+.canvas-selbar-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.canvas-search {
+  right: 12px;
+  top: 12px;
+  gap: 4px;
+}
+.canvas-search .input {
+  height: var(--control-h-sm);
+  width: 240px;
+}
+.canvas-search-count {
+  min-width: 56px;
+  text-align: center;
+}
+.canvas-zoom {
+  min-width: 48px;
+  height: var(--control-h-sm);
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.canvas-zoom:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.minimap {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  cursor: pointer;
+}
+
+.canvas-hints {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  max-width: 340px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-popup);
+  font-size: var(--fs-xs);
+}
+.canvas-hints-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.canvas-hints-toggle:hover {
+  color: var(--text);
+}
+.canvas-hints-list {
+  margin: 0;
+  padding: 0 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.canvas-hint {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+.canvas-hint dt {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.canvas-hint dd {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.canvas-comment {
+  position: absolute;
+  max-width: 260px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  pointer-events: none;
+  box-shadow: var(--shadow-popup);
+  z-index: 5;
+}
+
+.swatches {
+  position: fixed;
+  z-index: 960;
+  display: grid;
+  grid-template-columns: repeat(5, 28px);
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-popup);
+}
+.swatch {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgb(0 0 0 / 0.35);
+  border-radius: var(--radius-md);
+  color: #fff;
+  cursor: pointer;
+}
+.swatch-none,
+.swatch-icon {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--text-muted);
+}
+.swatch-icon[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Mid zoom: node titles at a constant screen size (scaled back by --label-scale), WebGL draws the boxes. */
+.clabel {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 50%;
+  margin-top: -8px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.6);
+}
+
+.cedge-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  translate: -50% -50%;
+  max-width: 200px;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}

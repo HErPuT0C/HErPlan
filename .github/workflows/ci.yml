@@ -49,6 +49,20 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           npm run e2e
+      - name: Canvas benchmark numbers (software WebGL, for trends only)
+        if: always()
+        run: |
+          if [ -f test-results/canvas-bench.json ]; then
+            echo '### Canvas benchmark (SwiftShader, 5 000 nodes)' >> "$GITHUB_STEP_SUMMARY"
+            node -e "const r=require('./test-results/canvas-bench.json');console.log('| phase | fps | p95 ms |\n|---|---|---|\n'+r.phases.map(p=>'| '+p.id+' | '+p.fps+' | '+p.p95+' |').join('\n'))" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: canvas-bench
+          path: app/test-results/canvas-bench.json
+          retention-days: 14
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

@@ -1,0 +1,35 @@
+.bench {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+}
+.bench-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+.bench-bar h1 {
+  margin: 0 auto 6px 0;
+  font-size: var(--fs-lg);
+}
+.bench-canvas {
+  min-height: 0;
+}
+.bench-table {
+  border-collapse: collapse;
+  margin: var(--space-2) var(--space-4) var(--space-3);
+  font-variant-numeric: tabular-nums;
+}
+.bench-table th,
+.bench-table td {
+  padding: 2px var(--space-4) 2px 0;
+  text-align: left;
+}
+.bench-table caption {
+  caption-side: bottom;
+  padding-top: var(--space-1);
+  text-align: left;
+  color: var(--text-muted);
+}

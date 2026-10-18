@@ -3,6 +3,7 @@ import { useAtom } from '../core/useStore';
 import { useLocale } from '../i18n';
 import { currentProject } from '../state/project';
 import { ToastRegion } from './components';
+import { CanvasBench } from './dev/CanvasBench';
 import { Showcase } from './dev/Showcase';
 import { StartScreen } from './start/StartScreen';
 import { Workspace } from './workspace/Workspace';
@@ -21,7 +22,15 @@ export function App() {
 
   return (
     <>
-      {hash === '#/dev/components' ? <Showcase /> : project ? <Workspace project={project} /> : <StartScreen />}
+      {hash === '#/dev/components' ? (
+        <Showcase />
+      ) : hash.startsWith('#/dev/canvas-bench') ? (
+        <CanvasBench />
+      ) : project ? (
+        <Workspace project={project} />
+      ) : (
+        <StartScreen />
+      )}
       <ToastRegion />
     </>
   );
