@@ -5,7 +5,7 @@ import { allFiles, serializeJson } from '../../core/project/files';
 import { t } from '../../i18n';
 import { platform, type PathStatus } from '../../platform';
 import { folderNameFor } from '../../platform/paths';
-import { openProject } from '../../state/project';
+import { openOrThrow } from '../../state/project';
 import { settings, updateSettings } from '../../state/settings';
 import { Button, Dialog, TextArea, TextField } from '../components';
 import { errorText } from '../errors';
@@ -69,8 +69,7 @@ function CreateProjectForm({ onClose }: { onClose: () => void }) {
         await p.writeProject(target, [{ path: 'project.json', text: serializeJson(data.meta) }], []);
       }
       updateSettings((s) => ({ ...s, projectsDir: parent }));
-      const opened = await openProject(target);
-      if (!opened.ok) throw opened.failure.kind === 'platform' ? opened.failure.error : new Error(opened.failure.kind);
+      await openOrThrow(target);
       onClose();
     } catch (e) {
       setError(errorText(e));

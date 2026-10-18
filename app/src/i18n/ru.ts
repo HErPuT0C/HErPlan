@@ -72,6 +72,9 @@ export const ru = {
   'open.readOnly':
     'Проект создан в более новой версии HErPlan. Он открыт только для чтения, чтобы ничего не испортить. Обновите программу, чтобы его редактировать.',
 
+  'open.noMigration': 'Проект в формате версии {version}, который эта версия HErPlan не умеет обновить.',
+  'migration.backupLabel': 'Перед обновлением формата до версии {version}',
+
   'recovery.title': 'Некоторые файлы проекта повреждены',
   'recovery.titleBlocking': 'Проект не открывается',
   'recovery.intro':

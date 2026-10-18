@@ -44,6 +44,8 @@ export function StartScreen() {
     const { failure, dir } = result;
     if (failure.kind === 'project-json-damaged') setRecovery({ dir, issues: failure.issues, blocking: true });
     else if (failure.kind === 'platform') toast({ kind: 'error', text: errorText(failure.error) });
+    else if (failure.kind === 'no-migration')
+      toast({ kind: 'error', text: t('open.noMigration', { version: failure.from }) });
     else toast({ kind: 'error', text: t('open.notHerplan') });
   };
 

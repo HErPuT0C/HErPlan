@@ -5,9 +5,11 @@ import { Autosaver } from '../core/project/autosave';
 import { BackupScheduler } from '../core/project/backups';
 import { COLLECTIONS } from '../core/project/files';
 import { loadProject, type LoadIssue } from '../core/project/load';
-import type { ProjectData } from '../core/project/types';
+import { applyMigrations, planMigrations, readFormatVersion } from '../core/project/migrate';
+import { FORMAT_VERSION, type ProjectData } from '../core/project/types';
 import { Store } from '../core/store';
-import { platform, isPlatformError, type PlatformError } from '../platform';
+import { t } from '../i18n';
+import { platform, isPlatformError, type PlatformError, type ProjectSnapshot } from '../platform';
 import { settings, updateSettings, withRecent } from './settings';
 
 export interface OpenProject {
@@ -21,7 +23,9 @@ export interface OpenProject {
 }
 
 export type OpenFailure =
-  { kind: 'platform'; error: PlatformError } | { kind: 'project-json-damaged' | 'not-herplan'; issues: LoadIssue[] };
+  | { kind: 'platform'; error: PlatformError }
+  | { kind: 'project-json-damaged' | 'not-herplan'; issues: LoadIssue[] }
+  | { kind: 'no-migration'; from: number };
 
 export type OpenResult = { ok: true; project: OpenProject } | { ok: false; dir: string; failure: OpenFailure };
 
@@ -37,9 +41,19 @@ export async function openProject(dir: string): Promise<OpenResult> {
   } catch (e) {
     return { ok: false, dir, failure: { kind: 'platform', error: toPlatformError(e) } };
   }
-  let snapshot;
+  let snapshot: ProjectSnapshot;
   try {
     snapshot = await platform().readProject(dir);
+    const version = readFormatVersion(snapshot);
+    if (version !== null && version < FORMAT_VERSION) {
+      const plan = planMigrations(version);
+      if (!plan) return { ok: false, dir, failure: { kind: 'no-migration', from: version } };
+      // A labelled version first, so the project can go back if the migration goes wrong.
+      await platform().createBackup(dir, 'manual', t('migration.backupLabel', { version: FORMAT_VERSION }));
+      const { writes, deletes } = applyMigrations(snapshot, plan);
+      await platform().writeProject(dir, writes, deletes);
+      snapshot = await platform().readProject(dir);
+    }
   } catch (e) {
     return { ok: false, dir, failure: { kind: 'platform', error: toPlatformError(e) } };
   }
@@ -71,6 +85,13 @@ export async function openProject(dir: string): Promise<OpenResult> {
   rememberRecent(project);
   currentProject.set(project);
   return { ok: true, project };
+}
+
+/** Opens a project that was just created, imported or restored; any failure is thrown as an error to show. */
+export async function openOrThrow(dir: string): Promise<OpenProject> {
+  const result = await openProject(dir);
+  if (result.ok) return result.project;
+  throw result.failure.kind === 'platform' ? result.failure.error : new Error(result.failure.kind);
 }
 
 export function rememberRecent(project: OpenProject): void {

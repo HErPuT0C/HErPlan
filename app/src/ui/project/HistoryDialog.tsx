@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useStore } from '../../core/useStore';
 import { formatBytes, formatDate, t } from '../../i18n';
 import { platform, type BackupInfo } from '../../platform';
-import { closeProject, openProject, type OpenProject } from '../../state/project';
+import { closeProject, openOrThrow, type OpenProject } from '../../state/project';
 import { Button, Dialog, EmptyState, TextField, toast } from '../components';
 import { errorText } from '../errors';
 
@@ -59,9 +59,7 @@ function History({ project, onClose }: { project: OpenProject; onClose: () => vo
     try {
       await closeProject();
       await platform().restoreBackup(project.dir, backup.kind, backup.name, t('recovery.safetyLabel'));
-      const reopened = await openProject(project.dir);
-      if (!reopened.ok)
-        throw reopened.failure.kind === 'platform' ? reopened.failure.error : new Error(reopened.failure.kind);
+      await openOrThrow(project.dir);
       toast({ kind: 'success', text: t('history.restored', { date: formatDate(backup.createdAt) }) });
     } catch (e) {
       toast({ kind: 'error', text: errorText(e) });

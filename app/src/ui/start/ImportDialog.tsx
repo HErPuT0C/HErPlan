@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { t } from '../../i18n';
 import { platform, type PathStatus } from '../../platform';
 import { baseName, folderNameFor } from '../../platform/paths';
-import { openProject } from '../../state/project';
+import { openOrThrow } from '../../state/project';
 import { settings } from '../../state/settings';
 import { Button, Dialog, TextField } from '../components';
 import { errorText } from '../errors';
@@ -43,8 +43,7 @@ function ImportForm({ source, onClose }: { source: ImportSource; onClose: () => 
     try {
       if (source.kind === 'zip') await platform().importZip(source.path, target);
       else await platform().importFolder(source.path, target);
-      const opened = await openProject(target);
-      if (!opened.ok) throw opened.failure.kind === 'platform' ? opened.failure.error : new Error(opened.failure.kind);
+      await openOrThrow(target);
       onClose();
     } catch (e) {
       setError(errorText(e));

@@ -3,7 +3,7 @@ import { useAsync } from '../useAsync';
 import type { LoadIssue } from '../../core/project/load';
 import { formatBytes, formatDate, t, type MessageKey } from '../../i18n';
 import { platform, type BackupInfo } from '../../platform';
-import { closeProject, openProject } from '../../state/project';
+import { closeProject, openOrThrow } from '../../state/project';
 import { Button, Dialog, EmptyState } from '../components';
 import { errorText } from '../errors';
 
@@ -38,8 +38,7 @@ function Recovery({ request, onClose }: { request: RecoveryRequest; onClose: () 
     try {
       await closeProject();
       await platform().restoreBackup(request.dir, backup.kind, backup.name, t('recovery.safetyLabel'));
-      const opened = await openProject(request.dir);
-      if (!opened.ok) throw opened.failure.kind === 'platform' ? opened.failure.error : new Error(opened.failure.kind);
+      await openOrThrow(request.dir);
       onClose();
     } catch (e) {
       setError(errorText(e));

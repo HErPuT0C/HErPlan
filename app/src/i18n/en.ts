@@ -73,6 +73,9 @@ export const en: Record<MessageKey, string> = {
   'open.readOnly':
     'This project was made with a newer version of HErPlan. It is open read-only so nothing gets damaged. Update the application to edit it.',
 
+  'open.noMigration': 'The project uses format version {version}, which this version of HErPlan cannot update.',
+  'migration.backupLabel': 'Before updating the format to version {version}',
+
   'recovery.title': 'Some project files are damaged',
   'recovery.titleBlocking': 'The project cannot be opened',
   'recovery.intro':
