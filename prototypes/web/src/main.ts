@@ -1,6 +1,6 @@
 import './styles.css';
 import type { BenchResult } from './canvas/bench';
-import { createCanvasPage } from './canvas/page';
+import { BENCH_ALL, createCanvasPage } from './canvas/page';
 import { createReportPage } from './report';
 import { detectShell } from './shell';
 import { systemInfo } from './sysinfo';
@@ -13,7 +13,7 @@ async function main(): Promise<void> {
   const app = document.getElementById('app')!;
   app.innerHTML = `
     <header class="topbar">
-      <strong>HErPlan</strong><span class="muted">прототипы фазы Ф0 · v0.0.1</span>
+      <strong>HErPlan</strong><span class="muted">прототипы фазы Ф0 · v0.0.2</span>
       <nav>
         <button data-tab="canvas" class="active">Холст</button>
         <button data-tab="editor">Текст</button>
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   if (location.hash.includes('autobench')) {
     const startup = Math.round(performance.now());
     await new Promise((r) => setTimeout(r, 1500));
-    const all = await canvas.benchAll(['canvas2d', 'dom', 'dom-cull'], 5000);
+    const all = await canvas.benchAll(['dom', ...BENCH_ALL], 5000);
     await shell.report({ system: info, msToInteractive: startup, results: all });
     await shell.quit();
   }

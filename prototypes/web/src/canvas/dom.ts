@@ -19,8 +19,18 @@ export class DomRenderer implements Renderer {
   private height = 0;
   private lastLod = '';
 
-  constructor(private cull: boolean) {
+  constructor(private cull: boolean, private options: { drawEdges: boolean } = { drawEdges: true }) {
     this.name = cull ? 'DOM + отсечение' : 'DOM';
+  }
+
+  // Lets a GPU layer underneath show through (hybrid renderer).
+  setTransparent(on: boolean): void {
+    this.root.style.background = on ? 'transparent' : '#14161b';
+    this.root.style.pointerEvents = on ? 'none' : '';
+  }
+
+  unmountAll(): void {
+    for (const i of [...this.mounted]) this.unmountNode(i);
   }
 
   mount(host: HTMLElement): void {
@@ -40,6 +50,10 @@ export class DomRenderer implements Renderer {
     this.els = graph.nodes.map(() => null);
     this.svg.replaceChildren();
     this.paths = [];
+    if (!this.options.drawEdges) {
+      if (!this.cull) graph.nodes.forEach((_, i) => this.mountNode(i));
+      return;
+    }
     const b = graph.bounds;
     this.svg.setAttribute('width', String(b.maxX + 100));
     this.svg.setAttribute('height', String(b.maxY + 100));
@@ -95,7 +109,8 @@ export class DomRenderer implements Renderer {
       el.style.top = `${n.y}px`;
     }
     const { edgeFrom, edgeTo } = this.graph;
-    for (let e = 0; e < edgeFrom.length; e++) if (edgeFrom[e] === i || edgeTo[e] === i) this.updateEdge(e);
+    if (this.options.drawEdges)
+      for (let e = 0; e < edgeFrom.length; e++) if (edgeFrom[e] === i || edgeTo[e] === i) this.updateEdge(e);
     this.grid.rebuild();
   }
 

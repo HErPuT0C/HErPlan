@@ -5,10 +5,10 @@ import { readFileSync } from 'node:fs';
 const rows = process.argv.slice(2).map((f) => JSON.parse(readFileSync(f, 'utf8').replace(/^﻿/, '')));
 const fps = (r, name) => (Array.isArray(r.autobench) ? r.autobench.find((b) => b.renderer === name)?.avgFps ?? '—' : r.autobench);
 const lines = [
-  '| оболочка | установщик, МБ | на диске, МБ | окно, мс | процессов | память (рабочий набор), МБ | частная память, МБ | Canvas 2D, к/с | DOM, к/с | DOM + отсечение, к/с | удаление чистое |',
-  '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+  '| оболочка | установщик, МБ | на диске, МБ | окно, мс | процессов | память (рабочий набор), МБ | частная память, МБ | Canvas 2D, к/с | DOM, к/с | DOM + отсечение, к/с | WebGL, к/с | гибрид, к/с | удаление чистое |',
+  '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
   ...rows.map((r) =>
-    `| ${r.name} | ${r.installerMB} | ${r.installedMB} | ${r.windowMs} | ${r.processes} | ${r.idleWorkingSetMB} | ${r.idlePrivateMB} | ${fps(r, 'Canvas 2D')} | ${fps(r, 'DOM')} | ${fps(r, 'DOM + отсечение')} | ${r.uninstallRemovedExe && r.uninstallEntryRemoved ? 'да' : 'нет'} |`,
+    `| ${r.name} | ${r.installerMB} | ${r.installedMB} | ${r.windowMs} | ${r.processes} | ${r.idleWorkingSetMB} | ${r.idlePrivateMB} | ${fps(r, 'Canvas 2D')} | ${fps(r, 'DOM')} | ${fps(r, 'DOM + отсечение')} | ${fps(r, 'WebGL')} | ${fps(r, 'Гибрид (WebGL + DOM)')} | ${r.uninstallRemovedExe && r.uninstallEntryRemoved ? 'да' : 'нет'} |`,
   ),
   '',
   'Замер на раннере GitHub Actions `windows-latest` без видеокарты: кадры в секунду отражают программную отрисовку и годятся только для сравнения оболочек между собой.',

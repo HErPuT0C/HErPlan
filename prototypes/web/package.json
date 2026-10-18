@@ -1,7 +1,7 @@
 {
   "name": "herplan-prototype-web",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Throwaway prototypes for phase F0: canvas renderer benchmark and text editor candidate.",
   "scripts": {

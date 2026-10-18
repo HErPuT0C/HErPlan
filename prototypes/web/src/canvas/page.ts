@@ -1,17 +1,24 @@
 import { runBenchmark, type BenchResult } from './bench';
 import { Canvas2DRenderer } from './canvas2d';
 import { DomRenderer } from './dom';
+import { HybridRenderer } from './hybrid';
 import { generateGraph, type Graph } from './graph';
 import type { Renderer, RenderStats } from './renderer';
 import { fitBounds, zoomAt, type Viewport } from './viewport';
+import { WebGLRenderer } from './webgl';
 
-type RendererId = 'canvas2d' | 'dom' | 'dom-cull';
+export type RendererId = 'canvas2d' | 'dom' | 'dom-cull' | 'webgl' | 'hybrid';
 
 const RENDERERS: Record<RendererId, () => Renderer> = {
   canvas2d: () => new Canvas2DRenderer(),
   dom: () => new DomRenderer(false),
   'dom-cull': () => new DomRenderer(true),
+  webgl: () => new WebGLRenderer(),
+  hybrid: () => new HybridRenderer(),
 };
+
+// The full comparison for the owner's machine; plain DOM is left out (it is known to be unusable and slow to measure).
+export const BENCH_ALL: RendererId[] = ['canvas2d', 'dom-cull', 'webgl', 'hybrid'];
 
 const SIZES = [1000, 5000, 10000, 20000];
 
@@ -31,10 +38,13 @@ export function createCanvasPage(onResult: (r: BenchResult) => void): CanvasPage
         <option value="canvas2d">Canvas 2D</option>
         <option value="dom">DOM</option>
         <option value="dom-cull">DOM + отсечение</option>
+        <option value="webgl">WebGL</option>
+        <option value="hybrid">Гибрид (WebGL + DOM)</option>
       </select></label>
       <label>Узлов <select data-id="size">${SIZES.map((s) => `<option value="${s}" ${s === 5000 ? 'selected' : ''}>${s.toLocaleString('ru')}</option>`).join('')}</select></label>
       <button data-id="fit">Вписать (0)</button>
-      <button data-id="bench" class="primary">Запустить замер</button>
+      <button data-id="bench-all" class="primary">Запустить все замеры (≈1 мин)</button>
+      <button data-id="bench">Замер выбранного</button>
       <span class="hint">Колесо — масштаб · перетаскивание по пустому месту, средняя или правая кнопка — панорама · узел можно двигать</span>
     </div>
     <div class="stage"><div class="overlay" data-id="overlay"></div></div>`;
@@ -43,6 +53,7 @@ export function createCanvasPage(onResult: (r: BenchResult) => void): CanvasPage
   const rendererSelect = element.querySelector<HTMLSelectElement>('[data-id="renderer"]')!;
   const sizeSelect = element.querySelector<HTMLSelectElement>('[data-id="size"]')!;
   const benchButton = element.querySelector<HTMLButtonElement>('[data-id="bench"]')!;
+  const benchAllButton = element.querySelector<HTMLButtonElement>('[data-id="bench-all"]')!;
 
   const viewport: Viewport = { tx: 0, ty: 0, scale: 1 };
   let renderer: Renderer | null = null;
@@ -166,6 +177,7 @@ export function createCanvasPage(onResult: (r: BenchResult) => void): CanvasPage
     setup(id, nodeCount);
     benchRunning = true;
     benchButton.disabled = true;
+    benchAllButton.disabled = true;
     // Let layout settle (DOM renderer mounts thousands of elements) before timing.
     await new Promise((r) => setTimeout(r, 500));
     const result = await runBenchmark(renderer!, graph!, viewport, size(), (stats, phase) => {
@@ -176,6 +188,7 @@ export function createCanvasPage(onResult: (r: BenchResult) => void): CanvasPage
     status = `замер готов: ${result.overall.avgFps} кадров/с в среднем`;
     benchRunning = false;
     benchButton.disabled = false;
+    benchAllButton.disabled = false;
     dirty = true;
     onResult(result);
     return result;
@@ -183,6 +196,11 @@ export function createCanvasPage(onResult: (r: BenchResult) => void): CanvasPage
 
   benchButton.addEventListener('click', () => {
     void bench(rendererSelect.value as RendererId, Number(sizeSelect.value));
+  });
+  benchAllButton.addEventListener('click', async () => {
+    for (const id of BENCH_ALL) await bench(id, Number(sizeSelect.value));
+    status = 'все замеры готовы — откройте вкладку «Отчёт»';
+    updateOverlay();
   });
 
   let started = false;

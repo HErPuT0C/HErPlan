@@ -1,4 +1,4 @@
-# Phase F0 prototypes: build the web prototype, wrap it in Tauri and Electron, measure both on Windows.
+# Phase F0 prototypes: build the web prototype, wrap it in Tauri (ADR-001), measure it on Windows.
 # A tag like proto-v0.0.1 also publishes the installers and measurements as a GitHub pre-release.
 name: prototypes
 
@@ -49,6 +49,9 @@ jobs:
           npx vite preview --port 4173 --strictPort &
           sleep 3
           node scripts/smoke.mjs http://localhost:4173/ bench-results | tee bench-results/summary.txt
+      - name: Markdown round-trip fuzz (informational until the save guard lands in F5)
+        continue-on-error: true
+        run: node scripts/fuzz-markdown.mjs http://localhost:4173/ 40 60 | tee bench-results/fuzz-markdown.txt
       - uses: actions/upload-artifact@v4
         with:
           name: web-dist
@@ -150,38 +153,28 @@ jobs:
         run: |
           npm ci
           npx tauri build
-      - name: Build Electron installer
-        working-directory: prototypes/shell-electron
-        run: |
-          npm ci
-          npm run build
 
       - name: Collect installers
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist-installers | Out-Null
           $tauri = Get-ChildItem prototypes/shell-tauri/src-tauri/target/release/bundle/nsis/*.exe | Select-Object -First 1
-          $electron = Get-ChildItem prototypes/shell-electron/release/*.exe | Where-Object { $_.Name -notmatch 'uninstall' } | Select-Object -First 1
-          Copy-Item $tauri.FullName dist-installers/HErPlan-proto-tauri-setup.exe
-          Copy-Item $electron.FullName dist-installers/HErPlan-proto-electron-setup.exe
+          Copy-Item $tauri.FullName dist-installers/HErPlan-prototype-setup.exe
           Get-ChildItem dist-installers | Format-Table Name, Length
 
       - name: Measure Tauri
         shell: pwsh
-        run: ./prototypes/ci/measure.ps1 -Name tauri -Installer dist-installers/HErPlan-proto-tauri-setup.exe -DisplayName "HErPlan Proto Tauri" -OutDir results
-      - name: Measure Electron
-        shell: pwsh
-        run: ./prototypes/ci/measure.ps1 -Name electron -Installer dist-installers/HErPlan-proto-electron-setup.exe -DisplayName "HErPlan Proto Electron" -OutDir results
+        run: ./prototypes/ci/measure.ps1 -Name tauri -Installer dist-installers/HErPlan-prototype-setup.exe -DisplayName "HErPlan Proto Tauri" -OutDir results
 
       - name: Summary
         shell: pwsh
         run: |
-          node prototypes/ci/summarize.mjs results/tauri.json results/electron.json | Tee-Object -FilePath results/summary.md
+          node prototypes/ci/summarize.mjs results/tauri.json | Tee-Object -FilePath results/summary.md
           Get-Content results/summary.md | Add-Content $env:GITHUB_STEP_SUMMARY
 
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-installers-and-measurements
+          name: HErPlan-prototype-installer
           path: |
             dist-installers
             results
@@ -194,8 +187,7 @@ jobs:
           RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.tag }}
         run: |
           $notes = @"
-          Прототипы фазы Ф0 (не продукт). Два одинаковых приложения в разных оболочках: Tauri и Electron.
-          Установите **оба**, на каждом откройте вкладку «Холст» и запустите замер для всех трёх вариантов отрисовки, затем вкладку «Текст» с проверками, и пришлите текст со вкладки «Отчёт».
+          Прототип фазы Ф0 (не продукт). На вкладке «Холст» нажмите «Запустить все замеры» (около минуты, мышь не трогать), затем пришлите текст со вкладки «Отчёт».
 
           Windows может показать «Windows защитил ваш компьютер»: установщики не подписаны. Нажмите «Подробнее» → «Выполнить в любом случае».
 

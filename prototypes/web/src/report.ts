@@ -15,7 +15,7 @@ export interface ReportPage {
 
 export function buildReportText(info: SystemInfo, results: BenchResult[], checks: EditorCheck[]): string {
   const lines: string[] = [];
-  lines.push('### HErPlan — отчёт прототипа v0.0.1');
+  lines.push('### HErPlan — отчёт прототипа v0.0.2');
   lines.push(`- оболочка: ${info.shell}`);
   lines.push(`- видеокарта: ${info.gpu}`);
   lines.push(`- потоков процессора: ${info.cpuThreads}; память (оценка браузера): ${info.memoryGb ?? '?'} ГБ`);
@@ -43,7 +43,7 @@ export function createReportPage(info: SystemInfo, getResults: () => BenchResult
   element.className = 'page report-page';
   element.innerHTML = `
     <div class="report-head">
-      <p>Здесь собираются результаты. Запустите замер на вкладке «Холст» (лучше для всех трёх вариантов отрисовки), пройдите проверки на вкладке «Текст», затем нажмите «Скопировать отчёт» и вставьте его в чат.</p>
+      <p>Здесь собираются результаты. Нажмите «Запустить все замеры» на вкладке «Холст» (около минуты, мышь не трогать), пройдите проверки на вкладке «Текст», затем нажмите «Скопировать отчёт» и вставьте его в чат.</p>
       <button data-id="copy" class="primary">Скопировать отчёт</button>
       <span data-id="copied" class="muted"></span>
     </div>

@@ -266,6 +266,13 @@ export function createEditorPage(onChecks: (checks: EditorCheck[]) => void): Edi
         onTransaction: syncToolbar,
       });
       (window as unknown as { __herplanEditor: Editor }).__herplanEditor = editor;
+      // Test hook: parse Markdown in a fresh editor and return what it serialises back to.
+      (window as unknown as { __herplanReparse: (md: string) => { md: string; json: unknown } }).__herplanReparse = (md) => {
+        const probe = new Editor({ extensions: extensions(), content: md, contentType: 'markdown' });
+        const out = { md: probe.getMarkdown(), json: probe.getJSON() };
+        probe.destroy();
+        return out;
+      };
       bindToolbar();
       renderDb();
       renderChecks();
