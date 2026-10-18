@@ -1,4 +1,3 @@
-use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -13,7 +12,7 @@ fn temp_path(target: &Path) -> PathBuf {
     target.with_file_name(format!(".{name}{TEMP_MARKER}{}", std::process::id()))
 }
 
-/// Writes `payload` to `target` atomically, prefixed with a `sha256:<hex>` header line.
+/// Writes `payload` to `target` atomically: readers see either the old file or the new one.
 pub fn write_atomic(target: &Path, payload: &[u8]) -> io::Result<()> {
     let tmp = temp_path(target);
     {
@@ -22,7 +21,6 @@ pub fn write_atomic(target: &Path, payload: &[u8]) -> io::Result<()> {
             .create(true)
             .truncate(true)
             .open(&tmp)?;
-        writeln!(f, "sha256:{:x}", Sha256::digest(payload))?;
         f.write_all(payload)?;
         f.sync_all()?;
     }
@@ -46,28 +44,20 @@ fn sync_parent(_target: &Path) -> io::Result<()> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ReadOutcome {
-    Valid(Vec<u8>),
+    Ok(Vec<u8>),
     Missing,
-    Corrupt(String),
+    /// The file exists but is empty: a write was cut short outside HErPlan's atomic path.
+    Empty,
+    Failed(String),
 }
 
-/// Reads a file written by [`write_atomic`] and verifies its checksum.
-pub fn read_verified(target: &Path) -> ReadOutcome {
-    let bytes = match fs::read(target) {
-        Ok(b) => b,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return ReadOutcome::Missing,
-        Err(e) => return ReadOutcome::Corrupt(e.to_string()),
-    };
-    let Some(nl) = bytes.iter().position(|&b| b == b'\n') else {
-        return ReadOutcome::Corrupt(format!("no checksum header ({} bytes)", bytes.len()));
-    };
-    let expected = String::from_utf8_lossy(&bytes[..nl]);
-    let payload = &bytes[nl + 1..];
-    let actual = format!("sha256:{:x}", Sha256::digest(payload));
-    if expected.trim_end() == actual {
-        ReadOutcome::Valid(payload.to_vec())
-    } else {
-        ReadOutcome::Corrupt(format!("checksum mismatch ({} bytes)", payload.len()))
+/// Reads a project file and classifies the obvious failure cases; content checks belong to the caller.
+pub fn read_file(target: &Path) -> ReadOutcome {
+    match fs::read(target) {
+        Ok(b) if b.is_empty() => ReadOutcome::Empty,
+        Ok(b) => ReadOutcome::Ok(b),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => ReadOutcome::Missing,
+        Err(e) => ReadOutcome::Failed(e.to_string()),
     }
 }
 
@@ -95,26 +85,23 @@ mod tests {
     fn round_trip_and_overwrite() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("project.json");
-        assert_eq!(read_verified(&file), ReadOutcome::Missing);
+        assert_eq!(read_file(&file), ReadOutcome::Missing);
         write_atomic(&file, b"{\"v\":1}").unwrap();
         write_atomic(&file, "{\"имя\":\"Мира\"}".as_bytes()).unwrap();
+        // Plain content, no header: other tools can read the file as is.
+        assert_eq!(fs::read_to_string(&file).unwrap(), "{\"имя\":\"Мира\"}");
         assert_eq!(
-            read_verified(&file),
-            ReadOutcome::Valid("{\"имя\":\"Мира\"}".as_bytes().to_vec())
+            read_file(&file),
+            ReadOutcome::Ok("{\"имя\":\"Мира\"}".as_bytes().to_vec())
         );
     }
 
     #[test]
-    fn detects_damage() {
+    fn reports_empty_files() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("a.json");
         fs::write(&file, b"").unwrap();
-        assert!(matches!(read_verified(&file), ReadOutcome::Corrupt(_)));
-        write_atomic(&file, b"{}").unwrap();
-        let mut bytes = fs::read(&file).unwrap();
-        *bytes.last_mut().unwrap() = b']';
-        fs::write(&file, bytes).unwrap();
-        assert!(matches!(read_verified(&file), ReadOutcome::Corrupt(_)));
+        assert_eq!(read_file(&file), ReadOutcome::Empty);
     }
 
     #[test]
