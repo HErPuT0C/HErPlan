@@ -118,3 +118,24 @@ describe('loading a project', () => {
     expect(result).toMatchObject({ ok: true, readOnly: true, formatVersion: 7 });
   });
 });
+
+describe('graphs edited by hand', () => {
+  it('get missing arrays and coordinates, and lose parts that cannot be drawn', async () => {
+    const { normalizeGraph } = await import('./load');
+    const g = normalizeGraph({
+      id: 'g',
+      kind: 'story',
+      nodes: [{ id: 'a', title: 'A' }, { title: 'no id' }, { id: 'b', x: 'oops', y: 10 }],
+      edges: [
+        { id: 'e1', from: { node: 'a', port: 'out' }, to: { node: 'b', port: 'in' } },
+        { id: 'e2', from: 'a' },
+      ],
+    });
+    expect(g.nodes).toEqual([
+      { id: 'a', title: 'A', kind: 'node', x: 0, y: 0, w: 240, h: 120 },
+      { id: 'b', title: '', kind: 'node', x: 0, y: 10, w: 240, h: 120 },
+    ]);
+    expect((g.edges as unknown[]).length).toBe(1);
+    expect(g.groups).toEqual([]);
+  });
+});

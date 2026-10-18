@@ -93,6 +93,47 @@ function isPositiveInt(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
+const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+
+/**
+ * A graph edited by hand may miss arrays or coordinates. Fill what the canvas needs; drop edges and
+ * nodes without the parts that make them one (no id, no ends), since they cannot be drawn or linked.
+ */
+export function normalizeGraph(raw: JsonObject): JsonObject {
+  const list = (v: unknown) => (Array.isArray(v) ? v.filter(isObject) : []);
+  const nodes = list(raw.nodes)
+    .filter((n) => typeof n.id === 'string')
+    .map((n) => ({
+      ...n,
+      kind: typeof n.kind === 'string' ? n.kind : 'node',
+      title: typeof n.title === 'string' ? n.title : '',
+      x: num(n.x, 0),
+      y: num(n.y, 0),
+      w: num(n.w, 240),
+      h: num(n.h, 120),
+    }));
+  const edges = list(raw.edges).filter(
+    (e) =>
+      typeof e.id === 'string' &&
+      isObject(e.from) &&
+      isObject(e.to) &&
+      typeof e.from.node === 'string' &&
+      typeof e.to.node === 'string',
+  );
+  const groups = list(raw.groups)
+    .filter((g) => typeof g.id === 'string')
+    .map((g) => ({
+      ...g,
+      title: typeof g.title === 'string' ? g.title : '',
+      x: num(g.x, 0),
+      y: num(g.y, 0),
+      w: num(g.w, 400),
+      h: num(g.h, 300),
+      members: Array.isArray(g.members) ? g.members.filter((m): m is string => typeof m === 'string') : [],
+    }));
+  return { ...raw, nodes, edges, groups };
+}
+
 export function loadProject(snapshot: ProjectSnapshot): LoadResult {
   const issues: LoadIssue[] = snapshot.damaged.map((d) => ({ path: d.path, kind: d.reason, detail: d.detail }));
   const texts = new Map(snapshot.files.map((f) => [f.path, f.text]));
@@ -109,14 +150,14 @@ export function loadProject(snapshot: ProjectSnapshot): LoadResult {
     return parse(path, text, issues) ?? fallback;
   };
 
-  const collection = (dir: string): Record<string, JsonObject> => {
+  const collection = (dir: string, normalize: (o: JsonObject) => JsonObject = (o) => o): Record<string, JsonObject> => {
     const out: Record<string, JsonObject> = {};
     for (const [path, text] of texts) {
       if (!path.startsWith(`${dir}/`) || !path.endsWith('.json')) continue;
       const id = path.slice(dir.length + 1, -'.json'.length);
       if (id.includes('/')) continue;
       const object = parse(path, text, issues);
-      if (object) out[id] = object;
+      if (object) out[id] = normalize(object);
     }
     return out;
   };
@@ -126,7 +167,7 @@ export function loadProject(snapshot: ProjectSnapshot): LoadResult {
     types: single(SINGLE_FILES.types, { types: [], propertySets: [] }),
     variables: single(SINGLE_FILES.variables, { variables: [], labels: [] }),
     entities: collection(COLLECTIONS.entities),
-    graphs: collection(COLLECTIONS.graphs),
+    graphs: collection(COLLECTIONS.graphs, normalizeGraph),
     boards: collection(COLLECTIONS.boards),
   };
   return {

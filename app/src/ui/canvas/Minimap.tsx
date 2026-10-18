@@ -7,6 +7,7 @@ import type { ProjectData } from '../../core/project/types';
 import type { Store } from '../../core/store';
 import { useAtom, useStore } from '../../core/useStore';
 import { t } from '../../i18n';
+import { settings } from '../../state/settings';
 
 const W = 200;
 const H = 140;
@@ -29,6 +30,9 @@ export function Minimap({
   const canvas = useRef<HTMLCanvasElement>(null);
   const cache = useRef<{
     graph: GraphDoc;
+    accent: string;
+    /** Frame colour: the accent at the time the bitmap was built. */
+    frame: string;
     bitmap: HTMLCanvasElement;
     map: (x: number, y: number) => [number, number];
     unmap: (x: number, y: number) => [number, number];
@@ -36,12 +40,13 @@ export function Minimap({
   } | null>(null);
   const graph = useStore(store, (s) => s.graphs[graphId] as unknown as GraphDoc | undefined);
   const view = useAtom(engine.view);
+  const { accent } = useAtom(settings);
 
   useEffect(() => {
     const el = canvas.current;
     if (!el || !graph) return;
     const dpr = window.devicePixelRatio || 1;
-    if (!cache.current || cache.current.graph !== graph) {
+    if (!cache.current || cache.current.graph !== graph || cache.current.accent !== accent) {
       const visible = boundsOf([...graph.nodes, ...graph.groups]) ?? { minX: 0, minY: 0, maxX: 1000, maxY: 700 };
       const scale = Math.min(
         (W - PAD * 2) / Math.max(1, visible.maxX - visible.minX),
@@ -60,6 +65,8 @@ export function Minimap({
       }
       cache.current = {
         graph,
+        accent,
+        frame: getComputedStyle(document.documentElement).getPropertyValue('--accent') || '#34c9a5',
         bitmap,
         scale,
         map: (x, y) => [ox + x * scale, oy + y * scale],
@@ -75,7 +82,7 @@ export function Minimap({
     const [x0, y0] = cache.current.map(a.x, a.y);
     const [x1, y1] = cache.current.map(b.x, b.y);
     ctx.scale(dpr, dpr);
-    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent') || '#34c9a5';
+    ctx.strokeStyle = cache.current.frame;
     ctx.lineWidth = 1.5;
     // The view can be larger than the whole graph: keep its frame inside the mini-map.
     const left = Math.max(1, Math.round(x0)) + 0.5;
@@ -83,7 +90,7 @@ export function Minimap({
     const right = Math.min(W - 1, Math.round(x1)) - 0.5;
     const bottom = Math.min(H - 1, Math.round(y1)) - 0.5;
     ctx.strokeRect(left, top, Math.max(4, right - left), Math.max(4, bottom - top));
-  }, [graph, view]);
+  }, [graph, view, accent]);
 
   const moveTo = (e: PointerEvent<HTMLCanvasElement>) => {
     const c = cache.current;

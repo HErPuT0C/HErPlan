@@ -154,6 +154,9 @@ export class CanvasEngine {
   private frame = 0;
   private animation: { from: Camera; to: Camera; start: number; duration: number } | null = null;
   private lastPointer = { x: 0, y: 0 };
+  private labelScale = 0;
+  private motionTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastCamera: Camera | null = null;
   private nearPublished = { at: 0, scale: 0, lod: '' as Lod | '', graph: null as GraphDoc | null };
   private nearTimer: ReturnType<typeof setTimeout> | null = null;
   private cleanups: (() => void)[] = [];
@@ -906,12 +909,34 @@ export class CanvasEngine {
       grid: { bg: this.theme.bg, dot: this.theme.dot, step: GRID },
     });
     this.domLayer.style.transform = `translate(${this.camera.x}px, ${this.camera.y}px) scale(${this.camera.scale})`;
+    this.trackMotion();
     this.publishView();
   };
 
+  /**
+   * While the camera moves, the DOM layer is a GPU layer (smooth panning); shortly after it stops the
+   * hint is dropped, so the browser draws the text again at the final scale and it stays crisp.
+   */
+  private trackMotion(): void {
+    const c = this.camera;
+    const prev = this.lastCamera;
+    this.lastCamera = c;
+    if (!prev || (prev.x === c.x && prev.y === c.y && prev.scale === c.scale)) return;
+    this.domLayer.style.willChange = 'transform';
+    if (this.motionTimer !== null) clearTimeout(this.motionTimer);
+    this.motionTimer = setTimeout(() => {
+      this.motionTimer = null;
+      this.domLayer.style.willChange = '';
+    }, 200);
+  }
+
   private publishView(): void {
     // Mid-zoom titles keep a constant on-screen size: the layer counter-scales them through a variable.
-    this.domLayer.style.setProperty('--label-scale', String(1 / this.camera.scale));
+    // Set only when it matters: a custom property change restyles the whole DOM layer.
+    if (this.lod === 'mid' && this.labelScale !== this.camera.scale) {
+      this.labelScale = this.camera.scale;
+      this.domLayer.style.setProperty('--label-scale', String(1 / this.camera.scale));
+    }
     this.view.set({ camera: this.camera, lod: this.lod, width: this.width, height: this.height });
 
     const last = this.nearPublished;
@@ -980,6 +1005,7 @@ export class CanvasEngine {
   destroy(): void {
     cancelAnimationFrame(this.frame);
     if (this.nearTimer !== null) clearTimeout(this.nearTimer);
+    if (this.motionTimer !== null) clearTimeout(this.motionTimer);
     this.cleanups.forEach((c) => c());
     this.renderer.destroy();
   }
