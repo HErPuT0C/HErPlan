@@ -44,7 +44,7 @@ test('create nodes, connect them, rename, undo and redo', async ({ page }) => {
   await createNode(page, box.x + 700, box.y + 250);
   await expect(page.locator('.cnode')).toHaveCount(2);
 
-  const out = center((await page.locator('.cnode-port-out').first().boundingBox())!);
+  const out = center((await page.locator('.cnode-port[data-port="out"]').first().boundingBox())!);
   const target = center((await page.locator('.cnode').nth(1).boundingBox())!);
   await dragBetween(page, out, target);
   // The edge exists in the data: deleting the target node removes it, undo brings both back.
@@ -76,7 +76,7 @@ test('create nodes, connect them, rename, undo and redo', async ({ page }) => {
 test('dragging an edge into empty space creates a connected node; delete and copy-paste work', async ({ page }) => {
   const { box } = await openStoryCanvas(page);
   await createNode(page, box.x + 250, box.y + 250);
-  const out = center((await page.locator('.cnode-port-out').first().boundingBox())!);
+  const out = center((await page.locator('.cnode-port[data-port="out"]').first().boundingBox())!);
   await dragBetween(page, out, { x: out.x + 300, y: out.y + 50 });
   await page.getByRole('menuitem', { name: 'Узел' }).click();
   await expect(page.locator('.cnode')).toHaveCount(2);

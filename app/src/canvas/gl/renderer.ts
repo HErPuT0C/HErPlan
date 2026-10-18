@@ -30,7 +30,7 @@ export interface BatchRange {
 export const BOX_STRIDE = 20; // rect4, body4, head4, border4, shape4
 export const SEG_STRIDE = 9; // seg4, color4, width1
 export const DISC_STRIDE = 8; // disc4, color4
-export const ARROW_STRIDE = 6; // tip2, color4
+export const ARROW_STRIDE = 8; // tip2, dir2, color4
 
 export const EMPTY_BATCH: Batch = { data: new Float32Array(0), count: 0 };
 
@@ -44,9 +44,10 @@ export interface Frame {
   arrows: Batch;
   nodes: Batch;
   ports: Batch;
-  /** Selection rectangle, edge being dragged: small, rebuilt every pointer move. */
+  /** Selection rectangle, edge being dragged, ports of the hovered node: small, rebuilt as needed. */
   overlayBoxes: Batch;
   overlaySegs: Batch;
+  overlayDiscs: Batch;
   grid: { bg: Rgba; dot: Rgba; step: number };
 }
 
@@ -188,6 +189,11 @@ export class GraphRenderer {
     ]);
     layer('arrows', this.arrow, tri, [
       ['a_tip', 2],
+      ['a_dir', 2],
+      ['a_color', 4],
+    ]);
+    layer('overlayDiscs', this.disc, quad, [
+      ['a_disc', 4],
       ['a_color', 4],
     ]);
 
@@ -292,6 +298,7 @@ export class GraphRenderer {
     this.drawLayer('arrows', f.arrows, this.arrow, f.camera, 3, gl.TRIANGLES);
     this.drawLayer('nodes', f.nodes, this.box, f.camera, 4, strip);
     this.drawLayer('ports', f.ports, this.disc, f.camera, 4, strip);
+    this.drawLayer('overlayDiscs', f.overlayDiscs, this.disc, f.camera, 4, strip);
     this.drawLayer('overlaySegs', f.overlaySegs, this.seg, f.camera, 4, strip);
     this.drawLayer('overlayBoxes', f.overlayBoxes, this.box, f.camera, 4, strip);
     gl.bindVertexArray(null);

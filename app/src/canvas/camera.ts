@@ -75,8 +75,8 @@ export const NEAR_LEAVE = 0.55;
 export const FAR_BELOW = 0.22;
 
 /** With hysteresis around the near threshold, so nodes do not flicker while zooming at the border. */
-export function lodFor(scale: number, previous: Lod): Lod {
-  if (scale < FAR_BELOW) return 'far';
+export function lodFor(scale: number, previous: Lod, farBelow = FAR_BELOW): Lod {
+  if (scale < farBelow) return 'far';
   if (previous === 'near') return scale < NEAR_LEAVE ? 'mid' : 'near';
   return scale >= NEAR_ENTER ? 'near' : 'mid';
 }

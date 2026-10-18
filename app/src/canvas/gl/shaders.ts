@@ -111,11 +111,13 @@ out vec2 v_local;
 out vec2 v_shape;
 out vec4 v_color;
 void main() {
-  float r = a_disc.z + 1.0;
+  // Ports shrink a little far away, so they do not swallow small nodes.
+  float k = clamp(u_scale * 2.0, 0.5, 1.0);
+  float r = a_disc.z * k + 1.0;
   vec2 local = (a_corner * 2.0 - 1.0) * r;
   gl_Position = clipFromScreen(a_disc.xy * u_scale + u_translate + local);
   v_local = local;
-  v_shape = a_disc.zw;
+  v_shape = a_disc.zw * k;
   v_color = a_color;
 }`;
 
@@ -133,17 +135,21 @@ void main() {
   outColor = vec4(v_color.rgb, v_color.a * a);
 }`;
 
-/** Arrow heads at edge targets: edges always enter inputs from the left, so arrows point right. */
+/** Arrow heads at edge targets, pointing the way the edge enters the port. */
 export const ARROW_VS = `#version 300 es
 ${CAMERA}
 in vec2 a_corner;    // triangle corners: (0,0) (0,1) (1,0.5)
 in vec2 a_tip;       // world
+in vec2 a_dir;       // unit direction of the edge at the tip
 in vec4 a_color;
 out vec4 v_color;
 void main() {
-  vec2 tip = a_tip * u_scale + u_translate;
   float size = clamp(8.0 * u_scale, 3.0, 9.0);
-  vec2 p = tip + vec2((a_corner.x - 1.0) * size, (a_corner.y - 0.5) * size);
+  // The tip touches the port's ring instead of hiding under it.
+  vec2 tip = a_tip * u_scale + u_translate - a_dir * clamp(5.0 * u_scale, 2.0, 5.0);
+  vec2 along = a_dir;
+  vec2 across = vec2(-a_dir.y, a_dir.x);
+  vec2 p = tip + along * (a_corner.x - 1.0) * size + across * (a_corner.y - 0.5) * size;
   gl_Position = clipFromScreen(p);
   v_color = a_color;
 }`;

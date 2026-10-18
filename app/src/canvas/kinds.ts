@@ -1,16 +1,25 @@
-// Node kinds and their ports. Phase F2 has the generic kinds every canvas needs;
-// story kinds (dialogue, choice, condition, Chekhov's gun…) register here in phase F3.
+// Node kinds and their ports. Generic kinds live here; story kinds (dialogue, choice, condition,
+// Chekhov's gun…) register themselves from story/kinds.ts.
 
 import type { MessageKey } from '../i18n';
 import { HEADER_H, type GraphNode } from './model';
 
-export type PortSide = 'in' | 'out';
+/** "in" ports only receive edges, "out" ports only start them, "both" do either. */
+export type PortSide = 'in' | 'out' | 'both';
+export type PortFace = 'left' | 'right' | 'top' | 'bottom';
 
 export interface Port {
   id: string;
   side: PortSide;
-  /** Offset from the node's top edge, in world units. */
+  /** The side of the node the port sits on: edges leave and enter perpendicular to it. */
+  face: PortFace;
+  /** Offset from the node's top-left corner, world units. */
+  x: number;
   y: number;
+  /** One of the four side anchors: shown only on hover or when connected. */
+  anchor?: boolean;
+  /** Short text next to the port ("yes", an option number). */
+  label?: string;
 }
 
 export interface NodeKindDef {
@@ -19,19 +28,48 @@ export interface NodeKindDef {
   /** Header colour when the node has no colour of its own. */
   color: string;
   size: { w: number; h: number };
-  /** Stickers and frames have no ports and no header. */
   ports: (node: GraphNode) => Port[];
   /** Drawn as a note: no header, the text fills the card. */
   sticker?: boolean;
+  /** Offered in the create menus of these graph kinds; omitted means everywhere. */
+  graphs?: readonly string[];
+  /** Order and grouping in the create menu. */
+  menu?: { group: 'basic' | 'flow' | 'logic' | 'plot' | 'world'; order: number };
 }
 
-const centerPorts = (node: GraphNode): Port[] => {
-  const y = HEADER_H + (node.h - HEADER_H) / 2;
-  return [
-    { id: 'in', side: 'in', y },
-    { id: 'out', side: 'out', y },
-  ];
+export const FACE_DIR: Record<PortFace, { x: number; y: number }> = {
+  left: { x: -1, y: 0 },
+  right: { x: 1, y: 0 },
+  top: { x: 0, y: -1 },
+  bottom: { x: 0, y: 1 },
 };
+
+export const OPPOSITE_FACE: Record<PortFace, PortFace> = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' };
+
+/** Vertical middle of the body, below the header: where the side anchors sit. */
+export function bodyMiddle(node: Pick<GraphNode, 'h'>, header = HEADER_H): number {
+  return header + (node.h - header) / 2;
+}
+
+/**
+ * The four side anchors (FR-CNV-02): an edge can be pulled from any side of a node. The left and right
+ * anchors keep the ids "in" and "out" that format v1 graphs already use.
+ */
+export function sideAnchors(
+  node: Pick<GraphNode, 'w' | 'h'>,
+  side: PortSide = 'both',
+  faces: readonly PortFace[] = ['left', 'top', 'right', 'bottom'],
+  header = HEADER_H,
+): Port[] {
+  const y = bodyMiddle(node, header);
+  const all: Record<PortFace, Port> = {
+    left: { id: 'in', side, face: 'left', x: 0, y, anchor: true },
+    top: { id: 'top', side, face: 'top', x: node.w / 2, y: 0, anchor: true },
+    right: { id: 'out', side, face: 'right', x: node.w, y, anchor: true },
+    bottom: { id: 'bottom', side, face: 'bottom', x: node.w / 2, y: node.h, anchor: true },
+  };
+  return faces.map((f) => all[f]);
+}
 
 const KINDS = new Map<string, NodeKindDef>();
 
@@ -39,7 +77,14 @@ export function registerKind(def: NodeKindDef): void {
   KINDS.set(def.id, def);
 }
 
-registerKind({ id: 'node', label: 'canvas.kind.node', color: '#5b6474', size: { w: 240, h: 120 }, ports: centerPorts });
+registerKind({
+  id: 'node',
+  label: 'canvas.kind.node',
+  color: '#5b6474',
+  size: { w: 240, h: 120 },
+  ports: (n) => sideAnchors(n),
+  menu: { group: 'basic', order: 0 },
+});
 registerKind({
   id: 'sticker',
   label: 'canvas.kind.sticker',
@@ -47,6 +92,7 @@ registerKind({
   size: { w: 200, h: 140 },
   ports: () => [],
   sticker: true,
+  menu: { group: 'basic', order: 1 },
 });
 
 /** Unknown kinds (from a newer version or a removed plugin) still render as generic nodes. */
@@ -54,17 +100,37 @@ export function kindOf(kind: string): NodeKindDef {
   return KINDS.get(kind) ?? KINDS.get('node')!;
 }
 
-export function creatableKinds(): NodeKindDef[] {
-  return [...KINDS.values()];
+/** Kinds offered when creating a node in a graph of this kind, in menu order. */
+export function creatableKinds(graphKind?: string): NodeKindDef[] {
+  const groups = ['basic', 'flow', 'logic', 'plot', 'world'];
+  return [...KINDS.values()]
+    .filter((k) => !k.graphs || !graphKind || k.graphs.includes(graphKind))
+    .sort((a, b) => {
+      const ga = groups.indexOf(a.menu?.group ?? 'basic');
+      const gb = groups.indexOf(b.menu?.group ?? 'basic');
+      return ga - gb || (a.menu?.order ?? 0) - (b.menu?.order ?? 0);
+    });
 }
 
 export function portsOf(node: GraphNode): Port[] {
   return kindOf(node.kind).ports(node);
 }
 
-/** World position of a port: inputs on the left edge, outputs on the right edge. */
-export function portPosition(node: GraphNode, portId: string): { x: number; y: number } | null {
-  const port = portsOf(node).find((p) => p.id === portId);
-  if (!port) return null;
-  return { x: port.side === 'in' ? node.x : node.x + node.w, y: node.y + port.y };
+export function findPort(node: GraphNode, portId: string): Port | undefined {
+  return portsOf(node).find((p) => p.id === portId);
 }
+
+export interface PortPlace {
+  x: number;
+  y: number;
+  face: PortFace;
+}
+
+/** World position of a port and the side it faces. */
+export function portPosition(node: GraphNode, portId: string): PortPlace | null {
+  const port = findPort(node, portId);
+  return port ? { x: node.x + port.x, y: node.y + port.y, face: port.face } : null;
+}
+
+export const canStart = (p: Port): boolean => p.side !== 'in';
+export const canEnd = (p: Port): boolean => p.side !== 'out';

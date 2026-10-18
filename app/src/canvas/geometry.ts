@@ -1,6 +1,7 @@
-// Edge shapes and distances. Edges are cubic Bézier curves leaving outputs to the right and entering
-// inputs from the left; a backward edge (target to the left) bends wider so it stays readable.
+// Edge shapes and distances. Edges are cubic Bézier curves that leave and enter ports perpendicular to
+// the node side the port sits on; an edge going "backwards" bends wider so it stays readable.
 
+import type { PortFace } from './kinds';
 import type { Bounds } from './model';
 
 export interface Point {
@@ -21,10 +22,46 @@ export interface Curve {
 
 export const SEGMENTS = 16;
 
-export function edgeCurve(a: Point, b: Point): Curve {
-  const span = b.x - a.x;
-  const bend = span >= 0 ? Math.max(40, span * 0.5) : Math.max(80, Math.min(240, -span * 0.5 + 60));
-  return { x1: a.x, y1: a.y, c1x: a.x + bend, c1y: a.y, c2x: b.x - bend, c2y: b.y, x2: b.x, y2: b.y };
+const DIR: Record<PortFace, Point> = {
+  left: { x: -1, y: 0 },
+  right: { x: 1, y: 0 },
+  top: { x: 0, y: -1 },
+  bottom: { x: 0, y: 1 },
+};
+
+/** How far a control point reaches: half the distance ahead, more when the other end lies behind. */
+function bend(ahead: number): number {
+  return ahead >= 0 ? Math.max(40, ahead * 0.5) : Math.max(80, Math.min(240, -ahead * 0.5 + 60));
+}
+
+/** Edge from port `a` (facing `fa`) to port `b` (facing `fb`); defaults: out on the right, in on the left. */
+export function edgeCurve(a: Point, b: Point, fa: PortFace = 'right', fb: PortFace = 'left'): Curve {
+  const da = DIR[fa];
+  const db = DIR[fb];
+  const ka = bend((b.x - a.x) * da.x + (b.y - a.y) * da.y);
+  const kb = bend((a.x - b.x) * db.x + (a.y - b.y) * db.y);
+  return {
+    x1: a.x,
+    y1: a.y,
+    c1x: a.x + da.x * ka,
+    c1y: a.y + da.y * ka,
+    c2x: b.x + db.x * kb,
+    c2y: b.y + db.y * kb,
+    x2: b.x,
+    y2: b.y,
+  };
+}
+
+/** Unit direction in which the edge enters its target (for the arrow head). */
+export function endDirection(c: Curve): Point {
+  let dx = c.x2 - c.c2x;
+  let dy = c.y2 - c.c2y;
+  if (dx === 0 && dy === 0) {
+    dx = c.x2 - c.x1;
+    dy = c.y2 - c.y1;
+  }
+  const len = Math.hypot(dx, dy) || 1;
+  return { x: dx / len, y: dy / len };
 }
 
 export function curvePoint(c: Curve, t: number): Point {

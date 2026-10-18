@@ -2,7 +2,7 @@
 // draft): the store records undo for free (FR-CNV-06). Nothing here touches React or the screen.
 
 import { newId } from '../core/ids';
-import { kindOf, portsOf } from './kinds';
+import { canEnd, canStart, findPort, kindOf, OPPOSITE_FACE, portsOf, type Port, type PortFace } from './kinds';
 import {
   boundsOf,
   GRID,
@@ -13,6 +13,7 @@ import {
   type GraphGroup,
   type GraphNode,
   type PortRef,
+  type Rect,
 } from './model';
 
 export interface Selection {
@@ -77,38 +78,97 @@ export function deleteItems(g: GraphDoc, s: Selection): void {
 
 export type ConnectRefusal = 'same-node' | 'duplicate' | 'bad-port';
 
-/** Connects an output to an input. Refuses loops onto the same node, duplicates and wrong port sides. */
+/** Which end of an edge a port is asked to be. */
+export type PortRole = 'start' | 'end';
+
+const fits = (role: PortRole) => (role === 'start' ? canStart : canEnd);
+
+/**
+ * Connects two ports. Refuses loops onto the same node, ports that cannot start or end an edge, and
+ * duplicates: a second edge between the same two nodes from the same output (any side anchor of a node
+ * counts as one output, so pulling from the top and from the right does not make two edges).
+ */
 export function connect(g: GraphDoc, from: PortRef, to: PortRef): GraphEdge | ConnectRefusal {
   if (from.node === to.node) return 'same-node';
   const a = g.nodes.find((n) => n.id === from.node);
   const b = g.nodes.find((n) => n.id === to.node);
-  const out = a && portsOf(a).find((p) => p.id === from.port && p.side === 'out');
-  const inp = b && portsOf(b).find((p) => p.id === to.port && p.side === 'in');
-  if (!out || !inp) return 'bad-port';
-  const exists = g.edges.some(
-    (e) => e.from.node === from.node && e.from.port === from.port && e.to.node === to.node && e.to.port === to.port,
-  );
+  const out = a && findPort(a, from.port);
+  const inp = b && findPort(b, to.port);
+  if (!a || !out || !inp || !canStart(out) || !canEnd(inp)) return 'bad-port';
+  const sameOutput = (port: string) => port === from.port || (!!out.anchor && !!findPort(a, port)?.anchor);
+  const exists = g.edges.some((e) => e.from.node === from.node && e.to.node === to.node && sameOutput(e.from.port));
   if (exists) return 'duplicate';
   const edge: GraphEdge = { id: newId(), from: { ...from }, to: { ...to } };
   g.edges.push(edge);
   return edge;
 }
 
-/** First input and output port of a node, used when an edge is dropped on the node body. */
-export function defaultPort(node: GraphNode, side: 'in' | 'out'): string | null {
-  return portsOf(node).find((p) => p.side === side)?.id ?? null;
+/**
+ * The port of `node` to use as one end of an edge when the user did not aim at a port: the one closest to
+ * `towards` (the other end), so edges attach to the facing side. Typed outputs not yet connected come first.
+ */
+export function defaultPort(
+  node: GraphNode,
+  role: PortRole,
+  towards?: { x: number; y: number },
+  used?: ReadonlySet<string>,
+): string | null {
+  let ports = portsOf(node).filter(fits(role));
+  const free = ports.filter((p) => p.anchor || !used?.has(p.id));
+  if (free.length) ports = free;
+  if (ports.length === 0) return null;
+  if (!towards) return ports[0].id;
+  let best = ports[0];
+  let bestDist = Infinity;
+  for (const p of ports) {
+    const d = Math.hypot(node.x + p.x - towards.x, node.y + p.y - towards.y);
+    if (d < bestDist) {
+      best = p;
+      bestDist = d;
+    }
+  }
+  return best.id;
+}
+
+/** Ports of `nodeId` that already start an edge (to prefer free choice options). */
+export function usedStarts(g: GraphDoc, nodeId: string): Set<string> {
+  return new Set(g.edges.filter((e) => e.from.node === nodeId).map((e) => e.from.port));
+}
+
+/**
+ * A new node pulled out of a port and dropped at `at`: placed so that its port facing the source lands
+ * on the drop point (pulled out of the left side, it appears on the left). Returns the node and its port.
+ */
+export function nodeAtPort(
+  kind: string,
+  at: { x: number; y: number },
+  sourceFace: PortFace,
+  role: PortRole,
+  title: string,
+): { node: GraphNode; port: string | null } {
+  const node = createNode(kind, 0, 0, title);
+  const ports = portsOf(node).filter(fits(role));
+  const want = OPPOSITE_FACE[sourceFace];
+  const port: Port | undefined = ports.find((p) => p.face === want) ?? ports[0];
+  node.x = snap(at.x - (port?.x ?? 0));
+  node.y = snap(at.y - (port?.y ?? node.h / 2));
+  return { node, port: port?.id ?? null };
 }
 
 /** Splits edge A→B into A→N→B. The original edge keeps its id, label and condition on A→N. */
 export function insertNodeIntoEdge(g: GraphDoc, edgeId: string, node: GraphNode): boolean {
   const edge = g.edges.find((e) => e.id === edgeId);
-  const inPort = defaultPort(node, 'in');
-  const outPort = defaultPort(node, 'out');
-  if (!edge || !inPort || !outPort) return false;
+  const source = edge && g.nodes.find((n) => n.id === edge.from.node);
+  const target = edge && g.nodes.find((n) => n.id === edge.to.node);
+  if (!edge || !source || !target) return false;
+  const center = (n: GraphNode) => ({ x: n.x + n.w / 2, y: n.y + n.h / 2 });
+  const inPort = defaultPort(node, 'end', center(source));
+  const outPort = defaultPort(node, 'start', center(target));
+  if (!inPort || !outPort) return false;
   g.nodes.push(node);
-  const target = { ...edge.to };
+  const to = { ...edge.to };
   edge.to = { node: node.id, port: inPort };
-  g.edges.push({ id: newId(), from: { node: node.id, port: outPort }, to: target });
+  g.edges.push({ id: newId(), from: { node: node.id, port: outPort }, to });
   return true;
 }
 
@@ -117,11 +177,49 @@ export function setNodeProps(g: GraphDoc, ids: Iterable<string>, props: Partial<
   for (const n of g.nodes) if (set.has(n.id)) Object.assign(n, props);
 }
 
-export function resizeNode(g: GraphDoc, id: string, w: number, h: number): void {
-  const n = g.nodes.find((x) => x.id === id);
-  if (!n) return;
-  n.w = Math.max(120, snap(w));
-  n.h = Math.max(kindOf(n.kind).sticker ? 60 : HEADER_H + 32, snap(h));
+/** Handle being dragged to resize: a corner or the middle of a side, as on a picture in a word processor. */
+export type HandleDir = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
+export const HANDLE_DIRS: readonly HandleDir[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+export const CORNER_DIRS: readonly HandleDir[] = ['nw', 'ne', 'se', 'sw'];
+
+/** Smallest size of a node or a frame. */
+export function minSize(item: GraphNode | GraphGroup, isGroup: boolean): { w: number; h: number } {
+  if (isGroup) return { w: GRID * 8, h: HEADER_H + GRID * 2 };
+  return { w: GRID * 6, h: kindOf((item as GraphNode).kind).sticker ? GRID * 3 : HEADER_H + GRID * 2 };
+}
+
+/**
+ * The rectangle after dragging handle `dir` by (dx, dy): the opposite side stays put. Moved sides snap to
+ * the grid unless `free`; the size never drops below `min`.
+ */
+export function resizeRect(
+  start: Rect,
+  dir: HandleDir,
+  dx: number,
+  dy: number,
+  min: { w: number; h: number },
+  free = false,
+): Rect {
+  const s = (v: number) => (free ? v : snap(v));
+  let x1 = start.x;
+  let y1 = start.y;
+  let x2 = start.x + start.w;
+  let y2 = start.y + start.h;
+  if (dir.includes('w')) x1 = Math.min(s(x1 + dx), x2 - min.w);
+  if (dir.includes('e')) x2 = Math.max(s(x2 + dx), x1 + min.w);
+  if (dir.includes('n')) y1 = Math.min(s(y1 + dy), y2 - min.h);
+  if (dir.includes('s')) y2 = Math.max(s(y2 + dy), y1 + min.h);
+  return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+}
+
+/** Sets the position and size of a node or a frame (the end of a resize). */
+export function setRect(g: GraphDoc, kind: 'node' | 'group', id: string, r: Rect): void {
+  const item = kind === 'node' ? g.nodes.find((n) => n.id === id) : g.groups.find((x) => x.id === id);
+  if (!item) return;
+  item.x = r.x;
+  item.y = r.y;
+  item.w = r.w;
+  item.h = r.h;
 }
 
 /** Wraps nodes in a new frame with a margin; returns the group. */

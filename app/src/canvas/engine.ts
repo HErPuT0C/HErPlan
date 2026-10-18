@@ -20,25 +20,32 @@ import {
 } from './camera';
 import { edgeCurve } from './geometry';
 import { GraphIndex, type PortHit } from './graphIndex';
-import { kindOf } from './kinds';
-import { GRID, snap, type Bounds, type GraphDoc, type GraphNode } from './model';
+import { canEnd, canStart, OPPOSITE_FACE, portsOf } from './kinds';
+import { GRID, snap, type Bounds, type GraphDoc, type GraphNode, type Rect } from './model';
 import {
   connect,
   copySelection,
-  createNode,
   defaultPort,
   deleteItems,
   EMPTY_SELECTION,
   isEmptySelection,
   isGraphClipboard,
+  minSize,
   moveItems,
   movedNodeIds,
+  nodeAtPort,
   pasteClipboard,
+  resizeRect,
+  setRect,
+  usedStarts,
   type GraphClipboard,
+  type HandleDir,
   type Selection,
 } from './ops';
+import { QUALITY, type QualityName, type QualityProfile } from './quality';
 import { GraphRenderer, EMPTY_BATCH } from './gl/renderer';
 import {
+  anchorBatch,
   buildEdges,
   buildGroups,
   buildNodes,
@@ -46,6 +53,7 @@ import {
   previewBatch,
   readTheme,
   type DragOffset,
+  type Resizing,
   type SceneInput,
   type Theme,
 } from './scene';
@@ -55,11 +63,18 @@ export type HitTarget =
 
 export type StepKey = 'move' | 'create' | 'connect' | 'delete' | 'paste' | 'duplicate' | 'resize';
 
+/** An edge pulled out of a port: `reverse` when it was pulled from an input, so the port is its end. */
+export interface PulledEdge extends PortHit {
+  reverse: boolean;
+}
+
 export interface CanvasCallbacks {
   /** Right click (or the menu key) on something: the host shows a context menu at screen (x, y). */
   onContextMenu: (target: HitTarget, x: number, y: number, world: { x: number; y: number }) => void;
   /** Double click on empty space, or an edge dropped on empty space: the host offers node kinds. */
-  onCreateRequest: (x: number, y: number, world: { x: number; y: number }, from: PortHit | null) => void;
+  onCreateRequest: (x: number, y: number, world: { x: number; y: number }, from: PulledEdge | null) => void;
+  /** Double click on a node from up close (outside its text): the host may open it (a chapter). */
+  onOpenNode?: (id: string) => boolean;
   onSearchRequest: () => void;
   /** Labels of undo steps, in the interface language. */
   label: (key: StepKey) => string;
@@ -90,17 +105,6 @@ export interface EdgeLabel {
   y: number;
 }
 
-/** Above this many visible nodes, mid-zoom titles are skipped: they would be unreadable clutter anyway. */
-const MID_LABEL_LIMIT = 300;
-/** Below this scale mid-zoom titles are hidden. */
-const MID_LABEL_SCALE = 0.3;
-/**
- * The DOM layer's node list is refreshed at most this often while the camera moves, with a margin
- * wide enough that nodes are mounted before they scroll into view. Fewer React updates per second.
- */
-const NEAR_REFRESH_MS = 120;
-const NEAR_MARGIN_PX = 400;
-
 type Gesture =
   | { kind: 'pan'; sx: number; sy: number; camera: Camera; moved: boolean; button: number }
   | { kind: 'marquee'; x0: number; y0: number; x1: number; y1: number; base: Selection }
@@ -114,8 +118,17 @@ type Gesture =
       dy: number;
       moved: boolean;
     }
-  | { kind: 'connect'; from: PortHit; wx: number; wy: number }
-  | { kind: 'resize'; id: string; wx: number; wy: number; w: number; h: number; dw: number; dh: number };
+  | { kind: 'connect'; from: PulledEdge; wx: number; wy: number }
+  | {
+      kind: 'resize';
+      target: 'node' | 'group';
+      id: string;
+      dir: HandleDir;
+      wx: number;
+      wy: number;
+      start: Rect;
+      min: { w: number; h: number };
+    };
 
 const DRAG_THRESHOLD = 4;
 let internalClipboard: GraphClipboard | null = null;
@@ -132,11 +145,7 @@ export class CanvasEngine {
   });
   /** Node drag or resize in progress, for the DOM layer to follow without store writes. */
   readonly drag: Atom<DragOffset | null> = atom<DragOffset | null>(null);
-  readonly resizing: Atom<{ id: string; w: number; h: number } | null> = atom<{
-    id: string;
-    w: number;
-    h: number;
-  } | null>(null);
+  readonly resizing: Atom<Resizing | null> = atom<Resizing | null>(null);
 
   private renderer: GraphRenderer;
   private camera: Camera = { x: 80, y: 80, scale: 1 };
@@ -160,6 +169,9 @@ export class CanvasEngine {
   private nearPublished = { at: 0, scale: 0, lod: '' as Lod | '', graph: null as GraphDoc | null };
   private nearTimer: ReturnType<typeof setTimeout> | null = null;
   private cleanups: (() => void)[] = [];
+  private quality: QualityProfile;
+  /** Node under the cursor while pulling an edge: its anchors light up. */
+  private connectHover: string | null = null;
 
   constructor(
     private readonly root: HTMLElement,
@@ -169,7 +181,9 @@ export class CanvasEngine {
     readonly graphId: string,
     private readonly callbacks: CanvasCallbacks,
     initialCamera: Camera | null,
+    quality: QualityName = 'normal',
   ) {
+    this.quality = QUALITY[quality];
     this.renderer = new GraphRenderer(canvas, () => {
       this.memo.clear();
       this.requestRender();
@@ -181,7 +195,7 @@ export class CanvasEngine {
     this.view = atom<CanvasView>({ camera: this.camera, lod: this.lod, width: this.width, height: this.height });
     if (initialCamera) this.camera = initialCamera;
     else this.fit(false);
-    this.lod = lodFor(this.camera.scale, 'mid');
+    this.lod = lodFor(this.camera.scale, 'mid', this.quality.farBelow);
     this.attach();
     this.resize();
   }
@@ -198,6 +212,16 @@ export class CanvasEngine {
 
   get currentCamera(): Camera {
     return this.camera;
+  }
+
+  /** Switches between the normal and the economy mode (a setting) without reopening the canvas. */
+  setQuality(name: QualityName): void {
+    if (this.quality === QUALITY[name]) return;
+    this.quality = QUALITY[name];
+    this.labelScale = 0;
+    this.memo.clear();
+    this.resize();
+    this.publishNear();
   }
 
   private change(key: StepKey, recipe: (g: GraphDoc) => void, mergeKey?: string): void {
@@ -316,23 +340,32 @@ export class CanvasEngine {
 
   // --- Commands used by menus and keys ---
 
-  /** Creates a node at a world point (snapped), optionally connected from a port; selects it. */
+  /**
+   * Creates a node at a world point (snapped); a node pulled out of a port comes connected and sits on the
+   * side it was pulled to. Selects the new node.
+   */
   createNodeAt(
     kind: string,
     world: { x: number; y: number },
     title: string,
-    from: PortHit | null = null,
+    from: PulledEdge | null = null,
+    init?: (node: GraphNode) => void,
   ): string | null {
     if (this.callbacks.readOnly) return null;
-    const node = createNode(kind, world.x, world.y - (from ? kindOf(kind).size.h / 2 : 0), title);
+    const placed = from
+      ? nodeAtPort(kind, world, from.face, from.reverse ? 'start' : 'end', title)
+      : nodeAtPort(kind, world, 'right', 'end', title);
+    const node = placed.node;
+    if (!from) {
+      node.x = snap(world.x);
+      node.y = snap(world.y);
+    }
+    init?.(node);
     this.change('create', (g) => {
       g.nodes.push(node);
-      if (from) {
-        const port = from.side === 'out' ? defaultPort(node, 'in') : defaultPort(node, 'out');
-        if (port) {
-          if (from.side === 'out') connect(g, { node: from.node, port: from.port }, { node: node.id, port });
-          else connect(g, { node: node.id, port }, { node: from.node, port: from.port });
-        }
+      if (from && placed.port) {
+        if (from.reverse) connect(g, { node: node.id, port: placed.port }, { node: from.node, port: from.port });
+        else connect(g, { node: from.node, port: from.port }, { node: node.id, port: placed.port });
       }
     });
     this.select({ nodes: new Set([node.id]), edges: new Set(), groups: new Set() });
@@ -456,7 +489,7 @@ export class CanvasEngine {
     const rect = this.root.getBoundingClientRect();
     this.width = Math.max(1, rect.width);
     this.height = Math.max(1, rect.height);
-    this.renderer.resize(this.width, this.height, window.devicePixelRatio || 1);
+    this.renderer.resize(this.width, this.height, Math.min(window.devicePixelRatio || 1, this.quality.maxDpr));
     this.requestRender();
   }
 
@@ -503,22 +536,37 @@ export class CanvasEngine {
     }
     if (e.button !== 0) return;
     const w = toWorld(this.camera, p.x, p.y);
-    const resize = (e.target as Element | null)?.closest?.('[data-resize]');
-    if (resize && !this.callbacks.readOnly) {
-      const id = resize.getAttribute('data-resize')!;
-      const n = this.index.node(id);
-      if (n) {
-        this.gesture = { kind: 'resize', id, wx: w.x, wy: w.y, w: n.w, h: n.h, dw: 0, dh: 0 };
+    const handle = (e.target as Element | null)?.closest?.('[data-resize]');
+    if (handle && !this.callbacks.readOnly) {
+      const target = handle.getAttribute('data-resize') === 'group' ? 'group' : 'node';
+      const id = handle.getAttribute('data-id') ?? '';
+      const dir = (handle.getAttribute('data-dir') ?? 'se') as HandleDir;
+      const item = target === 'node' ? this.index.node(id) : this.graph.groups.find((x) => x.id === id);
+      if (item) {
+        e.preventDefault();
+        this.gesture = {
+          kind: 'resize',
+          target,
+          id,
+          dir,
+          wx: w.x,
+          wy: w.y,
+          start: { x: item.x, y: item.y, w: item.w, h: item.h },
+          min: minSize(item, target === 'group'),
+        };
         this.root.setPointerCapture(e.pointerId);
+        this.root.dataset.gesture = `resize-${dir}`;
         return;
       }
     }
     const hit = this.hitAt(p.x, p.y);
     const additive = e.shiftKey || e.ctrlKey || e.metaKey;
     const s = this.selection.get();
-    if (hit.kind === 'node' && hit.port && hit.port.side === 'out' && !this.callbacks.readOnly) {
-      this.gesture = { kind: 'connect', from: hit.port, wx: w.x, wy: w.y };
+    if (hit.kind === 'node' && hit.port && !this.callbacks.readOnly) {
+      // Any port can be pulled: from an input the edge runs backwards, into this port (FR-CNV-02).
+      this.gesture = { kind: 'connect', from: { ...hit.port, reverse: hit.port.side === 'in' }, wx: w.x, wy: w.y };
       this.root.setPointerCapture(e.pointerId);
+      this.root.dataset.gesture = 'connect';
       return;
     }
     if (hit.kind === 'node' || hit.kind === 'group') {
@@ -596,17 +644,25 @@ export class CanvasEngine {
         this.requestRender();
         return;
       }
-      case 'connect':
+      case 'connect': {
         g.wx = w.x;
         g.wy = w.y;
+        const over = this.index.nodeAt(w.x, w.y);
+        const id =
+          over >= 0 ? this.graph.nodes[over].id : (this.index.portAt(w.x, w.y, 12 / this.camera.scale)?.node ?? null);
+        if (id !== this.connectHover) {
+          this.connectHover = id;
+          this.hover.set(id);
+        }
         this.requestRender();
         return;
-      case 'resize':
-        g.dw = w.x - g.wx;
-        g.dh = w.y - g.wy;
-        this.resizing.set({ id: g.id, w: Math.max(120, snap(g.w + g.dw)), h: Math.max(60, snap(g.h + g.dh)) });
+      }
+      case 'resize': {
+        const r = resizeRect(g.start, g.dir, w.x - g.wx, w.y - g.wy, g.min, e.altKey);
+        this.resizing.set({ kind: g.target, id: g.id, ...r });
         this.requestRender();
         return;
+      }
     }
   };
 
@@ -648,11 +704,16 @@ export class CanvasEngine {
         this.requestRender();
         return;
       case 'connect': {
+        this.connectHover = null;
+        this.hover.set(null);
         this.requestRender();
         const p = this.local(e);
         const target = this.connectTarget(g.from, toWorld(this.camera, p.x, p.y));
+        const mine = { node: g.from.node, port: g.from.port };
         if (target) {
-          this.change('connect', (graph) => connect(graph, { node: g.from.node, port: g.from.port }, target));
+          this.change('connect', (graph) =>
+            g.from.reverse ? connect(graph, target, mine) : connect(graph, mine, target),
+          );
         } else if (this.index.nodeAt(g.wx, g.wy) < 0) {
           // Dropped on empty space: offer a node that comes already connected (FR-CNV-02).
           this.callbacks.onCreateRequest(p.x, p.y, { x: g.wx, y: g.wy }, g.from);
@@ -660,16 +721,11 @@ export class CanvasEngine {
         return;
       }
       case 'resize': {
-        const size = this.resizing.get();
+        const r = this.resizing.get();
         this.resizing.set(null);
-        if (size) {
-          this.change('resize', (graph) => {
-            const n = graph.nodes.find((x) => x.id === g.id);
-            if (n) {
-              n.w = size.w;
-              n.h = size.h;
-            }
-          });
+        const s = g.start;
+        if (r && (r.x !== s.x || r.y !== s.y || r.w !== s.w || r.h !== s.h)) {
+          this.change('resize', (graph) => setRect(graph, g.target, g.id, r));
         }
         return;
       }
@@ -678,22 +734,31 @@ export class CanvasEngine {
 
   private suppressContextMenu = false;
 
-  /** An input port under the cursor, or the first input of the node under it. */
-  private connectTarget(from: PortHit, w: { x: number; y: number }): { node: string; port: string } | null {
+  /**
+   * The other end for an edge pulled from `from`: a fitting port under the cursor, else the fitting port
+   * of the node under the cursor that faces the pulled port.
+   */
+  private connectTarget(from: PulledEdge, w: { x: number; y: number }): { node: string; port: string } | null {
+    const fits = from.reverse ? canStart : canEnd;
     const port = this.index.portAt(w.x, w.y, 12 / this.camera.scale);
-    if (port && port.side === 'in' && port.node !== from.node) return { node: port.node, port: port.port };
+    if (port && port.node !== from.node) {
+      const node = this.index.node(port.node);
+      const def = node && portsOf(node).find((x) => x.id === port.port);
+      if (def && fits(def)) return { node: port.node, port: port.port };
+    }
     const i = this.index.nodeAt(w.x, w.y);
     if (i < 0) return null;
     const node = this.graph.nodes[i];
     if (node.id === from.node) return null;
-    const inPort = defaultPort(node, 'in');
-    return inPort ? { node: node.id, port: inPort } : null;
+    const role = from.reverse ? 'start' : 'end';
+    const id = defaultPort(node, role, from, from.reverse ? usedStarts(this.graph, node.id) : undefined);
+    return id ? { node: node.id, port: id } : null;
   }
 
   private updateHover(p: { x: number; y: number }): void {
     const hit = this.hitAt(p.x, p.y);
     this.setHover(hit.kind === 'edge' ? hit.id : null, hit.kind === 'node' ? hit.id : null);
-    this.root.dataset.hover = hit.kind === 'node' && hit.port?.side === 'out' ? 'port' : hit.kind;
+    this.root.dataset.hover = hit.kind === 'node' && hit.port && !this.callbacks.readOnly ? 'port' : hit.kind;
   }
 
   private setHover(edge: string | null, node: string | null): void {
@@ -704,6 +769,7 @@ export class CanvasEngine {
     if (node !== this.hoverNode) {
       this.hoverNode = node;
       this.hover.set(node);
+      if (this.lod === 'mid') this.requestRender();
     }
   }
 
@@ -730,14 +796,19 @@ export class CanvasEngine {
     const hit = this.hitAt(p.x, p.y);
     if (hit.kind === 'background') {
       this.callbacks.onCreateRequest(p.x, p.y, toWorld(this.camera, p.x, p.y), null);
-    } else if (hit.kind === 'node' && this.lod !== 'near') {
-      // From afar a double click flies to the node; up close the DOM node handles it (rename).
-      const n = this.index.node(hit.id);
-      if (n)
-        this.setCamera(
-          fitBounds({ minX: n.x, minY: n.y, maxX: n.x + n.w, maxY: n.y + n.h }, this.width, this.height, 160, 1),
-          true,
-        );
+      return;
+    }
+    if (hit.kind !== 'node') return;
+    // Up close the DOM card handles double clicks on its texts (rename).
+    if (this.lod === 'near' && e.target instanceof Element && e.target.closest('[data-canvas-text]')) return;
+    // The host may open the node (a chapter); otherwise, from afar, the view flies to it.
+    if (this.callbacks.onOpenNode?.(hit.id) || this.lod === 'near') return;
+    const n = this.index.node(hit.id);
+    if (n) {
+      this.setCamera(
+        fitBounds({ minX: n.x, minY: n.y, maxX: n.x + n.w, maxY: n.y + n.h }, this.width, this.height, 160, 1),
+        true,
+      );
     }
   };
 
@@ -821,6 +892,8 @@ export class CanvasEngine {
 
   private cancelGesture(): void {
     this.gesture = null;
+    this.connectHover = null;
+    this.hover.set(null);
     this.drag.set(null);
     this.resizing.set(null);
     delete this.root.dataset.gesture;
@@ -859,7 +932,7 @@ export class CanvasEngine {
         this.requestRender();
       }
     }
-    this.lod = lodFor(this.camera.scale, this.lod);
+    this.lod = lodFor(this.camera.scale, this.lod, this.quality.farBelow);
     const sel = this.selection.get();
     const hl = this.highlight.get();
     const drag = this.drag.get();
@@ -872,30 +945,40 @@ export class CanvasEngine {
       current: hl.current,
       drag,
       lod: this.lod,
+      straight: this.lod === 'far' && this.index.graph.edges.length > this.quality.farCurveEdges,
+      resizing,
       theme: this.theme,
     };
     // A node being resized is drawn from a patched index so edges follow its ports.
-    if (resizing) {
+    if (resizing?.kind === 'node') {
       const graph = {
         ...this.index.graph,
-        nodes: this.index.graph.nodes.map((n) => (n.id === resizing.id ? { ...n, w: resizing.w, h: resizing.h } : n)),
+        nodes: this.index.graph.nodes.map((n) => (n.id === resizing.id ? { ...n, ...resizing, kind: n.kind } : n)),
       };
       input.index = new GraphIndex(graph);
     }
-    const lodKey = this.lod === 'far' ? 'far' : 'curved';
-    const edges = this.layer('edges', [input.index, sel.edges, this.hoverEdge, drag, lodKey, this.theme], () =>
-      buildEdges(input),
+    const edges = this.layer(
+      'edges',
+      [input.index, sel.edges, this.hoverEdge, drag, this.lod === 'far', input.straight, this.theme],
+      () => buildEdges(input),
     );
     const nodes = this.layer('nodes', [input.index, sel.nodes, hl, drag, this.lod, this.theme], () =>
       buildNodes(input),
     );
-    const groups = this.layer('groups', [input.index, sel.groups, drag, this.theme], () => buildGroups(input));
+    const groups = this.layer('groups', [input.index, sel.groups, drag, resizing, this.theme], () =>
+      buildGroups(input),
+    );
 
     let overlayBoxes = EMPTY_BATCH;
     let overlaySegs = EMPTY_BATCH;
+    let overlayDiscs = EMPTY_BATCH;
     const g = this.gesture;
     if (g?.kind === 'marquee') overlayBoxes = marqueeBatch(g.x0, g.y0, g.x1, g.y1, this.theme);
-    if (g?.kind === 'connect') overlaySegs = previewBatch(edgeCurve(g.from, { x: g.wx, y: g.wy }), this.theme);
+    if (g?.kind === 'connect') overlaySegs = previewBatch(this.previewCurve(g.from, g.wx, g.wy), this.theme);
+    // Mid zoom: WebGL shows the free anchors of the node under the cursor (up close the DOM card does).
+    const hot = g?.kind === 'connect' ? this.connectHover : g ? null : this.hoverNode;
+    const hotNode = hot && this.lod === 'mid' ? this.index.node(hot) : undefined;
+    if (hotNode) overlayDiscs = anchorBatch(hotNode, this.theme);
 
     this.renderer.draw({
       camera: this.camera,
@@ -906,12 +989,20 @@ export class CanvasEngine {
       ports: nodes.ports,
       overlayBoxes,
       overlaySegs,
+      overlayDiscs,
       grid: { bg: this.theme.bg, dot: this.theme.dot, step: GRID },
     });
     this.domLayer.style.transform = `translate(${this.camera.x}px, ${this.camera.y}px) scale(${this.camera.scale})`;
     this.trackMotion();
     this.publishView();
   };
+
+  /** The edge following the cursor: out of the pulled port, or into it when pulled from an input. */
+  private previewCurve(from: PulledEdge, wx: number, wy: number) {
+    const cursor = { x: wx, y: wy };
+    const away = OPPOSITE_FACE[from.face];
+    return from.reverse ? edgeCurve(cursor, from, away, from.face) : edgeCurve(from, cursor, from.face, away);
+  }
 
   /**
    * While the camera moves, the DOM layer is a GPU layer (smooth panning); shortly after it stops the
@@ -930,27 +1021,34 @@ export class CanvasEngine {
     }, 200);
   }
 
-  private publishView(): void {
-    // Mid-zoom titles keep a constant on-screen size: the layer counter-scales them through a variable.
-    // Set only when it matters: a custom property change restyles the whole DOM layer.
+  /**
+   * Mid-zoom titles keep a constant on-screen size: the layer counter-scales them through a variable.
+   * Set only when it matters: a custom property change restyles the whole DOM layer.
+   */
+  private fitLabels(): void {
     if (this.lod === 'mid' && this.labelScale !== this.camera.scale) {
       this.labelScale = this.camera.scale;
       this.domLayer.style.setProperty('--label-scale', String(1 / this.camera.scale));
     }
+  }
+
+  private publishView(): void {
+    if (this.quality.labelEveryFrame) this.fitLabels();
     this.view.set({ camera: this.camera, lod: this.lod, width: this.width, height: this.height });
 
     const last = this.nearPublished;
     const now = performance.now();
+    const refresh = this.quality.nearRefreshMs;
     const urgent =
       last.lod !== this.lod ||
       last.graph !== this.graph ||
       Math.abs(Math.log(this.camera.scale / (last.scale || 1))) > 0.15;
-    if (!urgent && now - last.at < NEAR_REFRESH_MS) {
+    if (!urgent && now - last.at < refresh) {
       // Catch up once the camera stops.
       this.nearTimer ??= setTimeout(() => {
         this.nearTimer = null;
         this.publishNear();
-      }, NEAR_REFRESH_MS);
+      }, refresh);
       return;
     }
     this.publishNear();
@@ -962,14 +1060,21 @@ export class CanvasEngine {
       this.nearTimer = null;
     }
     this.nearPublished = { at: performance.now(), scale: this.camera.scale, lod: this.lod, graph: this.graph };
+    if (!this.quality.labelEveryFrame) this.fitLabels();
+    const q = this.quality;
+    const scale = this.camera.scale;
     const prev = this.near.get();
     let ids: readonly string[] = [];
     let edgeLabels: readonly EdgeLabel[];
     // Near: a wide margin so cards are mounted before they scroll in. Mid: titles are light, a small margin will do.
-    const margin = this.lod === 'near' ? NEAR_MARGIN_PX : NEAR_MARGIN_PX / 3;
-    if (this.lod === 'near' || (this.lod === 'mid' && this.camera.scale >= MID_LABEL_SCALE)) {
+    const margin = this.lod === 'near' ? q.nearMarginPx : q.nearMarginPx / 3;
+    if (this.lod === 'near' || (this.lod === 'mid' && scale >= q.labelScale)) {
       const visible = this.index.nodesIn(visibleBounds(this.camera, this.width, this.height, margin));
-      if (this.lod === 'near' || visible.length <= MID_LABEL_LIMIT) ids = visible.map((i) => this.graph.nodes[i].id);
+      if (this.lod === 'near') ids = visible.map((i) => this.graph.nodes[i].id);
+      else if (visible.length <= q.labelLimit) {
+        const nodes = this.graph.nodes;
+        ids = visible.filter((i) => nodes[i].w * scale >= q.labelMinWidth).map((i) => nodes[i].id);
+      }
     }
     if (this.lod === 'near') {
       const b = visibleBounds(this.camera, this.width, this.height, margin);

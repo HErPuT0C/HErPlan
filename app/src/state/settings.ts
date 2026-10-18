@@ -2,6 +2,7 @@
 // Stored as settings.json in the user's application data folder; survives reinstalling a newer version.
 // Parsing is forgiving: a missing or wrong field falls back to its default, unknown fields are kept.
 
+import { QUALITY_NAMES, type QualityName } from '../canvas/quality';
 import { atom } from '../core/atom';
 import { detectLocale, isLocale, setLocale, type Locale } from '../i18n';
 import { platform } from '../platform';
@@ -27,6 +28,8 @@ export interface AppSettings {
   uiScale: number;
   /** Mouse button that pans canvases (Space + left button always works too). */
   panButton: 'middle' | 'right';
+  /** Canvas mode: "normal" keeps titles readable from farther away, "economy" is for weak computers. */
+  canvasQuality: QualityName;
   autosaveSeconds: number;
   dashboardView: 'cards' | 'list';
   /** Last folder where a project was created; null means Documents\HErPlan. */
@@ -42,6 +45,7 @@ export function defaultSettings(languages: readonly string[]): AppSettings {
     accent: 'mint',
     uiScale: 100,
     panButton: 'middle',
+    canvasQuality: 'normal',
     autosaveSeconds: 5,
     dashboardView: 'cards',
     projectsDir: null,
@@ -77,6 +81,7 @@ export function parseSettings(text: string | null, languages: readonly string[])
     accent: oneOf(raw.accent, ACCENTS, defaults.accent),
     uiScale: oneOf(raw.uiScale, UI_SCALES, defaults.uiScale),
     panButton: oneOf(raw.panButton, ['middle', 'right'] as const, defaults.panButton),
+    canvasQuality: oneOf(raw.canvasQuality, QUALITY_NAMES, defaults.canvasQuality),
     autosaveSeconds:
       Number.isInteger(autosave) && autosave >= 1 && autosave <= 60 ? autosave : defaults.autosaveSeconds,
     dashboardView: oneOf(raw.dashboardView, ['cards', 'list'] as const, defaults.dashboardView),

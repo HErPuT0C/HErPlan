@@ -18,17 +18,18 @@ import {
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { Camera } from '../../canvas/camera';
-import { CanvasEngine, type HitTarget, type StepKey } from '../../canvas/engine';
-import type { PortHit } from '../../canvas/graphIndex';
+import { CanvasEngine, type HitTarget, type PulledEdge, type StepKey } from '../../canvas/engine';
 import { creatableKinds, kindOf } from '../../canvas/kinds';
 import type { GraphDoc } from '../../canvas/model';
 import { createNode, groupNodes, insertNodeIntoEdge, setNodeProps } from '../../canvas/ops';
 import { t, type MessageKey } from '../../i18n';
 import type { OpenProject } from '../../state/project';
 import { settings } from '../../state/settings';
+import { useAtom } from '../../core/useStore';
 import { EmptyState, Menu, type MenuEntry } from '../components';
 import { CanvasToolbar } from './CanvasToolbar';
 import { CommentBubble } from './CommentBubble';
+import { FrameHandles } from './FrameHandles';
 import { HintPanel } from './HintPanel';
 import { Minimap } from './Minimap';
 import { NodeLayer } from './NodeLayer';
@@ -86,11 +87,12 @@ export function CanvasView({
   const [prompt, setPrompt] = useState<PromptRequest | null>(null);
   const [swatch, setSwatch] = useState<SwatchRequest | null>(null);
   const [failed] = useState(() => !supportsWebGL2());
+  const { canvasQuality } = useAtom(settings);
   const readOnly = project.readOnly;
   // The engine is created once per graph; its callbacks reach the latest handlers through this ref.
   const handlers = useRef<{
     contextMenu: (target: HitTarget, x: number, y: number, world: { x: number; y: number }) => void;
-    create: (x: number, y: number, world: { x: number; y: number }, from: PortHit | null) => void;
+    create: (x: number, y: number, world: { x: number; y: number }, from: PulledEdge | null) => void;
   } | null>(null);
   const onEngineRef = useRef(onEngine);
 
@@ -113,6 +115,7 @@ export function CanvasView({
           readOnly,
         },
         cameras.get(graphId) ?? null,
+        settings.get().canvasQuality,
       );
     } catch (e) {
       console.error('canvas could not start', e);
@@ -128,9 +131,11 @@ export function CanvasView({
     };
   }, [project.store, graphId, readOnly, failed]);
 
+  useEffect(() => engine?.setQuality(canvasQuality), [engine, canvasQuality]);
+
   const graph = () => project.store.getState().graphs[graphId] as unknown as GraphDoc;
 
-  const createAt = (kind: string, world: { x: number; y: number }, from: PortHit | null = null) => {
+  const createAt = (kind: string, world: { x: number; y: number }, from: PulledEdge | null = null) => {
     if (!engine) return;
     const title = kind === 'sticker' ? '' : t(kindOf(kind).label);
     engine.createNodeAt(kind, world, title, from);
@@ -147,7 +152,7 @@ export function CanvasView({
     if (id) engine.select({ nodes: new Set(), edges: new Set(), groups: new Set([id]) });
   };
 
-  const kindEntries = (world: { x: number; y: number }, from: PortHit | null): MenuEntry[] =>
+  const kindEntries = (world: { x: number; y: number }, from: PulledEdge | null): MenuEntry[] =>
     creatableKinds()
       .filter((k) => !from || !k.sticker)
       .map((k) => ({
@@ -157,7 +162,7 @@ export function CanvasView({
         onSelect: () => createAt(k.id, world, from),
       }));
 
-  const openCreateMenu = (x: number, y: number, world: { x: number; y: number }, from: PortHit | null) => {
+  const openCreateMenu = (x: number, y: number, world: { x: number; y: number }, from: PulledEdge | null) => {
     const rect = root.current?.getBoundingClientRect();
     if (readOnly || !rect) return;
     setMenu({ x: x + rect.left, y: y + rect.top, entries: kindEntries(world, from) });
@@ -506,6 +511,7 @@ export function CanvasView({
               onSearch={() => setSearching(true)}
               onCreate={(kind) => createAt(kind, engine.viewCenter())}
             />
+            <FrameHandles engine={engine} store={project.store} graphId={graphId} readOnly={readOnly} />
             <SelectionBar engine={engine} onGroup={groupSelection} />
             <HintPanel />
             <Minimap engine={engine} store={project.store} graphId={graphId} />

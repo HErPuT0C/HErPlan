@@ -133,6 +133,16 @@ function EditorSettings() {
         hint={t('settings.panButtonHint')}
       />
       <SelectField
+        label={t('settings.canvasQuality')}
+        value={s.canvasQuality}
+        options={[
+          { value: 'normal', label: t('settings.canvasQuality.normal') },
+          { value: 'economy', label: t('settings.canvasQuality.economy') },
+        ]}
+        onChange={(canvasQuality) => updateSettings((x) => ({ ...x, canvasQuality }))}
+        hint={t('settings.canvasQualityHint')}
+      />
+      <SelectField
         label={t('settings.autosave')}
         value={s.autosaveSeconds}
         options={[1, 2, 5, 10, 30, 60].map((v) => ({ value: v, label: t('settings.seconds', { count: v }) }))}

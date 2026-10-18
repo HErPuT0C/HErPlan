@@ -9,12 +9,15 @@ import {
   connect,
   copySelection,
   createNode,
+  defaultPort,
   deleteItems,
   findNodes,
   groupNodes,
   insertNodeIntoEdge,
   moveItems,
+  nodeAtPort,
   pasteClipboard,
+  resizeRect,
   type Selection,
 } from './ops';
 
@@ -34,14 +37,41 @@ const sel = (nodes: string[] = [], edges: string[] = [], groups: string[] = []):
 });
 
 describe('graph operations', () => {
-  it('connects output to input and refuses duplicates, self loops and wrong sides', () => {
+  it('connects any side and refuses duplicates, self loops and missing ports', () => {
     const g = sample();
     const edge = connect(g, { node: 'a', port: 'out' }, { node: 'b', port: 'in' });
     expect(typeof edge).toBe('object');
     expect(connect(g, { node: 'a', port: 'out' }, { node: 'b', port: 'in' })).toBe('duplicate');
+    // All four side anchors are one output: pulling from the top does not make a second a→b edge.
+    expect(connect(g, { node: 'a', port: 'top' }, { node: 'b', port: 'bottom' })).toBe('duplicate');
     expect(connect(g, { node: 'a', port: 'out' }, { node: 'a', port: 'in' })).toBe('same-node');
-    expect(connect(g, { node: 'a', port: 'in' }, { node: 'b', port: 'in' })).toBe('bad-port');
-    expect(g.edges).toHaveLength(1);
+    expect(connect(g, { node: 'a', port: 'nowhere' }, { node: 'b', port: 'in' })).toBe('bad-port');
+    // An edge pulled out of the left side is fine, and so is the way back.
+    expect(typeof connect(g, { node: 'a', port: 'in' }, { node: 'c', port: 'top' })).toBe('object');
+    expect(typeof connect(g, { node: 'b', port: 'in' }, { node: 'a', port: 'out' })).toBe('object');
+    expect(g.edges).toHaveLength(3);
+  });
+
+  it('a node pulled out of a side lands on that side, its facing port on the drop point', () => {
+    const left = nodeAtPort('node', { x: -100, y: 60 }, 'left', 'end', 'Слева');
+    expect(left.port).toBe('out');
+    expect(left.node.x + left.node.w).toBe(-100);
+    const below = nodeAtPort('node', { x: 120, y: 300 }, 'bottom', 'end', 'Снизу');
+    expect(below.port).toBe('top');
+    expect([below.node.x + below.node.w / 2, below.node.y]).toEqual([120, 300]);
+    const a = sample().nodes[0];
+    expect(defaultPort(a, 'end', { x: a.x + a.w / 2, y: -500 })).toBe('top');
+    expect(defaultPort(a, 'end', { x: -500, y: a.y })).toBe('in');
+  });
+
+  it('resizes from any of the eight handles, keeping the opposite side and a minimum size', () => {
+    const start = { x: 0, y: 0, w: 200, h: 100 };
+    const min = { w: 120, h: 60 };
+    expect(resizeRect(start, 'se', 41, 19, min)).toEqual({ x: 0, y: 0, w: 240, h: 120 });
+    expect(resizeRect(start, 'nw', -40, -20, min)).toEqual({ x: -40, y: -20, w: 240, h: 120 });
+    expect(resizeRect(start, 'n', 0, 80, min)).toEqual({ x: 0, y: 40, w: 200, h: 60 });
+    expect(resizeRect(start, 'w', 500, 0, min)).toEqual({ x: 80, y: 0, w: 120, h: 100 });
+    expect(resizeRect(start, 'e', 7, 0, min, true)).toEqual({ x: 0, y: 0, w: 207, h: 100 });
   });
 
   it('deleting a node removes its edges and its group membership', () => {
@@ -132,7 +162,7 @@ describe('graph index', () => {
     expect(g.nodes[index.nodeAt(10, 10)].id).toBe('a');
     expect(index.nodeAt(-50, -50)).toBe(-1);
     const out = portPosition(g.nodes[0], 'out')!;
-    expect(index.portAt(out.x + 3, out.y - 2)).toMatchObject({ node: 'a', port: 'out', side: 'out' });
+    expect(index.portAt(out.x + 3, out.y - 2)).toMatchObject({ node: 'a', port: 'out', side: 'both', face: 'right' });
     const curve = index.curves[0]!;
     const mid = { x: (curve.x1 + curve.x2) / 2, y: (curve.y1 + curve.y2) / 2 };
     expect(index.edgeAt(mid.x, mid.y + 2, 6)).toBe(0);

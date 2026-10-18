@@ -6,6 +6,9 @@ import { skipLayers } from '../../canvas/gl/renderer';
 import { newProject } from '../../core/project/create';
 import type { ProjectData } from '../../core/project/types';
 import { Store } from '../../core/store';
+import { useAtom } from '../../core/useStore';
+import { settings, updateSettings } from '../../state/settings';
+import type { QualityName } from '../../canvas/quality';
 import { t, type MessageKey } from '../../i18n';
 import type { OpenProject } from '../../state/project';
 import { CanvasView } from '../canvas/CanvasView';
@@ -15,6 +18,7 @@ import './bench.css';
 export interface BenchReport {
   nodes: number;
   edges: number;
+  mode: QualityName;
   gpu: string;
   screen: string;
   phases: PhaseResult[];
@@ -56,6 +60,9 @@ export function CanvasBench() {
   const [running, setRunning] = useState(false);
   const [report, setReport] = useState<BenchReport | null>(null);
   const autoStarted = useRef(false);
+  const { canvasQuality } = useAtom(settings);
+  const modeName = (mode: QualityName) =>
+    mode === 'normal' ? t('settings.canvasQuality.normal') : t('settings.canvasQuality.economy');
 
   const run = async (): Promise<BenchReport> => {
     const e = engine.current;
@@ -85,6 +92,7 @@ export function CanvasBench() {
     const result: BenchReport = {
       nodes: graph.nodes.length,
       edges: graph.edges.length,
+      mode: settings.get().canvasQuality,
       gpu: e.gpu,
       screen: `${screen.width}×${screen.height} @${devicePixelRatio}`,
       phases,
@@ -122,6 +130,13 @@ export function CanvasBench() {
           value={nodes}
           options={[1000, 5000, 20000].map((n) => ({ value: n, label: String(n) }))}
           onChange={setNodes}
+          disabled={running}
+        />
+        <SelectField
+          label={t('bench.mode')}
+          value={canvasQuality}
+          options={(['normal', 'economy'] as const).map((m) => ({ value: m, label: modeName(m) }))}
+          onChange={(mode) => updateSettings((x) => ({ ...x, canvasQuality: mode }))}
           disabled={running}
         />
         <Button variant="primary" icon={<Play size={16} />} busy={running} onClick={() => void run()}>
@@ -162,7 +177,13 @@ export function CanvasBench() {
             ))}
           </tbody>
           <caption>
-            {t('bench.summary', { fps: report.total.fps, nodes: report.nodes, edges: report.edges, gpu: report.gpu })}
+            {t('bench.summary', {
+              fps: report.total.fps,
+              nodes: report.nodes,
+              edges: report.edges,
+              mode: modeName(report.mode),
+              gpu: report.gpu,
+            })}
           </caption>
         </table>
       )}
@@ -173,7 +194,7 @@ export function CanvasBench() {
 function reportText(r: BenchReport): string {
   return [
     `HErPlan ${__APP_VERSION__} — canvas benchmark`,
-    `GPU: ${r.gpu}; screen ${r.screen}; ${r.nodes} nodes, ${r.edges} edges`,
+    `GPU: ${r.gpu}; screen ${r.screen}; ${r.nodes} nodes, ${r.edges} edges; mode ${r.mode}`,
     '| phase | fps | p95 ms | max ms |',
     '| --- | --- | --- | --- |',
     ...r.phases.map((p) => `| ${p.id} | ${p.fps} | ${p.p95} | ${p.max} |`),

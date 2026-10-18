@@ -2,8 +2,8 @@
 // and rebuilt only when its inputs change: moving the camera rebuilds nothing.
 
 import type { Lod } from './camera';
-import { curveBounds, tessellate, SEGMENTS, edgeCurve, type Curve } from './geometry';
-import type { GraphIndex } from './graphIndex';
+import { curveBounds, endDirection, tessellate, SEGMENTS, edgeCurve, type Curve } from './geometry';
+import { portKey, type GraphIndex } from './graphIndex';
 import { kindOf, portsOf, portPosition } from './kinds';
 import { colorHex, HEADER_H, type GraphNode } from './model';
 import type { Selection } from './ops';
@@ -70,6 +70,16 @@ export interface DragOffset {
   dy: number;
 }
 
+/** A node or a frame being resized: drawn at this rectangle until the drag ends. */
+export interface Resizing {
+  kind: 'node' | 'group';
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface SceneInput {
   index: GraphIndex;
   selection: Selection;
@@ -78,6 +88,9 @@ export interface SceneInput {
   current: string | null;
   drag: DragOffset | null;
   lod: Lod;
+  /** Edges as straight lines (far away, big graphs): one segment instead of SEGMENTS. */
+  straight: boolean;
+  resizing: Resizing | null;
   theme: Theme;
 }
 
@@ -120,7 +133,7 @@ function dragCurve(index: GraphIndex, e: number, drag: DragOffset): Curve | null
   const b = index.node(edge.to.node);
   const p1 = a && portPosition(placed(a, drag), edge.from.port);
   const p2 = b && portPosition(placed(b, drag), edge.to.port);
-  return p1 && p2 ? edgeCurve(p1, p2) : null;
+  return p1 && p2 ? edgeCurve(p1, p2, p1.face, p2.face) : null;
 }
 
 /** Edges are grouped into square areas of this size (world units) so the renderer can skip off-screen ones. */
@@ -130,9 +143,10 @@ export function buildEdges(s: SceneInput): { edges: Batch; arrows: Batch } {
   const { index, drag, lod, theme } = s;
   const graph = index.graph;
   const far = lod === 'far';
-  const perEdge = far ? 1 : SEGMENTS;
+  const straight = s.straight;
+  const perEdge = straight ? 1 : SEGMENTS;
   const cached = segmentsOf(index);
-  const source = far ? cached.straight : cached.curved;
+  const source = straight ? cached.straight : cached.curved;
   const normal = mix(theme.bg, theme.muted, 0.55);
 
   // Resolve every edge's curve (dragged nodes move their edges) and sort edges by area.
@@ -160,7 +174,7 @@ export function buildEdges(s: SceneInput): { edges: Batch; arrows: Batch } {
     let segs: Float32Array = source;
     let base = e * perEdge * 4;
     if (moved) {
-      if (far) scratch.set([curve.x1, curve.y1, curve.x2, curve.y2]);
+      if (straight) scratch.set([curve.x1, curve.y1, curve.x2, curve.y2]);
       else tessellate(curve, scratch, 0);
       segs = scratch;
       base = 0;
@@ -179,7 +193,7 @@ export function buildEdges(s: SceneInput): { edges: Batch; arrows: Batch } {
     range.maxY = Math.max(range.maxY, b.maxY);
     const selected = s.selection.edges.has(edge.id) || s.hoverEdge === edge.id;
     const color = selected ? theme.accent : edge.color ? hexToRgba(colorHex(edge.color, '#5b6474')) : normal;
-    const width = far ? 1 : selected ? 3 : 2;
+    const width = far ? (straight ? 1 : 1.5) : selected ? 3 : 2;
     for (let j = 0; j < perEdge; j++) {
       const o = count * SEG_STRIDE;
       edges.set(segs.subarray(base + j * 4, base + j * 4 + 4), o);
@@ -191,7 +205,10 @@ export function buildEdges(s: SceneInput): { edges: Batch; arrows: Batch } {
     const arrowRange = arrowRanges[arrowRanges.length - 1];
     Object.assign(arrowRange, { minX: range.minX, minY: range.minY, maxX: range.maxX, maxY: range.maxY });
     arrowRange.count++;
-    if (!far) arrows.set([curve.x2, curve.y2, ...color], k * ARROW_STRIDE);
+    if (!far) {
+      const d = endDirection(curve);
+      arrows.set([curve.x2, curve.y2, d.x, d.y, ...color], k * ARROW_STRIDE);
+    }
   });
   return {
     edges: { data: edges, count, ranges: edgeRanges },
@@ -233,10 +250,10 @@ export function buildNodes(s: SceneInput): { nodes: Batch; ports: Batch } {
       i * BOX_STRIDE,
     );
     if (!far) {
+      // Side anchors appear only once connected (or on hover, see anchorBatch); typed outputs always.
       for (const port of portsOf(n)) {
-        const x = port.side === 'in' ? n.x : n.x + n.w;
-        portList.push(x, n.y + port.y, 4.5, 0, ...theme.surface2);
-        portList.push(x, n.y + port.y, 4.5, 1.5, ...mix(theme.bg, theme.muted, 0.8));
+        if (port.anchor && !index.connected.has(portKey(n.id, port.id))) continue;
+        pushPort(portList, n.x + port.x, n.y + port.y, theme);
       }
     }
   });
@@ -246,11 +263,25 @@ export function buildNodes(s: SceneInput): { nodes: Batch; ports: Batch } {
   };
 }
 
+function pushPort(list: number[], x: number, y: number, theme: Theme, hot = false): void {
+  list.push(x, y, 4.5, 0, ...theme.surface2);
+  list.push(x, y, 4.5, 1.5, ...(hot ? theme.accent : mix(theme.bg, theme.muted, 0.8)));
+}
+
+/** All ports of the node under the cursor, so free side anchors can be grabbed at mid zoom too. */
+export function anchorBatch(node: GraphNode, theme: Theme): Batch {
+  const list: number[] = [];
+  for (const port of portsOf(node)) pushPort(list, node.x + port.x, node.y + port.y, theme, port.side !== 'in');
+  return { data: Float32Array.from(list), count: list.length / DISC_STRIDE };
+}
+
 export function buildGroups(s: SceneInput): Batch {
   const { index, drag, theme } = s;
   const groups = index.graph.groups;
   const data = new Float32Array(groups.length * BOX_STRIDE);
-  groups.forEach((g, i) => {
+  groups.forEach((group, i) => {
+    const r = s.resizing;
+    const g = r?.kind === 'group' && r.id === group.id ? { ...group, x: r.x, y: r.y, w: r.w, h: r.h } : group;
     const moved = drag?.groups.has(g.id);
     const x = g.x + (moved ? drag!.dx : 0);
     const y = g.y + (moved ? drag!.dy : 0);
