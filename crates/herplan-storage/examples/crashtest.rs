@@ -38,15 +38,16 @@ fn project_json(round: u64) -> FileText {
 }
 
 fn writer(dir: &Path) -> ! {
-    let start = SystemTime::now()
+    let mut round = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64;
-    for round in start.. {
+    loop {
+        round += 1;
         let mut writes = vec![project_json(round)];
         writes.extend((0..ENTITIES).map(|i| entity(i, round)));
         // Every other round one entity disappears and comes back, like delete + undo.
-        let deletes = if round % 2 == 0 {
+        let deletes = if round.is_multiple_of(2) {
             vec![format!(
                 "data/entities/e{:03}.json",
                 round % ENTITIES as u64
@@ -58,11 +59,10 @@ fn writer(dir: &Path) -> ! {
             writes.retain(|w| w.path != deletes[0]);
         }
         write_project(dir, &writes, &deletes).expect("save failed");
-        if round % 5 == 0 {
+        if round.is_multiple_of(5) {
             create_backup(dir, BackupKind::Auto, None).expect("backup failed");
         }
     }
-    unreachable!()
 }
 
 fn next_random(seed: &mut u64) -> u64 {

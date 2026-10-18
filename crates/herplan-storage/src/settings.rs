@@ -48,10 +48,9 @@ pub fn save_report(reports_dir: &Path, text: &str) -> Result<PathBuf> {
     fs::create_dir_all(reports_dir).at(reports_dir)?;
     let stamp = Utc::now().file_stamp();
     let mut path = reports_dir.join(format!("report-{stamp}.txt"));
-    for n in 2.. {
-        if !path.exists() {
-            break;
-        }
+    let mut n = 1;
+    while path.exists() {
+        n += 1;
         path = reports_dir.join(format!("report-{stamp}-{n}.txt"));
     }
     write_atomic(&path, text.as_bytes()).at(&path)?;
