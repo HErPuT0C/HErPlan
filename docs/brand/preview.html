@@ -1,0 +1,56 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><style>
+body{margin:0;display:flex;font:14px/1.45 Inter,system-ui,sans-serif;background:#000}
+section{flex:1;background:var(--bg);color:var(--text);padding:28px 26px;display:flex;flex-direction:column;gap:16px;border-right:1px solid #000}
+h2{margin:0;font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.logo{display:flex;align-items:center;gap:12px} .word{font-size:30px;font-weight:600;letter-spacing:-.01em} .word b{color:var(--accent);font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+button{font:inherit;border-radius:8px;padding:8px 14px;border:1px solid var(--line);background:var(--surface2);color:var(--text)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--on);font-weight:600}
+label{display:flex;flex-direction:column;gap:6px;color:var(--muted);font-size:12px}
+input{font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--input);border-radius:8px;padding:8px 10px}
+.node{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;width:240px}
+.head{background:var(--surface2);border-bottom:2px solid var(--accent);padding:6px 10px;font-weight:600}
+.body{padding:8px 10px;color:var(--muted);display:flex;flex-direction:column;gap:6px}
+.opt{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:4px 8px;color:var(--text)} .opt.sel{border-color:var(--accent)}
+.chip{border-radius:999px;padding:2px 10px;font-size:12px;background:var(--surface2);color:var(--accent);border:1px solid var(--line)} .chip.warn{color:#e0a63a}
+.sw{display:flex;gap:4px} .sw i{width:22px;height:22px;border-radius:5px;border:1px solid #000}
+</style><body><section style="--bg:#121418;--surface:#1a1d23;--surface2:#22262e;--line:#2e333d;--text:#e7e9ee;--muted:#9aa1ae;--accent:#7b86ff;--accent-h:#949dff;--on:#0e0f14;--input:#6b7383">
+  <h2>А · Индиго</h2>
+  <div class="logo"><svg viewBox="0 0 64 64" width="56" height="56" aria-hidden="true">
+  <path d="M22 32 C34 32 32 17 44 17 M22 32 C34 32 32 47 44 47" fill="none" stroke="#5b6474" stroke-width="4" stroke-linecap="round"/>
+  <rect x="4" y="22" width="20" height="20" rx="6" fill="#7b86ff"/>
+  <rect x="42" y="8" width="18" height="18" rx="5" fill="#7b86ff" opacity="0.85"/>
+  <rect x="42" y="38" width="18" height="18" rx="5" fill="#e7e9ee" opacity="0.9"/>
+</svg><span class="word">HEr<b>Plan</b></span></div>
+  <div class="row"><button class="primary">Создать проект</button><button>Открыть</button></div>
+  <label>Имя проекта<input value="Мельница"></label>
+  <div class="node"><div class="head">Выбор</div><div class="body">Как ответить Мире?<div class="opt">Пощадить рыцаря</div><div class="opt sel">Отказать</div></div></div>
+  <div class="row chips"><span class="chip">доверие ≥ 3</span><span class="chip warn">ружьё не выстрелило</span></div>
+  <div class="sw"><i style="background:#121418" title="bg"></i><i style="background:#1a1d23" title="surface"></i><i style="background:#22262e" title="surface-2"></i><i style="background:#2e333d" title="line"></i><i style="background:#9aa1ae" title="text-muted"></i><i style="background:#e7e9ee" title="text"></i><i style="background:#7b86ff" title="accent"></i><i style="background:#3fb97a" title="success"></i><i style="background:#e0a63a" title="warning"></i><i style="background:#e5534b" title="danger"></i></div>
+</section><section style="--bg:#121418;--surface:#1a1d23;--surface2:#22262e;--line:#2e333d;--text:#e7e9ee;--muted:#9aa1ae;--accent:#f0a43c;--accent-h:#f5b965;--on:#17120a;--input:#6b7383">
+  <h2>Б · Янтарь</h2>
+  <div class="logo"><svg viewBox="0 0 64 64" width="56" height="56" aria-hidden="true">
+  <path d="M22 32 C34 32 32 17 44 17 M22 32 C34 32 32 47 44 47" fill="none" stroke="#5b6474" stroke-width="4" stroke-linecap="round"/>
+  <rect x="4" y="22" width="20" height="20" rx="6" fill="#f0a43c"/>
+  <rect x="42" y="8" width="18" height="18" rx="5" fill="#f0a43c" opacity="0.85"/>
+  <rect x="42" y="38" width="18" height="18" rx="5" fill="#e7e9ee" opacity="0.9"/>
+</svg><span class="word">HEr<b>Plan</b></span></div>
+  <div class="row"><button class="primary">Создать проект</button><button>Открыть</button></div>
+  <label>Имя проекта<input value="Мельница"></label>
+  <div class="node"><div class="head">Выбор</div><div class="body">Как ответить Мире?<div class="opt">Пощадить рыцаря</div><div class="opt sel">Отказать</div></div></div>
+  <div class="row chips"><span class="chip">доверие ≥ 3</span><span class="chip warn">ружьё не выстрелило</span></div>
+  <div class="sw"><i style="background:#121418" title="bg"></i><i style="background:#1a1d23" title="surface"></i><i style="background:#22262e" title="surface-2"></i><i style="background:#2e333d" title="line"></i><i style="background:#9aa1ae" title="text-muted"></i><i style="background:#e7e9ee" title="text"></i><i style="background:#f0a43c" title="accent"></i><i style="background:#3fb97a" title="success"></i><i style="background:#e0a63a" title="warning"></i><i style="background:#e5534b" title="danger"></i></div>
+</section><section style="--bg:#121418;--surface:#1a1d23;--surface2:#22262e;--line:#2e333d;--text:#e7e9ee;--muted:#9aa1ae;--accent:#34c9a5;--accent-h:#5ad6b8;--on:#08130f;--input:#6b7383">
+  <h2>В · Мята</h2>
+  <div class="logo"><svg viewBox="0 0 64 64" width="56" height="56" aria-hidden="true">
+  <path d="M22 32 C34 32 32 17 44 17 M22 32 C34 32 32 47 44 47" fill="none" stroke="#5b6474" stroke-width="4" stroke-linecap="round"/>
+  <rect x="4" y="22" width="20" height="20" rx="6" fill="#34c9a5"/>
+  <rect x="42" y="8" width="18" height="18" rx="5" fill="#34c9a5" opacity="0.85"/>
+  <rect x="42" y="38" width="18" height="18" rx="5" fill="#e7e9ee" opacity="0.9"/>
+</svg><span class="word">HEr<b>Plan</b></span></div>
+  <div class="row"><button class="primary">Создать проект</button><button>Открыть</button></div>
+  <label>Имя проекта<input value="Мельница"></label>
+  <div class="node"><div class="head">Выбор</div><div class="body">Как ответить Мире?<div class="opt">Пощадить рыцаря</div><div class="opt sel">Отказать</div></div></div>
+  <div class="row chips"><span class="chip">доверие ≥ 3</span><span class="chip warn">ружьё не выстрелило</span></div>
+  <div class="sw"><i style="background:#121418" title="bg"></i><i style="background:#1a1d23" title="surface"></i><i style="background:#22262e" title="surface-2"></i><i style="background:#2e333d" title="line"></i><i style="background:#9aa1ae" title="text-muted"></i><i style="background:#e7e9ee" title="text"></i><i style="background:#34c9a5" title="accent"></i><i style="background:#3fb97a" title="success"></i><i style="background:#e0a63a" title="warning"></i><i style="background:#e5534b" title="danger"></i></div>
+</section></body></html>

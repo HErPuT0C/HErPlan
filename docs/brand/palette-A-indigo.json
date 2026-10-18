@@ -1,0 +1,88 @@
+{
+  "name": "A-indigo",
+  "colors": {
+    "bg": "#121418",
+    "surface": "#1a1d23",
+    "surface-2": "#22262e",
+    "line": "#2e333d",
+    "text": "#e7e9ee",
+    "text-muted": "#9aa1ae",
+    "success": "#3fb97a",
+    "warning": "#e0a63a",
+    "danger": "#e5534b",
+    "accent": "#7b86ff",
+    "accent-hover": "#949dff",
+    "on-accent": "#0e0f14",
+    "border-input": "#6b7383"
+  },
+  "pairs": [
+    [
+      "text",
+      "bg"
+    ],
+    [
+      "text",
+      "surface"
+    ],
+    [
+      "text",
+      "surface-2"
+    ],
+    [
+      "text-muted",
+      "bg"
+    ],
+    [
+      "text-muted",
+      "surface"
+    ],
+    [
+      "text-muted",
+      "surface-2"
+    ],
+    [
+      "on-accent",
+      "accent"
+    ],
+    [
+      "on-accent",
+      "accent-hover"
+    ],
+    [
+      "accent",
+      "bg",
+      "ui"
+    ],
+    [
+      "accent",
+      "surface",
+      "ui"
+    ],
+    [
+      "success",
+      "surface",
+      "ui"
+    ],
+    [
+      "warning",
+      "surface",
+      "ui"
+    ],
+    [
+      "danger",
+      "surface",
+      "ui"
+    ],
+    [
+      "border-input",
+      "surface",
+      "ui"
+    ],
+    [
+      "border-input",
+      "bg",
+      "ui"
+    ]
+  ],
+  "note": "\"line\" is a decorative divider (exempt from WCAG 1.4.11); input borders use \"border-input\"."
+}
