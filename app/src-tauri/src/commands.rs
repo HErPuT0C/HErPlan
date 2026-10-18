@@ -4,6 +4,7 @@
 //! pool, so the window stays responsive while a large project is read or zipped. Tauri maps the
 //! camelCase argument names of the interface (`destDir`) to these snake_case parameters.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 
@@ -180,4 +181,28 @@ pub async fn project_import_folder(source: String, target_dir: String) -> Comman
     let source = absolute(&source)?;
     let target_dir = absolute(&target_dir)?;
     blocking(move || storage::import_folder(&source, &target_dir)).await
+}
+
+/// Versions and environment for bug reports (FR-APP-07).
+#[tauri::command]
+pub fn system_info(app: AppHandle) -> BTreeMap<String, String> {
+    let webview = tauri::webview_version().unwrap_or_else(|e| format!("unknown ({e})"));
+    BTreeMap::from([
+        ("app".into(), app.package_info().version.to_string()),
+        ("tauri".into(), tauri::VERSION.into()),
+        ("webview".into(), webview),
+        ("os".into(), os_info::get().to_string()),
+        ("arch".into(), std::env::consts::ARCH.into()),
+    ])
+}
+
+/// Saves a bug report into a `reports` folder in the per-user data folder; the interface reveals it.
+#[tauri::command]
+pub async fn report_save(app: AppHandle, text: String) -> CommandResult<String> {
+    let dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(shell_error)?
+        .join("reports");
+    blocking(move || storage::save_report(&dir, &text).map(|p| p.display().to_string())).await
 }

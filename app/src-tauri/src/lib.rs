@@ -32,6 +32,8 @@ pub fn run() {
             commands::project_export_zip,
             commands::project_import_zip,
             commands::project_import_folder,
+            commands::system_info,
+            commands::report_save,
         ])
         .run(tauri::generate_context!())
         .expect("failed to start HErPlan");

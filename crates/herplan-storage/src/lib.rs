@@ -36,6 +36,6 @@ pub use model::{
     ProjectSnapshot,
 };
 pub use paths::{require_absolute, validate_rel_path, PROJECT_FILE};
-pub use settings::{load_settings, save_settings, SETTINGS_FILE};
+pub use settings::{load_settings, save_report, save_settings, SETTINGS_FILE};
 pub use snapshot::{read_project, read_project_file};
 pub use write::{import_file, write_project};

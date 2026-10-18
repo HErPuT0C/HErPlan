@@ -78,9 +78,29 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
+  crash-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Kill the process 200 times while it saves; the project must open every time (NFR-06)
+        shell: bash
+        run: cargo run --release -p herplan-storage --example crashtest -- run "$RUNNER_TEMP/crash" 200 | tee crashtest.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: crashtest-${{ matrix.os }}
+          path: crashtest.json
+          retention-days: 14
+
   windows-installer:
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
-    needs: [web, rust]
+    needs: [web, rust, crash-test]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

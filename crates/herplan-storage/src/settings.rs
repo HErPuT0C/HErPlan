@@ -5,7 +5,7 @@
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::atomic::write_atomic;
 use crate::clock::Utc;
@@ -40,6 +40,22 @@ pub fn save_settings(config_dir: &Path, text: &str) -> Result<()> {
     fs::create_dir_all(config_dir).at(config_dir)?;
     let path = config_dir.join(SETTINGS_FILE);
     write_atomic(&path, text.as_bytes()).at(&path)
+}
+
+/// Saves a bug report as `report-<UTC stamp>.txt` in `reports_dir`; returns the file path.
+/// Two reports within one second get `-2`, `-3`, so an earlier report is never overwritten.
+pub fn save_report(reports_dir: &Path, text: &str) -> Result<PathBuf> {
+    fs::create_dir_all(reports_dir).at(reports_dir)?;
+    let stamp = Utc::now().file_stamp();
+    let mut path = reports_dir.join(format!("report-{stamp}.txt"));
+    for n in 2.. {
+        if !path.exists() {
+            break;
+        }
+        path = reports_dir.join(format!("report-{stamp}-{n}.txt"));
+    }
+    write_atomic(&path, text.as_bytes()).at(&path)?;
+    Ok(path)
 }
 
 #[cfg(test)]
@@ -78,5 +94,16 @@ mod tests {
             assert_eq!(damaged.len(), 1, "{content:?}");
             assert_eq!(fs::read(dir.join(&damaged[0])).unwrap(), content);
         }
+    }
+
+    #[test]
+    fn saves_reports_without_overwriting() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("reports");
+        let first = save_report(&dir, "one").unwrap();
+        let second = save_report(&dir, "two").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(fs::read_to_string(&first).unwrap(), "one");
+        assert_eq!(fs::read_to_string(&second).unwrap(), "two");
     }
 }
