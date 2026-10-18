@@ -1,12 +1,15 @@
 [package]
 name = "herplan-storage"
 version = "0.1.0"
-description = "Project storage for HErPlan: atomic file writes (ADR-004)."
+description = "Project storage for HErPlan: project folders, atomic writes, backups and archives (ADR-004)."
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [dev-dependencies]
 tempfile = "3"
