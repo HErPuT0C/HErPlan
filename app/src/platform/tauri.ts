@@ -90,6 +90,10 @@ export class TauriPlatform implements Platform {
     return invoke('project_export_zip', { dir, target });
   }
 
+  exportText(target: string, text: string): Promise<void> {
+    return invoke('export_text', { target, text });
+  }
+
   importZip(source: string, targetDir: string): Promise<void> {
     return invoke('project_import_zip', { source, targetDir });
   }

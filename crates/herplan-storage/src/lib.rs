@@ -23,7 +23,7 @@ mod snapshot;
 mod walk;
 mod write;
 
-pub use archive::{export_zip, import_folder, import_zip};
+pub use archive::{export_text, export_zip, import_folder, import_zip};
 pub use atomic::{
     read_file, remove_stale_temp_files, remove_stale_temp_files_recursive, write_atomic,
     ReadOutcome,

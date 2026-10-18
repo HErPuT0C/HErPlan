@@ -99,6 +99,8 @@ export interface Platform {
   restoreBackup(dir: string, kind: BackupKind, name: string, safetyLabel: string): Promise<BackupInfo>;
 
   exportZip(dir: string, target: string): Promise<void>;
+  /** Writes an exported file (JSON for game engines) at a path picked in a save dialog. */
+  exportText(target: string, text: string): Promise<void>;
   importZip(source: string, targetDir: string): Promise<void>;
   importFolder(source: string, targetDir: string): Promise<void>;
 

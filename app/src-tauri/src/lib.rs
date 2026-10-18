@@ -30,6 +30,7 @@ pub fn run() {
             commands::backup_prune,
             commands::backup_restore,
             commands::project_export_zip,
+            commands::export_text,
             commands::project_import_zip,
             commands::project_import_folder,
             commands::system_info,

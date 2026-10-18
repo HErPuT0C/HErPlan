@@ -170,6 +170,12 @@ pub async fn project_export_zip(dir: String, target: String) -> CommandResult<()
 }
 
 #[tauri::command]
+pub async fn export_text(target: String, text: String) -> CommandResult<()> {
+    let target = absolute(&target)?;
+    blocking(move || storage::export_text(&target, &text)).await
+}
+
+#[tauri::command]
 pub async fn project_import_zip(source: String, target_dir: String) -> CommandResult<()> {
     let source = absolute(&source)?;
     let target_dir = absolute(&target_dir)?;

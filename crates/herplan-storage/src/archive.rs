@@ -34,6 +34,22 @@ pub fn export_zip(dir: &Path, target: &Path) -> Result<()> {
     write_project_zip(dir, target)
 }
 
+/// Writes an exported text file (JSON for game engines, Markdown) at `target`, atomically.
+/// The folder must exist: it was picked in a save dialog.
+pub fn export_text(target: &Path, text: &str) -> Result<()> {
+    match target.parent() {
+        Some(parent) if parent.is_dir() => {}
+        _ => {
+            return Err(StorageError::new(
+                ErrorCode::NotFound,
+                "the folder of the exported file does not exist",
+                Some(target),
+            ))
+        }
+    }
+    crate::atomic::write_atomic(target, text.as_bytes()).at(target)
+}
+
 /// Unpacks a project archive into `target_dir`, which must be missing or empty.
 /// `project.json` may be at the archive root or inside a single top-level folder.
 pub fn import_zip(source: &Path, target_dir: &Path) -> Result<()> {
@@ -313,6 +329,22 @@ mod tests {
         fs::write(dir.join("backups/auto/old.zip"), b"x").unwrap();
         fs::write(dir.join("data/.types.json.tmp-1"), b"partial").unwrap();
         tmp
+    }
+
+    #[test]
+    fn exports_text_into_an_existing_folder_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("story.json");
+        export_text(&target, "{\"format\":\"herplan-export\"}\n").unwrap();
+        assert_eq!(
+            fs::read_to_string(&target).unwrap(),
+            "{\"format\":\"herplan-export\"}\n"
+        );
+        export_text(&target, "{}\n").unwrap();
+        assert_eq!(fs::read_to_string(&target).unwrap(), "{}\n");
+        let missing = tmp.path().join("nope").join("story.json");
+        let err = export_text(&missing, "{}").unwrap_err();
+        assert_eq!(err.code, ErrorCode::NotFound);
     }
 
     /// Every file of a project except backups/ and .herplan/, by relative path.

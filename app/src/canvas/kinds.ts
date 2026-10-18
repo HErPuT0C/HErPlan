@@ -18,8 +18,8 @@ export interface Port {
   y: number;
   /** One of the four side anchors: shown only on hover or when connected. */
   anchor?: boolean;
-  /** Short text next to the port ("yes", an option number). */
-  label?: string;
+  /** Short text next to the port ("yes", "no"). */
+  label?: MessageKey;
 }
 
 export interface NodeKindDef {
@@ -31,6 +31,8 @@ export interface NodeKindDef {
   ports: (node: GraphNode) => Port[];
   /** Drawn as a note: no header, the text fills the card. */
   sticker?: boolean;
+  /** Fits the node's size to its content (dialogue lines, choice options) after a change. */
+  fit?: (node: GraphNode) => void;
   /** Offered in the create menus of these graph kinds; omitted means everywhere. */
   graphs?: readonly string[];
   /** Order and grouping in the create menu. */

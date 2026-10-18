@@ -301,6 +301,11 @@ export class MemoryPlatform implements Platform {
     this.save();
   }
 
+  async exportText(target: string, text: string): Promise<void> {
+    this.fs.files[join(target)] = text;
+    this.save();
+  }
+
   async importZip(source: string, targetDir: string): Promise<void> {
     this.extractInto(targetDir, this.readArchive(source));
   }

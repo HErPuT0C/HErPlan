@@ -228,7 +228,7 @@ const NodeCard = memo(function NodeCard({
           style={{ left: p.x, top: p.y }}
           data-port={p.id}
         >
-          {p.label && <span className={`cnode-port-label cnode-port-label-${p.face}`}>{p.label}</span>}
+          {p.label && <span className={`cnode-port-label cnode-port-label-${p.face}`}>{t(p.label)}</span>}
         </span>
       ))}
       {selected &&
