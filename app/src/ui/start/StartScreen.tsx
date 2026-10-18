@@ -16,6 +16,7 @@ import { CreateProjectDialog } from './CreateProjectDialog';
 import { zipFilters } from './filters';
 import { ImportDialog, type ImportSource } from './ImportDialog';
 import { LanguageSwitch } from './LanguageSwitch';
+import { versionText } from '../version';
 import './start.css';
 
 /** First screen (FR-PRJ-01): create, open or import a project, or continue a recent one. */
@@ -128,7 +129,7 @@ export function StartScreen() {
         </section>
       </main>
 
-      <footer className="start-footer muted small">{t('app.versionLine', { version: __APP_VERSION__ })}</footer>
+      <footer className="start-footer muted small">{versionText()}</footer>
 
       <CreateProjectDialog open={creating} onClose={() => setCreating(false)} />
       <ImportDialog source={importing} onClose={() => setImporting(null)} />

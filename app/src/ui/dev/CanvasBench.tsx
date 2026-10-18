@@ -13,6 +13,7 @@ import { t, type MessageKey } from '../../i18n';
 import type { OpenProject } from '../../state/project';
 import { CanvasView } from '../canvas/CanvasView';
 import { Button, SelectField, toast } from '../components';
+import { FULL_VERSION } from '../../core/version';
 import './bench.css';
 
 export interface BenchReport {
@@ -193,7 +194,7 @@ export function CanvasBench() {
 
 function reportText(r: BenchReport): string {
   return [
-    `HErPlan ${__APP_VERSION__} — canvas benchmark`,
+    `HErPlan ${FULL_VERSION} — canvas benchmark`,
     `GPU: ${r.gpu}; screen ${r.screen}; ${r.nodes} nodes, ${r.edges} edges; mode ${r.mode}`,
     '| phase | fps | p95 ms | max ms |',
     '| --- | --- | --- | --- |',

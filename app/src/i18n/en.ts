@@ -3,6 +3,7 @@ import type { MessageKey } from './ru';
 // English interface strings; the type makes the compiler reject a missing key.
 export const en: Record<MessageKey, string> = {
   'app.versionLine': 'HErPlan {version}',
+  'app.versionBuild': 'HErPlan {version} · build {build}',
 
   'common.cancel': 'Cancel',
   'common.change': 'Change…',

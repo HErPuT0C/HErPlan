@@ -2,6 +2,7 @@
 
 export const ru = {
   'app.versionLine': 'HErPlan {version}',
+  'app.versionBuild': 'HErPlan {version} · сборка {build}',
 
   'common.cancel': 'Отмена',
   'common.change': 'Изменить…',

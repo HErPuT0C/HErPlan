@@ -5,6 +5,7 @@ import { t } from '../../i18n';
 import { platform } from '../../platform';
 import { settings } from '../../state/settings';
 import { Button, Dialog, TextArea, toast } from '../components';
+import { FULL_VERSION } from '../../core/version';
 import { errorText } from '../errors';
 
 const ISSUES_URL = 'https://github.com/HErPuT0C/HErPlan/issues/new';
@@ -49,7 +50,7 @@ function Report({ onClose }: { onClose: () => void }) {
     setBusy(true);
     try {
       const { system, settings: summary } = await collect();
-      const text = buildReport({ version: __APP_VERSION__, system, settings: summary, log: recentLog(), description });
+      const text = buildReport({ version: FULL_VERSION, system, settings: summary, log: recentLog(), description });
       const path = await platform().saveReport(text);
       toast({
         kind: 'success',
@@ -69,7 +70,7 @@ function Report({ onClose }: { onClose: () => void }) {
     const body = [
       description.trim() || t('report.issueDescribe'),
       '',
-      `HErPlan ${__APP_VERSION__}`,
+      `HErPlan ${FULL_VERSION}`,
       ...Object.entries(system).map(([k, v]) => `${k}: ${v}`),
       '',
       t('report.issueAttach'),

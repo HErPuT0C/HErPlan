@@ -10,6 +10,7 @@ import { Button, Dialog, SelectField, TabPanel, Tabs, TextField } from '../compo
 import { HOTKEYS } from '../hotkeys';
 import { ReportDialog } from '../report/ReportDialog';
 import { LOCALE_NAMES } from '../start/LanguageSwitch';
+import { versionText } from '../version';
 
 export const REPO_URL = 'https://github.com/HErPuT0C/HErPlan';
 const ISSUES_URL = `${REPO_URL}/issues/new`;
@@ -255,7 +256,7 @@ function About() {
   const [reporting, setReporting] = useState(false);
   return (
     <div className="about">
-      <p>{t('app.versionLine', { version: __APP_VERSION__ })}</p>
+      <p>{versionText()}</p>
       <p className="muted">{t('settings.aboutText')}</p>
       <div className="about-actions">
         <Button icon={<MessageSquare size={16} />} onClick={() => void p.openUrl(`${ISSUES_URL}?labels=feedback`)}>
