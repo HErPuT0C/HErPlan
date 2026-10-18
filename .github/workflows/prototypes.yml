@@ -105,10 +105,17 @@ jobs:
       - name: Control group (naive overwrite, 100 kills, expected to corrupt)
         shell: bash
         run: ./target/release/crashtest run-naive crash-naive 100 | tee crashtest-naive.json
+      - name: Project layout benchmark (100 000 objects)
+        shell: bash
+        run: |
+          cargo build --release --bin formatbench
+          ./target/release/formatbench formatbench-data | tee formatbench.json
       - uses: actions/upload-artifact@v4
         with:
-          name: crashtest-${{ matrix.os }}
-          path: prototypes/storage/crashtest-*.json
+          name: storage-${{ matrix.os }}
+          path: |
+            prototypes/storage/crashtest-*.json
+            prototypes/storage/formatbench.json
 
   windows:
     needs: web
