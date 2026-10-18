@@ -8,6 +8,7 @@ import type { OpenProject } from '../../state/project';
 import { ACCENTS, settings, UI_SCALES, updateSettings, type Accent } from '../../state/settings';
 import { Button, Dialog, SelectField, TabPanel, Tabs, TextField } from '../components';
 import { HOTKEYS } from '../hotkeys';
+import { ReportDialog } from '../report/ReportDialog';
 import { LOCALE_NAMES } from '../start/LanguageSwitch';
 
 export const REPO_URL = 'https://github.com/HErPuT0C/HErPlan';
@@ -241,6 +242,7 @@ function HotkeyList() {
 
 function About() {
   const p = platform();
+  const [reporting, setReporting] = useState(false);
   return (
     <div className="about">
       <p>{t('app.versionLine', { version: __APP_VERSION__ })}</p>
@@ -249,13 +251,14 @@ function About() {
         <Button icon={<MessageSquare size={16} />} onClick={() => void p.openUrl(`${ISSUES_URL}?labels=feedback`)}>
           {t('settings.feedback')}
         </Button>
-        <Button icon={<Bug size={16} />} onClick={() => void p.openUrl(`${ISSUES_URL}?labels=bug`)}>
+        <Button icon={<Bug size={16} />} onClick={() => setReporting(true)}>
           {t('settings.reportBug')}
         </Button>
         <Button variant="ghost" icon={<ExternalLink size={16} />} onClick={() => void p.openUrl(REPO_URL)}>
           {t('settings.sourceCode')}
         </Button>
       </div>
+      <ReportDialog open={reporting} onClose={() => setReporting(false)} />
     </div>
   );
 }

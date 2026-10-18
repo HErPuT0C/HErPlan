@@ -208,6 +208,19 @@ export const en: Record<MessageKey, string> = {
   'settings.reportBug': 'Report a bug',
   'settings.sourceCode': 'Source code',
 
+  'report.title': 'Report a bug',
+  'report.intro':
+    'HErPlan sends nothing by itself. Save the report to a file and attach it to a GitHub issue or send it to the developers.',
+  'report.description': 'What happened?',
+  'report.descriptionPlaceholder': 'What you were doing, what you expected and what happened',
+  'report.contents':
+    'The report contains: HErPlan, Windows and WebView2 versions, the GPU, settings without folder paths, and recent errors.',
+  'report.save': 'Save report',
+  'report.saved': 'Report saved: {path}',
+  'report.openIssue': 'Open GitHub Issues',
+  'report.issueDescribe': 'Describe what happened.',
+  'report.issueAttach': 'You can drag the report file here.',
+
   'hotkey.undo': 'Undo',
   'hotkey.redo': 'Redo',
   'hotkey.save': 'Save now',

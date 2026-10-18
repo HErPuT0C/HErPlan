@@ -209,6 +209,19 @@ export const ru = {
   'settings.reportBug': 'Сообщить об ошибке',
   'settings.sourceCode': 'Исходный код',
 
+  'report.title': 'Сообщить об ошибке',
+  'report.intro':
+    'HErPlan ничего не отправляет сам. Сохраните отчёт в файл и приложите его к сообщению на GitHub или пришлите разработчикам.',
+  'report.description': 'Что случилось?',
+  'report.descriptionPlaceholder': 'Что вы делали, что ожидали увидеть и что произошло',
+  'report.contents':
+    'В отчёт попадут: версия HErPlan, Windows и WebView2, видеокарта, настройки без путей к папкам и последние ошибки программы.',
+  'report.save': 'Сохранить отчёт',
+  'report.saved': 'Отчёт сохранён: {path}',
+  'report.openIssue': 'Открыть GitHub Issues',
+  'report.issueDescribe': 'Опишите, что произошло.',
+  'report.issueAttach': 'Файл отчёта можно перетащить сюда.',
+
   'hotkey.undo': 'Отменить',
   'hotkey.redo': 'Повторить',
   'hotkey.save': 'Сохранить сейчас',

@@ -122,6 +122,14 @@ export class TauriPlatform implements Platform {
     return getCurrentWebview().setZoom(percent / 100);
   }
 
+  systemInfo(): Promise<Record<string, string>> {
+    return invoke('system_info');
+  }
+
+  saveReport(text: string): Promise<string> {
+    return invoke('report_save', { text });
+  }
+
   onWindowClose(handler: () => Promise<void>): void {
     // The window waits for the async handler, then closes (unless the event is prevented).
     void getCurrentWindow().onCloseRequested(async () => {

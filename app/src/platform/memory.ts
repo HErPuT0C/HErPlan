@@ -359,6 +359,17 @@ export class MemoryPlatform implements Platform {
     document.documentElement.style.zoom = String(percent / 100);
   }
 
+  async systemInfo(): Promise<Record<string, string>> {
+    return { app: __APP_VERSION__, shell: 'browser', userAgent: navigator.userAgent };
+  }
+
+  async saveReport(text: string): Promise<string> {
+    const path = join('/Reports', `report-${timestampName(new Date())}.txt`);
+    this.fs.files[path] = text;
+    this.save();
+    return path;
+  }
+
   onWindowClose(handler: () => Promise<void>): void {
     // A page cannot wait on unload; in-memory writes finish synchronously, which is enough here.
     window.addEventListener('pagehide', () => void handler());

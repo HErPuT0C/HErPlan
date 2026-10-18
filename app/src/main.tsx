@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { captureConsole } from './core/log';
 import { platform } from './platform';
 import { isTypingTarget, keyString } from './ui/hotkeys';
 import { closeProject } from './state/project';
@@ -25,6 +26,7 @@ function blockBrowserBehaviour(): void {
 }
 
 async function start(): Promise<void> {
+  captureConsole();
   await loadSettings();
   if (platform().kind === 'tauri') blockBrowserBehaviour();
   platform().onWindowClose(async () => {

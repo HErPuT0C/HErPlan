@@ -113,6 +113,10 @@ export interface Platform {
   openUrl(url: string): Promise<void>;
   /** Interface scale in percent (80–200), like browser zoom. */
   setUiScale(percent: number): Promise<void>;
+  /** Versions and environment for bug reports: application, Tauri, WebView2, Windows, architecture. */
+  systemInfo(): Promise<Record<string, string>>;
+  /** Saves a bug report into the application's reports folder; returns the file path. */
+  saveReport(text: string): Promise<string>;
   /** Runs `handler` (saving, last backup) before the window closes. */
   onWindowClose(handler: () => Promise<void>): void;
 }
