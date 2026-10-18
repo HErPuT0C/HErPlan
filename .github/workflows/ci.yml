@@ -1,11 +1,15 @@
-# HErPlan application: checks on every push; the Windows installer on main or on demand.
-# Releases are started by a person: Actions → ci → Run workflow → tick "publish" (agent sessions cannot push tags).
+# HErPlan application: checks on every push; the Windows installer on main, on demand and for releases.
+# Releases are started by a person (agent sessions cannot push tags), either way:
+#   - GitHub → Releases → Draft a new release → Publish: the installer is built and attached to that release;
+#   - Actions → ci → Run workflow → tick "publish": a pre-release is created with the installer.
 name: ci
 
 on:
   push:
     branches: ['**']
     paths-ignore: ['prototypes/**', '.github/workflows/prototypes.yml']
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       publish:
@@ -99,7 +103,7 @@ jobs:
           retention-days: 14
 
   windows-installer:
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' || github.event_name == 'release'
     needs: [web, rust, crash-test]
     runs-on: windows-latest
     steps:
@@ -138,3 +142,17 @@ jobs:
           gh release create "${{ inputs.tag }}" dist-installer/*.exe --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA `
             --prerelease --title "HErPlan ${{ inputs.tag }}" `
             --notes "Сборка для проверки. Если Windows покажет предупреждение SmartScreen: «Подробнее» → «Выполнить в любом случае»."
+      - name: Attach the installer to the release
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload $env:TAG dist-installer/*.exe --clobber --repo $env:GITHUB_REPOSITORY
+          $notes = gh release view $env:TAG --repo $env:GITHUB_REPOSITORY --json body --jq .body
+          $howto = "Установка: скачайте HErPlan-…-setup.exe ниже и запустите. Если Windows покажет «Windows защитил ваш компьютер»: «Подробнее» → «Выполнить в любом случае». Архивы Source code — исходный код, для установки они не нужны."
+          if (-not ($notes -like "*setup.exe*")) {
+            Set-Content -Path notes.md -Value ($howto + "`n`n" + $notes) -Encoding utf8
+            gh release edit $env:TAG --notes-file notes.md --repo $env:GITHUB_REPOSITORY
+          }

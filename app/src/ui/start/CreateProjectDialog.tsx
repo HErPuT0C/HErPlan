@@ -4,7 +4,7 @@ import { newProject } from '../../core/project/create';
 import { allFiles, serializeJson } from '../../core/project/files';
 import { t } from '../../i18n';
 import { platform, type PathStatus } from '../../platform';
-import { folderNameFor } from '../../platform/paths';
+import { baseName, folderNameFor } from '../../platform/paths';
 import { openOrThrow } from '../../state/project';
 import { settings, updateSettings } from '../../state/settings';
 import { Button, Dialog, TextArea, TextField } from '../components';
@@ -32,7 +32,13 @@ function CreateProjectForm({ onClose }: { onClose: () => void }) {
 
   const folder = folderNameFor(name);
   const target = useAsync(
-    async () => (parent && folder ? platform().joinPath(parent, folder) : ''),
+    async () => {
+      if (!parent || !folder) return '';
+      // An empty folder already named after the project is used as is, not nested ("TactiCall\TactiCall").
+      const sameName = baseName(parent).toLowerCase() === folder.toLowerCase();
+      if (sameName && (await platform().pathStatus(parent)) === 'empty-dir') return parent;
+      return platform().joinPath(parent, folder);
+    },
     [parent, folder],
     '',
   );

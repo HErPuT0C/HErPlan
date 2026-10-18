@@ -77,6 +77,25 @@ test('a folder that is not empty is refused when creating', async ({ page }) => 
   await expect(dialog.getByRole('button', { name: 'Создать', exact: true })).toBeDisabled();
 });
 
+test('an empty folder named like the project is used directly, not nested', async ({ page }) => {
+  await freshStart(page);
+  await page.evaluate(() => {
+    const fs = { files: {}, dirs: ['/Documents', '/Documents/Games', '/Documents/Games/TactiCall'] };
+    localStorage.setItem('herplan.web.fs.v1', JSON.stringify(fs));
+    localStorage.setItem(
+      'herplan.web.settings.v1',
+      JSON.stringify({ locale: 'ru', projectsDir: '/Documents/Games/TactiCall' }),
+    );
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Создать проект' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Новый проект' });
+  await dialog.getByLabel('Название').fill('TactiCall');
+  await expect(dialog.getByText('Будет создана папка /Documents/Games/TactiCall', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Создать', exact: true }).click();
+  await expect(page.getByText('/Documents/Games/TactiCall', { exact: true })).toBeVisible();
+});
+
 test('language and accent switch at once and persist', async ({ page }) => {
   await freshStart(page);
   await page.getByRole('button', { name: 'Настройки' }).click();

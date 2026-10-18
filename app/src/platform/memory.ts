@@ -176,6 +176,7 @@ export class MemoryPlatform implements Platform {
 
   async createProject(dir: string, files: FileText[]): Promise<void> {
     const status = this.status(dir);
+    // An existing empty folder is fine, like on disk.
     if (status === 'non-empty-dir') fail('not-empty', 'folder is not empty', dir);
     if (status === 'file') fail('exists', 'a file with this name exists', dir);
     const targets = files.map((f) => [this.rel(dir, f.path), f.text] as const);
