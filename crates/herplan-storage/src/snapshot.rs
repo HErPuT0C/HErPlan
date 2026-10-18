@@ -8,8 +8,9 @@ use std::io;
 use std::path::Path;
 use std::thread;
 
-use crate::atomic::ReadOutcome;
-use crate::atomic::{read_file, remove_stale_temp_files, remove_stale_temp_files_recursive};
+use crate::atomic::{
+    read_file, remove_stale_temp_files, remove_stale_temp_files_recursive, ReadOutcome,
+};
 use crate::clock::unix_ms;
 use crate::error::{AtPath, Result, StorageError};
 use crate::layout::require_project;
@@ -77,12 +78,10 @@ pub fn read_project_file(dir: &Path, rel: &str) -> Result<Option<String>> {
 
 fn remove_restore_leftovers(dir: &Path) -> Result<()> {
     let cache = dir.join(".herplan");
-    let entries = match fs::read_dir(&cache) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(StorageError::io(&e, &cache)),
-    };
-    for entry in entries {
+    if !cache.is_dir() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(&cache).at(&cache)? {
         let entry = entry.at(&cache)?;
         let name = entry.file_name().to_string_lossy().into_owned();
         if RESTORE_LEFTOVERS.iter().any(|p| name.starts_with(p)) && entry.path().is_dir() {
@@ -98,10 +97,9 @@ fn remove_temp_files(dir: &Path) -> Result<u32> {
     let mut removed = remove_stale_temp_files(dir).at(dir)?;
     for sub in ["data", "documents", ".herplan"] {
         let path = dir.join(sub);
-        match remove_stale_temp_files_recursive(&path) {
-            Ok(n) => removed += n,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => return Err(StorageError::io(&e, &path)),
+        // A missing folder (or a stray file with that name) has nothing to clean.
+        if path.is_dir() {
+            removed += remove_stale_temp_files_recursive(&path).at(&path)?;
         }
     }
     Ok(u32::try_from(removed).unwrap_or(u32::MAX))
@@ -337,6 +335,8 @@ mod tests {
     fn tolerates_missing_layout_folders() {
         let tmp = tempfile::tempdir().unwrap();
         put(tmp.path(), "project.json", b"{}");
+        // A stray file where a folder is expected is not an error either.
+        put(tmp.path(), ".herplan", b"x");
         let snap = read_project(tmp.path()).unwrap();
         assert_eq!(snap.files.len(), 1);
         assert!(snap.assets.is_empty());
