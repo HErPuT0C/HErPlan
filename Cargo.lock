@@ -1436,7 +1436,6 @@ name = "herplan"
 version = "0.1.0"
 dependencies = [
  "herplan-storage",
- "serde",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

@@ -22,7 +22,10 @@
         "center": true
       }
     ],
-    "security": { "csp": "default-src 'self'; img-src 'self' asset: data:; style-src 'self' 'unsafe-inline'" }
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'",
+      "assetProtocol": { "enable": true, "scope": [] }
+    }
   },
   "bundle": {
     "active": true,
