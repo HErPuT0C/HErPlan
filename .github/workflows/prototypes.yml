@@ -12,9 +12,10 @@ on:
 permissions:
   contents: write
 
+# A newer push waits for the running measurement instead of cancelling it half-way.
 concurrency:
   group: prototypes-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   web:
