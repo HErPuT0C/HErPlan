@@ -1,4 +1,5 @@
 # Phase F0 prototypes: build the web prototype, wrap it in Tauri (ADR-001), measure it on Windows.
+# Artifacts expire on their own (retention-days): intermediate ones after 1–2 weeks, installers after 30 days.
 # A tag like proto-v0.0.1 also publishes the installers and measurements as a GitHub pre-release.
 name: prototypes
 
@@ -55,10 +56,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: web-dist
+          retention-days: 7
           path: prototypes/web/dist
       - uses: actions/upload-artifact@v4
         with:
           name: web-smoke
+          retention-days: 14
           path: prototypes/web/bench-results
 
   expr:
@@ -94,6 +97,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: pdf-sample
+          retention-days: 14
           path: prototypes/pdf/out/sample.pdf
 
   storage:
@@ -127,6 +131,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: storage-${{ matrix.os }}
+          retention-days: 14
           path: |
             prototypes/storage/crashtest-*.json
             prototypes/storage/formatbench.json
@@ -175,6 +180,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: HErPlan-prototype-installer
+          retention-days: 30
           path: |
             dist-installers
             results

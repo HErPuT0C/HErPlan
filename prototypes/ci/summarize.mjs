@@ -1,5 +1,5 @@
 // Turns measure.ps1 outputs into a Markdown table for the job summary and release notes.
-// Usage: node summarize.mjs results/tauri.json results/electron.json > summary.md
+// Usage: node summarize.mjs results/tauri.json > summary.md
 import { readFileSync } from 'node:fs';
 
 const rows = process.argv.slice(2).map((f) => JSON.parse(readFileSync(f, 'utf8').replace(/^﻿/, '')));

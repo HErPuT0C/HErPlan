@@ -49,6 +49,7 @@ jobs:
         if: failure()
         with:
           name: playwright-report
+          retention-days: 7
           path: app/playwright-report
 
   rust:
@@ -106,6 +107,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: HErPlan-installer
+          retention-days: 30
           path: dist-installer
       - name: Publish pre-release
         if: github.event_name == 'workflow_dispatch' && inputs.publish

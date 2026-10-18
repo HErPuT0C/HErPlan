@@ -32,7 +32,6 @@ desktop.ini
 !.vscode/extensions.json
 
 # Prototype build inputs and outputs
-prototypes/shell-electron/web/
 prototypes/web/bench-results/
 prototypes/storage/crash-*/
 prototypes/storage/crashtest-*.json
