@@ -47,6 +47,69 @@ jobs:
           name: web-smoke
           path: prototypes/web/bench-results
 
+  expr:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: prototypes/expr
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+
+  pdf:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: prototypes/pdf
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run build
+      - name: Text is extractable and embeds are resolved
+        run: |
+          sudo apt-get install -y poppler-utils > /dev/null
+          pdfinfo out/sample.pdf
+          test "$(pdftotext out/sample.pdf - | grep -o 'Мира' | wc -l)" -ge 20
+          ! pdftotext out/sample.pdf - | grep -q 'ent:'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pdf-sample
+          path: prototypes/pdf/out/sample.pdf
+
+  storage:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: prototypes/storage
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: prototypes/storage
+      - run: cargo test --release
+      - run: cargo build --release --bin crashtest
+      - name: Crash test (atomic writes, 200 kills)
+        shell: bash
+        run: ./target/release/crashtest run crash-atomic 200 | tee crashtest-atomic.json
+      - name: Control group (naive overwrite, 100 kills, expected to corrupt)
+        shell: bash
+        run: ./target/release/crashtest run-naive crash-naive 100 | tee crashtest-naive.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crashtest-${{ matrix.os }}
+          path: prototypes/storage/crashtest-*.json
+
   windows:
     needs: web
     runs-on: windows-latest

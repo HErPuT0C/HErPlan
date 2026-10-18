@@ -1,0 +1,11 @@
+[package]
+name = "herplan-proto-storage"
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "F0 prototype: atomic project-file writes and a kill-during-write crash test."
+
+[dependencies]
+sha2 = "0.10"
+serde_json = "1"

@@ -1,0 +1,14 @@
+{
+  "name": "herplan-prototype-pdf",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "F0 prototype: Markdown document to PDF with table of contents and Cyrillic (ADR-006 candidate).",
+  "scripts": {
+    "build": "node make-pdf.mjs sample.md out/sample.pdf"
+  },
+  "dependencies": {
+    "marked": "^18.1.1",
+    "pdfmake": "^0.3.11"
+  }
+}
