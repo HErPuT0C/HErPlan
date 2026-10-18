@@ -1,0 +1,18 @@
+[package]
+name = "herplan"
+version = "0.1.0"
+description = "HErPlan desktop application"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "herplan_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = [] }
+herplan-storage = { path = "../../crates/herplan-storage" }

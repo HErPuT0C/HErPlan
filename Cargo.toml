@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["app/src-tauri", "crates/*"]
+# Phase F0 prototypes are standalone throwaway projects.
+exclude = ["prototypes"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+publish = false
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

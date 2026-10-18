@@ -1,0 +1,43 @@
+/* Placeholder look until the design tokens of task F1-03. */
+:root {
+  color-scheme: dark;
+  --bg: #14161b;
+  --text: #e6e9ef;
+  --muted: #8d95a3;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font:
+    14px/1.45 system-ui,
+    'Segoe UI',
+    sans-serif;
+}
+
+.splash {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.splash h1 {
+  margin: 0;
+  font-size: 32px;
+}
+
+.tagline,
+.status {
+  margin: 0;
+  color: var(--muted);
+}
