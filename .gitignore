@@ -36,3 +36,6 @@ prototypes/web/bench-results/
 prototypes/storage/crash-*/
 prototypes/storage/crashtest-*.json
 prototypes/pdf/out/
+
+# Claude Code agent worktrees
+.claude/worktrees/
