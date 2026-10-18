@@ -17,6 +17,11 @@ export default tseslint.config(
       'no-restricted-syntax': [
         'error',
         { selector: 'JSXText[value=/[A-Za-zА-Яа-яЁё]/]', message: 'Use t() from src/i18n for interface text.' },
+        {
+          selector:
+            'JSXAttribute[name.name=/^(title|placeholder|alt|aria-label|label|text)$/] > Literal[value=/[A-Za-zА-Яа-яЁё]/]',
+          message: 'Use t() from src/i18n for interface text.',
+        },
       ],
     },
   },

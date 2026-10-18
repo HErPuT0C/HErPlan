@@ -9,6 +9,40 @@ body {
   background: var(--bg);
   color: var(--text);
   font: var(--fs-md) / var(--lh) var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+code {
+  font: var(--fs-sm) var(--font-mono);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+.small {
+  font-size: var(--fs-sm);
+}
+p {
+  margin: 0;
+}
+
+.section-title {
+  margin: 0 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.form-error {
+  color: var(--danger);
 }
 
 .logo {
@@ -16,28 +50,177 @@ body {
   align-items: center;
   gap: 0.4em;
 }
-
 .logo-word {
   font-weight: 600;
   letter-spacing: -0.01em;
 }
-
 .logo-word b {
   color: var(--accent);
   font-weight: 600;
 }
 
-.splash {
+.cover {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+  user-select: none;
+}
+.cover img {
+  width: 100%;
   height: 100%;
+  object-fit: cover;
+}
+
+.path-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.path-text {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.create-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.create-cover {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.create-cover-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.issue-list {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.backup-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  max-height: 340px;
+  overflow: auto;
+}
+.backup-row {
+  display: grid;
+  grid-template-columns: 180px 1fr auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+.backup-row:last-child {
+  border-bottom: 0;
+}
+.backup-kind {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.backup-kind-manual {
+  color: var(--accent);
+}
+.history-create {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+.history-create .field {
+  flex: 1;
+}
+
+.accent-picker {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.accent-options {
+  display: flex;
+  gap: var(--space-3);
+}
+.accent-option {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  cursor: pointer;
+  min-width: 96px;
+}
+.accent-option[aria-checked='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.accent-swatch {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: #0e0f14;
 }
 
-.tagline,
-.status {
-  margin: 0;
-  color: var(--text-muted);
+.hotkey-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.hotkey-table td {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+.hotkey-table td:last-child {
+  text-align: right;
+}
+.hotkey-table .muted {
+  margin: 0 var(--space-2);
+}
+
+.about {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.about-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }

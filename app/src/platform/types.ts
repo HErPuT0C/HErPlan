@@ -88,6 +88,8 @@ export interface Platform {
   importFile(dir: string, source: string, destDir: string): Promise<string>;
   /** URL the interface can show in <img> for a file inside the project. */
   assetUrl(dir: string, path: string): Promise<string>;
+  /** URL for an outside file the user just picked (cover preview before the project exists). */
+  fileUrl(path: string): Promise<string>;
 
   createBackup(dir: string, kind: BackupKind, label: string | null): Promise<BackupInfo>;
   listBackups(dir: string): Promise<BackupInfo[]>;
@@ -109,4 +111,8 @@ export interface Platform {
   ): Promise<string | null>;
   revealInExplorer(path: string): Promise<void>;
   openUrl(url: string): Promise<void>;
+  /** Interface scale in percent (80–200), like browser zoom. */
+  setUiScale(percent: number): Promise<void>;
+  /** Runs `handler` (saving, last backup) before the window closes. */
+  onWindowClose(handler: () => Promise<void>): void;
 }
