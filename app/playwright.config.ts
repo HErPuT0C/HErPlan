@@ -3,6 +3,8 @@ import { defineConfig } from '@playwright/test';
 // End-to-end tests run against the web build in Chromium: the same engine as WebView2 on Windows.
 export default defineConfig({
   testDir: 'e2e',
+  // CI machines sometimes take longer than a test's budget just to start the browser: one retry there.
+  retries: process.env.CI ? 1 : 0,
   use: {
     baseURL: 'http://localhost:4174/',
     viewport: { width: 1366, height: 768 },
