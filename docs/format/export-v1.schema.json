@@ -1,0 +1,297 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/HErPuT0C/HErPlan/blob/main/docs/format/export-v1.schema.json",
+  "title": "HErPlan story export, version 1",
+  "description": "Story graphs, variables and world cards exported for game engines. See export-v1.md. Unknown fields may appear in later exports with the same version and must be ignored.",
+  "type": "object",
+  "required": [
+    "format",
+    "version",
+    "exportedWith",
+    "exportedAt",
+    "project",
+    "variables",
+    "entities",
+    "story"
+  ],
+  "properties": {
+    "format": { "const": "herplan-export" },
+    "version": { "const": 1 },
+    "exportedWith": {
+      "type": "string",
+      "description": "HErPlan version that wrote the file."
+    },
+    "exportedAt": { "type": "string", "format": "date-time" },
+    "project": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": { "id": { "type": "string" }, "name": { "type": "string" } }
+    },
+    "variables": { "type": "array", "items": { "$ref": "#/$defs/variable" } },
+    "entities": { "type": "array", "items": { "$ref": "#/$defs/entity" } },
+    "story": {
+      "type": "object",
+      "required": ["root", "graphs"],
+      "properties": {
+        "root": {
+          "type": ["string", "null"],
+          "description": "Id of the chapter overview graph."
+        },
+        "graphs": { "type": "array", "items": { "$ref": "#/$defs/graph" } }
+      }
+    }
+  },
+  "$defs": {
+    "nodeRef": {
+      "type": "object",
+      "required": ["graph", "node"],
+      "properties": {
+        "graph": { "type": "string" },
+        "node": { "type": "string" }
+      }
+    },
+    "value": { "type": ["boolean", "number", "string"] },
+    "expr": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "literal" },
+            "value": { "$ref": "#/$defs/value" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "name"],
+          "properties": {
+            "kind": { "const": "var" },
+            "name": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "op", "arg"],
+          "properties": {
+            "kind": { "const": "unary" },
+            "op": { "enum": ["not", "neg"] },
+            "arg": { "$ref": "#/$defs/expr" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "op", "left", "right"],
+          "properties": {
+            "kind": { "const": "binary" },
+            "op": {
+              "enum": [
+                "or",
+                "and",
+                "==",
+                "!=",
+                "<",
+                "<=",
+                ">",
+                ">=",
+                "+",
+                "-",
+                "*",
+                "/",
+                "%"
+              ]
+            },
+            "left": { "$ref": "#/$defs/expr" },
+            "right": { "$ref": "#/$defs/expr" }
+          }
+        }
+      ]
+    },
+    "condition": {
+      "type": ["object", "null"],
+      "required": ["source", "ast"],
+      "properties": {
+        "source": { "type": "string" },
+        "ast": {
+          "oneOf": [{ "$ref": "#/$defs/expr" }, { "type": "null" }],
+          "description": "Null when the source does not parse."
+        }
+      }
+    },
+    "effects": {
+      "type": ["object", "null"],
+      "required": ["source", "effects"],
+      "properties": {
+        "source": { "type": "string" },
+        "effects": {
+          "type": ["array", "null"],
+          "description": "Null when the source does not parse.",
+          "items": {
+            "type": "object",
+            "required": ["target", "op", "value"],
+            "properties": {
+              "target": {
+                "type": "string",
+                "description": "fullName of the variable."
+              },
+              "op": { "enum": ["=", "+=", "-="] },
+              "value": { "$ref": "#/$defs/expr" }
+            }
+          }
+        }
+      }
+    },
+    "variable": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "fullName",
+        "type",
+        "initial",
+        "scope",
+        "owner",
+        "values",
+        "description"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "fullName": {
+          "type": "string",
+          "description": "As written in expressions: Owner.name for a variable of a world card."
+        },
+        "type": {
+          "enum": ["bool", "int", "float", "string", "enum", "entity"]
+        },
+        "initial": { "type": ["boolean", "number", "string", "null"] },
+        "scope": {
+          "oneOf": [
+            { "const": "project" },
+            {
+              "type": "object",
+              "required": ["graph"],
+              "properties": { "graph": { "type": "string" } }
+            }
+          ]
+        },
+        "owner": { "type": ["string", "null"] },
+        "values": { "type": ["array", "null"], "items": { "type": "string" } },
+        "description": { "type": "string" }
+      }
+    },
+    "entity": {
+      "type": "object",
+      "required": ["id", "type", "name", "description", "image"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "enum": ["character", "location", "item"] },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "image": {
+          "type": ["string", "null"],
+          "description": "Path inside the project folder."
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": ["id", "from", "fromPort", "to", "label", "condition"],
+      "properties": {
+        "id": { "type": "string" },
+        "from": { "type": "string" },
+        "fromPort": {
+          "type": "string",
+          "description": "Option id for a choice, yes/no for a condition, a side otherwise."
+        },
+        "to": { "type": "string" },
+        "label": { "type": ["string", "null"] },
+        "condition": { "$ref": "#/$defs/condition" }
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": ["id", "kind", "title", "text", "x", "y"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": {
+          "enum": [
+            "start",
+            "scene",
+            "dialogue",
+            "choice",
+            "condition",
+            "effect",
+            "butterfly",
+            "gun",
+            "jump",
+            "chapter",
+            "end",
+            "character",
+            "location",
+            "item",
+            "node"
+          ]
+        },
+        "title": { "type": "string" },
+        "text": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "comment": { "type": "string" },
+        "plotRole": { "enum": ["consequence", "payoff"] },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "speaker", "text"],
+            "properties": {
+              "id": { "type": "string" },
+              "speaker": { "type": ["string", "null"] },
+              "text": { "type": "string" }
+            }
+          }
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "text", "condition", "effects"],
+            "properties": {
+              "id": { "type": "string" },
+              "text": { "type": "string" },
+              "condition": { "$ref": "#/$defs/condition" },
+              "effects": { "$ref": "#/$defs/effects" }
+            }
+          }
+        },
+        "condition": { "$ref": "#/$defs/condition" },
+        "effects": { "$ref": "#/$defs/effects" },
+        "consequences": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nodeRef" }
+        },
+        "payoffs": { "type": "array", "items": { "$ref": "#/$defs/nodeRef" } },
+        "target": {
+          "oneOf": [{ "$ref": "#/$defs/nodeRef" }, { "type": "null" }]
+        },
+        "graph": { "type": ["string", "null"] },
+        "image": { "type": ["string", "null"] },
+        "entity": { "type": ["string", "null"] }
+      }
+    },
+    "graph": {
+      "type": "object",
+      "required": ["id", "kind", "name", "parent", "start", "nodes", "edges"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "enum": ["story", "chapter"] },
+        "name": { "type": "string" },
+        "parent": {
+          "oneOf": [{ "$ref": "#/$defs/nodeRef" }, { "type": "null" }]
+        },
+        "start": { "type": ["string", "null"] },
+        "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+        "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" } }
+      }
+    }
+  }
+}
