@@ -16,6 +16,11 @@ async function openStoryCanvas(page: Page) {
   await page.getByRole('button', { name: 'Создать холст сценария' }).click();
   const canvas = page.getByRole('application', { name: 'Холст' });
   await expect(canvas).toBeVisible();
+  // These tests work on generic nodes: start from an empty canvas (the overview comes with a start node).
+  await page.locator('.canvas').click({ position: { x: 40, y: 400 } });
+  await page.keyboard.press('Control+A');
+  await page.keyboard.press('Delete');
+  await expect(page.locator('.cnode')).toHaveCount(0);
   return { canvas, box: (await canvas.boundingBox())! };
 }
 
@@ -95,7 +100,7 @@ test('dragging an edge into empty space creates a connected node; delete and cop
 test('search highlights matches and the canvas survives a reload', async ({ page }) => {
   const { box } = await openStoryCanvas(page);
   await createNode(page, box.x + 250, box.y + 250);
-  await createNode(page, box.x + 700, box.y + 250, 'Стикер');
+  await createNode(page, box.x + 700, box.y + 250, 'Заметка');
   await page.locator('.cnode-title').first().dblclick();
   await page.keyboard.press('Control+A');
   await page.keyboard.type('Мельница у реки');

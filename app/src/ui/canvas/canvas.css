@@ -488,6 +488,7 @@ textarea.cnode-edit {
   box-shadow: var(--shadow-popup);
 }
 .create-palette-search {
+  box-sizing: border-box;
   width: 100%;
   height: var(--control-h-sm);
   margin-bottom: 6px;

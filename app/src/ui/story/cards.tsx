@@ -19,8 +19,6 @@ import { CHOICE_PROMPT_H, FOLDED_LINES } from '../../story/kinds';
 import { useAsync } from '../useAsync';
 import { StoryContext, storyIndex, useStory } from './context';
 
-const NARRATOR_COLOR = 'var(--text-muted)';
-
 /** Content that opens the inspector on double click (the engine leaves `data-canvas-text` alone). */
 function Inspectable({
   node,
@@ -76,7 +74,7 @@ function DialogueBody({ node }: CardBodyProps) {
             key={line.id}
             className={['cline', [...line.text].length > limit && 'cline-long'].filter(Boolean).join(' ')}
           >
-            <span className="cline-speaker" style={{ color: speaker ? undefined : NARRATOR_COLOR }}>
+            <span className={speaker ? 'cline-speaker' : 'cline-speaker cline-narrator'}>
               {speaker ?? t('story.narrator')}
             </span>
             <span className="cline-text">{line.text || '…'}</span>

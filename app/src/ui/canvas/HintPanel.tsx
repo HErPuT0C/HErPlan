@@ -8,6 +8,7 @@ export const CANVAS_HINTS: [keys: (string | MessageKey)[], what: MessageKey][] =
   [['canvas.key.doubleClick'], 'canvas.hint.create'],
   [['canvas.key.dragPort'], 'canvas.hint.connect'],
   [['canvas.key.dragHandle'], 'canvas.hint.resize'],
+  [['Enter'], 'canvas.hint.open'],
   [['canvas.key.spaceDrag', 'canvas.key.middle'], 'canvas.hint.pan'],
   [['canvas.key.wheel'], 'canvas.hint.zoom'],
   [['Shift', 'Ctrl'], 'canvas.hint.addSelect'],

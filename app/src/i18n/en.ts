@@ -319,6 +319,7 @@ export const en: Record<MessageKey, string> = {
   'canvas.hint.create': 'create a node',
   'canvas.hint.connect':
     'drag a connection from any side of a node; into empty space to create a connected node on that side',
+  'canvas.hint.open': 'open a chapter or go to a jump target (or double-click)',
   'canvas.hint.resize': 'drag a node corner or any of the 8 points of a group frame to resize',
   'canvas.hint.pan': 'move the canvas',
   'canvas.hint.zoom': 'zoom to the cursor',
@@ -336,7 +337,7 @@ export const en: Record<MessageKey, string> = {
   'canvas.key.middle': 'Middle button',
   'canvas.key.wheel': 'Wheel',
   'canvas.storyEmpty':
-    'Your story goes here: nodes, connections, groups and stickers. Chapters, dialogue, choices and logic arrive in version 0.2.',
+    'Chapter overview, dialogue, choices, conditions and variables — and a playthrough to test the logic. Start with the story canvas: it comes with a Start node.',
   'canvas.createStory': 'Create the story canvas',
   'canvas.step.move': 'Move',
   'canvas.step.create': 'Create node',

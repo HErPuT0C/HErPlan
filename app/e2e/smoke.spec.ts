@@ -32,18 +32,24 @@ test('start screen: empty state, then a new project opens in the workspace', asy
   await freshStart(page);
   await expect(page.getByRole('heading', { name: 'Добро пожаловать' })).toBeVisible();
   await expect(page.getByText('Здесь появятся ваши проекты')).toBeVisible();
-  await expect(page.getByText('HErPlan 0.1.0')).toBeVisible();
+  await expect(page.getByText(/^HErPlan \d+\.\d+\.\d+/)).toBeVisible();
 
   await createProject(page, 'Мельница');
   await expect(page.getByRole('status').filter({ hasText: 'Сохранено' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Модули' })).toBeVisible();
 
-  // Two tabs of the same editor, then back to the start screen.
+  // The world cards live on the Database tab already; editors still to come explain when they arrive.
   await page.getByRole('button', { name: /База данных/ }).click();
-  await expect(page.getByText('Этот редактор появится в версии 0.3.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Персонажи' })).toBeVisible();
+  await page.getByRole('button', { name: 'Персонаж', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Имя' })).toHaveValue('Без имени');
+  // Two tabs of the same editor, then back to the start screen.
   await page.getByRole('button', { name: 'Открыть редактор' }).click();
-  await page.getByRole('menuitem', { name: 'База данных' }).click();
-  await expect(page.getByRole('tab', { name: 'База данных 2' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Задачи' }).click();
+  await expect(page.getByText('Этот редактор появится в версии 0.5.')).toBeVisible();
+  await page.getByRole('button', { name: 'Открыть редактор' }).click();
+  await page.getByRole('menuitem', { name: 'Задачи' }).click();
+  await expect(page.getByRole('tab', { name: 'Задачи 2' })).toBeVisible();
   await page.waitForTimeout(700);
   await page.getByRole('button', { name: 'Закрыть проект' }).click();
 

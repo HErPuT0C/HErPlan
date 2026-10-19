@@ -198,6 +198,7 @@ const NodeCard = memo(function NodeCard({
         .join(' ')}
       style={style}
       data-node={node.id}
+      data-kind={node.kind}
     >
       {!sticker && (
         <div className="cnode-head" style={{ height: HEADER_H }}>
@@ -245,6 +246,7 @@ const NodeCard = memo(function NodeCard({
           className={[
             'cnode-port',
             p.anchor && !linked.has(p.id) && 'cnode-port-free',
+            !p.anchor && 'cnode-port-typed',
             p.side !== 'in' && 'cnode-port-start',
           ]
             .filter(Boolean)

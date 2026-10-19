@@ -265,7 +265,6 @@ export const storyEn: Record<keyof typeof storyRu, string> = {
   'var.owner': 'Belongs to',
   'var.owner.none': 'No one',
   'var.description': 'Description',
-  'var.usage': '✎ {writes} · 👁 {reads}',
   'var.usageTitle': 'Changed in {writes}, read in {reads}',
   'var.unused': 'not used',
   'var.notUsed': 'Not used anywhere yet.',

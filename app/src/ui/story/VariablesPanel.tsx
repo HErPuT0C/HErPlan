@@ -220,7 +220,16 @@ function VariableRow({
         <span className="var-name">{fullName(v, data)}</span>
         <span className="var-type">{t(VAR_TYPE_NAMES[v.type])}</span>
         <span className="var-usage muted small" title={t('var.usageTitle', { writes, reads })}>
-          {usage.length ? t('var.usage', { writes, reads }) : t('var.unused')}
+          {usage.length ? (
+            <>
+              <PenLine size={12} aria-hidden="true" />
+              {writes}
+              <Eye size={12} aria-hidden="true" />
+              {reads}
+            </>
+          ) : (
+            t('var.unused')
+          )}
         </span>
       </button>
       {open && (

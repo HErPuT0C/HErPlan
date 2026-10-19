@@ -267,7 +267,6 @@ export const storyRu = {
   'var.owner': 'Принадлежит',
   'var.owner.none': 'Никому',
   'var.description': 'Описание',
-  'var.usage': '✎ {writes} · 👁 {reads}',
   'var.usageTitle': 'Меняется в {writes}, читается в {reads}',
   'var.unused': 'не используется',
   'var.notUsed': 'Пока нигде не используется.',
