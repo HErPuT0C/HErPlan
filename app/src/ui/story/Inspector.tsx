@@ -61,7 +61,8 @@ export function Inspector({ engine, focus }: { engine: CanvasEngine; focus: Insp
     const frame = requestAnimationFrame(() => {
       const box = panel.current?.querySelector<HTMLElement>(`[data-field="${CSS.escape(focus.field)}"]`);
       box?.scrollIntoView({ block: 'nearest' });
-      box?.querySelector<HTMLElement>('textarea, input, select, button')?.focus();
+      const fields = 'textarea, input, select, button';
+      (box?.matches(fields) ? box : box?.querySelector<HTMLElement>(fields))?.focus();
     });
     return () => cancelAnimationFrame(frame);
   }, [focus]);
