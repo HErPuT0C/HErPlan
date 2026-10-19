@@ -183,10 +183,17 @@ export function registryFor(data: ProjectData, graphId: string | null): Map<stri
     .map((e) => (typeof e.name === 'string' ? e.name : ''))
     .filter(Boolean);
   const map = new Map<string, ScopedVariable>();
+  // How close a scope is: the chapter itself, then the chapters around it, then the project.
+  const depth = (v: Variable) => (v.scope === 'project' ? chain.length : chain.indexOf(v.scope.id));
   for (const v of listVariables(data)) {
     if (!visibleFrom(v, chain)) continue;
+    const name = fullName(v, data);
+    // Names should not repeat where they are seen together (nameProblem); in a hand-edited file that does
+    // happen, the closest scope wins, like a local variable shadowing an outer one.
+    const seen = map.get(name);
+    if (seen && depth(seen.variable) <= depth(v)) continue;
     const values = v.type === 'enum' ? (v.values ?? []) : v.type === 'entity' ? entities : undefined;
-    map.set(fullName(v, data), { type: valueTypeOf(v.type), values, variable: v });
+    map.set(name, { type: valueTypeOf(v.type), values, variable: v });
   }
   return map;
 }
@@ -197,7 +204,8 @@ export type NameProblem = 'empty' | 'invalid' | 'taken';
 
 /**
  * Checks a variable name before saving. Names must be unique among variables that can be seen together:
- * project variables with each other and with every chapter variable; chapter variables within a chapter.
+ * project variables with each other and with every chapter variable; chapter variables within a chapter
+ * and the chapters nested in it.
  */
 export function nameProblem(
   data: ProjectData,
@@ -214,7 +222,9 @@ export function nameProblem(
   const clash = listVariables(data).some((v) => {
     if (v.id === exceptId || fullName(v, data).toLowerCase() !== full) return false;
     if (v.scope === 'project' || scope === 'project') return true;
-    return v.scope.id === scope.id;
+    const a = v.scope.id;
+    const b = scope.id;
+    return a === b || graphChain(data, a).includes(b) || graphChain(data, b).includes(a);
   });
   return clash ? 'taken' : null;
 }

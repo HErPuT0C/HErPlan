@@ -76,7 +76,13 @@ export function Workspace({ project }: { project: OpenProject }) {
     });
   }, [request, setTabs]);
   // The panel belongs to this project.
-  useEffect(() => closeVariables, []);
+  useEffect(
+    () => () => {
+      closeVariables();
+      revealRequest.set(null);
+    },
+    [],
+  );
 
   return (
     <div className="workspace">

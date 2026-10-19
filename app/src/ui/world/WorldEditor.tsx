@@ -1,5 +1,4 @@
 import { ImagePlus, MapPin, Package, Plus, Trash, UserRound, X } from 'lucide-react';
-import { useState } from 'react';
 import type { ProjectData } from '../../core/project/types';
 import { useStore } from '../../core/useStore';
 import { t, type MessageKey } from '../../i18n';
@@ -13,6 +12,7 @@ import { Button, IconButton, toast } from '../components';
 import { errorText } from '../errors';
 import { IMAGE_FILTERS } from '../start/filters';
 import { useAsync } from '../useAsync';
+import { useDraft } from '../useDraft';
 import './world.css';
 
 const SECTIONS: { kind: WorldKind; title: MessageKey; add: MessageKey; icon: typeof UserRound }[] = [
@@ -104,7 +104,7 @@ function EntityCard({ project, entity }: { project: OpenProject; entity: WorldEn
     [dir, entity.image],
     '',
   );
-  const [name, setName] = useState(entity.name);
+  const name = useDraft(entity.name);
   const change = (patch: Partial<WorldEntity>, merge: string) =>
     store.dispatch(
       t('world.step.edit'),
@@ -155,11 +155,13 @@ function EntityCard({ project, entity }: { project: OpenProject; entity: WorldEn
       <div className="entity-body">
         <input
           className="input entity-name"
-          value={name}
+          value={name.value}
           disabled={readOnly}
           aria-label={t('world.name')}
+          onFocus={name.onFocus}
+          onBlur={name.onBlur}
           onChange={(e) => {
-            setName(e.target.value);
+            name.setValue(e.target.value);
             if (e.target.value.trim()) change({ name: e.target.value.trim() }, 'name');
           }}
         />

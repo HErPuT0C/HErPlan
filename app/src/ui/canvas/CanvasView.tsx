@@ -136,7 +136,7 @@ export function CanvasView({
             create: (d, node) => handlers.current?.ext?.hooks?.create?.(d, node),
             remove: (d, nodes) => handlers.current?.ext?.hooks?.remove?.(d, nodes),
             copy: (clip, data) => handlers.current?.ext?.hooks?.copy?.(clip, data),
-            paste: (d, nodes, clip) => handlers.current?.ext?.hooks?.paste?.(d, nodes, clip),
+            paste: (d, nodes, clip, ids) => handlers.current?.ext?.hooks?.paste?.(d, nodes, clip, ids),
           },
           onSearchRequest: () => setSearching(true),
           label: (key) => t(STEP_LABELS[key]),

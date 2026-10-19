@@ -70,16 +70,24 @@ function stateFor(data: ProjectData, graph: string, vars: Record<string, Value |
   const state: State = new Map();
   for (const [name, entry] of registryFor(data, graph)) {
     const v = entry.variable;
-    const raw = vars[v.id] ?? v.initial;
+    // A value set to "none" by hand stays none; only a variable never set falls back to its initial value.
+    const raw = v.id in vars ? vars[v.id] : v.initial;
     state.set(name, v.type === 'entity' ? (raw ? (entityName(data, String(raw)) ?? '') : '') : (raw ?? ''));
   }
   return state;
 }
 
-function writeBack(data: ProjectData, graph: string, state: State, vars: Record<string, Value | null>) {
+/** Stores the variables that effects changed (by name) back by id; the others keep their exact value. */
+function writeBack(
+  data: ProjectData,
+  graph: string,
+  state: State,
+  vars: Record<string, Value | null>,
+  changed: ReadonlySet<string>,
+) {
   const next = { ...vars };
   for (const [name, entry] of registryFor(data, graph)) {
-    if (!state.has(name)) continue;
+    if (!changed.has(name) || !state.has(name)) continue;
     const v = entry.variable;
     const value = state.get(name)!;
     next[v.id] = v.type === 'entity' ? entityByName(data, String(value)) : value;
@@ -118,7 +126,12 @@ function runEffects(
   try {
     const state = stateFor(data, graph, s.vars);
     const changes = applyEffects(parseEffects(source!), state, isWhole(data, graph));
-    return { ...s, vars: writeBack(data, graph, state, s.vars), log: [...s.log, { kind: 'changes', at, changes }] };
+    const changed = new Set(changes.map((c) => c.name));
+    return {
+      ...s,
+      vars: writeBack(data, graph, state, s.vars, changed),
+      log: [...s.log, { kind: 'changes', at, changes }],
+    };
   } catch {
     return fail(s, 'badExpression', { node: findNode(data, at)?.title ?? '' });
   }
@@ -242,6 +255,11 @@ function leave(data: ProjectData, s: PlayState, at: NodeRef): Step {
   const exits = openExits(data, s, at);
   if (exits.length === 1) return moveTo(s, { graph: at.graph, node: exits[0].to.node });
   if (exits.length > 1) return { s, stop: true };
+  // No edges at all: the enclosing chapter ends too. Edges whose conditions are all false: stuck here.
+  const g = graphOf(data, at.graph);
+  if (g && edgesFrom(g, at.node).length > 0) {
+    return { s: fail(s, 'deadEnd', { node: titleOf(data, at) }), stop: true };
+  }
   return up(data, s);
 }
 

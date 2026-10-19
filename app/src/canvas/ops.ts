@@ -185,7 +185,16 @@ export const CORNER_DIRS: readonly HandleDir[] = ['nw', 'ne', 'se', 'sw'];
 /** Smallest size of a node or a frame. */
 export function minSize(item: GraphNode | GraphGroup, isGroup: boolean): { w: number; h: number } {
   if (isGroup) return { w: GRID * 8, h: HEADER_H + GRID * 2 };
-  return { w: GRID * 6, h: kindOf((item as GraphNode).kind).sticker ? GRID * 3 : HEADER_H + GRID * 2 };
+  const node = item as GraphNode;
+  const kind = kindOf(node.kind);
+  let h = kind.sticker ? GRID * 3 : HEADER_H + GRID * 2;
+  // Nodes sized by their content (dialogue lines, choice options) keep their rows and ports inside.
+  if (kind.fit) {
+    const probe = { ...node };
+    kind.fit(probe);
+    h = Math.max(h, probe.h);
+  }
+  return { w: GRID * 6, h };
 }
 
 /**
@@ -290,6 +299,8 @@ export interface GraphClipboard {
   groups: GraphGroup[];
   /** Graphs that copied nodes own (chapters carry their content along). */
   graphs?: GraphDoc[];
+  /** The graph the nodes were copied from, to re-point references between copied nodes. */
+  source?: string;
 }
 
 export function copySelection(g: GraphDoc, s: Selection): GraphClipboard | null {
@@ -300,7 +311,7 @@ export function copySelection(g: GraphDoc, s: Selection): GraphClipboard | null 
   const groups = g.groups
     .filter((group) => s.groups.has(group.id))
     .map((group) => ({ ...group, members: group.members.filter((m) => nodeIds.has(m)) }));
-  return structuredClone({ format: CLIPBOARD_FORMAT, version: 1, nodes, edges, groups });
+  return structuredClone({ format: CLIPBOARD_FORMAT, version: 1, nodes, edges, groups, source: g.id });
 }
 
 export function isGraphClipboard(value: unknown): value is GraphClipboard {
@@ -314,12 +325,14 @@ export interface Pasted {
   nodes: string[];
   edges: string[];
   groups: string[];
+  /** Old node id → id of its copy. */
+  ids: Map<string, string>;
 }
 
 /** Pastes with new ids, placing the top-left corner of the copied items at `at` (snapped to the grid). */
 export function pasteClipboard(g: GraphDoc, clip: GraphClipboard, at: { x: number; y: number }): Pasted {
   const b = boundsOf([...clip.nodes, ...clip.groups]);
-  if (!b) return { nodes: [], edges: [], groups: [] };
+  if (!b) return { nodes: [], edges: [], groups: [], ids: new Map() };
   const dx = snap(at.x) - b.minX;
   const dy = snap(at.y) - b.minY;
   const ids = new Map<string, string>();
@@ -328,7 +341,7 @@ export function pasteClipboard(g: GraphDoc, clip: GraphClipboard, at: { x: numbe
     if (!id) ids.set(old, (id = newId()));
     return id;
   };
-  const pasted: Pasted = { nodes: [], edges: [], groups: [] };
+  const pasted: Pasted = { nodes: [], edges: [], groups: [], ids };
   for (const n of clip.nodes) {
     const copy = { ...structuredClone(n), id: fresh(n.id), x: n.x + dx, y: n.y + dy };
     g.nodes.push(copy);

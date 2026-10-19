@@ -258,6 +258,7 @@ export const storyEn: Record<keyof typeof storyRu, string> = {
   'var.name.empty': 'Enter a name.',
   'var.name.invalid': 'Letters, digits and “_”, not starting with a digit; not a keyword (and, or, not…).',
   'var.name.taken': 'This name is already taken.',
+  'var.name.takenThere': 'Another variable “{name}” is visible there — rename one of them first.',
   'var.initial': 'Initial value',
   'var.values': 'List values',
   'var.valuesHint': 'Comma-separated: calm, glad, angry',

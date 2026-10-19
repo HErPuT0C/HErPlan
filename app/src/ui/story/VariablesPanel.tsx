@@ -23,7 +23,8 @@ import {
   type VarScope,
   type VarType,
 } from '../../story/variables';
-import { Button, IconButton, SelectField, TabPanel, Tabs, TextArea, TextField } from '../components';
+import { Button, IconButton, SelectField, TabPanel, Tabs, TextArea, TextField, toast } from '../components';
+import { useDraft } from '../useDraft';
 import { ValueInput } from './ValueInput';
 
 export const VAR_TYPE_NAMES: Record<VarType, MessageKey> = {
@@ -109,6 +110,12 @@ function VariableList({ project, focus }: { project: OpenProject; focus: string 
   const [type, setType] = useState<VarType>('int');
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<string | null>(focus);
+  // A new request to show a variable (a problem clicked while the panel is open) expands it.
+  const [shownFocus, setShownFocus] = useState(focus);
+  if (focus !== shownFocus) {
+    setShownFocus(focus);
+    if (focus) setExpanded(focus);
+  }
   const variables = listVariables(data);
   const usage = useMemo(() => variableUsage(data), [data]);
   const problem = name.trim() ? nameProblem(data, name, 'project', null) : null;
@@ -271,20 +278,32 @@ function VariableEditor({
 }) {
   const { store, readOnly } = project;
   const data = store.getState();
-  const [draftName, setDraftName] = useState(v.name);
-  const problem = draftName.trim() === v.name ? null : nameProblem(data, draftName, v.scope, v.owner, v.id);
+  const name = useDraft(v.name);
+  const values = useDraft((v.values ?? []).join(', '));
+  const problem = name.value.trim() === v.name ? null : nameProblem(data, name.value, v.scope, v.owner, v.id);
+  /** A new scope or owner must not make the name clash with a variable seen together with it. */
+  const move = (patch: Pick<Variable, 'scope'> | Pick<Variable, 'owner'>) => {
+    const next = { ...v, ...patch };
+    if (nameProblem(data, v.name, next.scope, next.owner, v.id)) {
+      toast({ kind: 'error', text: t('var.name.takenThere', { name: v.name }) });
+      return;
+    }
+    edit(t('var.step.edit'), patch);
+  };
   const chapters = allGraphs(data).filter((g) => g.kind === 'chapter');
   const scopeValue = v.scope === 'project' ? '' : v.scope.id;
   return (
     <>
       <TextField
         label={t('var.name')}
-        value={draftName}
+        value={name.value}
         disabled={readOnly}
         error={problem ? t(NAME_PROBLEMS[problem]) : null}
         hint={t('var.nameHint')}
+        onFocus={name.onFocus}
+        onBlur={name.onBlur}
         onChange={(e) => {
-          setDraftName(e.target.value);
+          name.setValue(e.target.value);
           const next = e.target.value.trim();
           if (next && next !== v.name && !nameProblem(data, next, v.scope, v.owner, v.id)) {
             edit(t('var.step.rename'), { name: next }, 'name');
@@ -314,10 +333,13 @@ function VariableEditor({
       {v.type === 'enum' && (
         <TextField
           label={t('var.values')}
-          defaultValue={(v.values ?? []).join(', ')}
+          value={values.value}
           disabled={readOnly}
           hint={t('var.valuesHint')}
-          onChange={(e) =>
+          onFocus={values.onFocus}
+          onBlur={values.onBlur}
+          onChange={(e) => {
+            values.setValue(e.target.value);
             edit(
               t('var.step.edit'),
               {
@@ -331,8 +353,8 @@ function VariableEditor({
                 ],
               },
               'values',
-            )
-          }
+            );
+          }}
         />
       )}
       <div className="field-row">
@@ -344,7 +366,7 @@ function VariableEditor({
             { value: '', label: t('var.scope.project') },
             ...chapters.map((g) => ({ value: g.id, label: graphTitle(data, g.id) })),
           ]}
-          onChange={(id) => edit(t('var.step.edit'), { scope: (id ? { kind: 'graph', id } : 'project') as VarScope })}
+          onChange={(id) => move({ scope: (id ? { kind: 'graph', id } : 'project') as VarScope })}
         />
         <SelectField
           label={t('var.owner')}
@@ -354,7 +376,7 @@ function VariableEditor({
             { value: '', label: t('var.owner.none') },
             ...listEntities({ entities }).map((e) => ({ value: e.id, label: e.name || t('story.untitled') })),
           ]}
-          onChange={(id) => edit(t('var.step.edit'), { owner: id ? { kind: 'entity', id } : null })}
+          onChange={(id) => move({ owner: id ? { kind: 'entity', id } : null })}
         />
       </div>
       <TextArea

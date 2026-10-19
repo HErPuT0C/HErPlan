@@ -5,6 +5,7 @@
 import { kindOf } from '../canvas/kinds';
 import { emptyGraph, type GraphDoc, type GraphNode } from '../canvas/model';
 import { createNode } from '../canvas/ops';
+import { current, isDraft } from 'immer';
 import { newId } from '../core/ids';
 import type { ProjectData } from '../core/project/types';
 import { asStory, graphOf, type ChoiceOption, type DialogueLine, type NodeRef, type StoryNode } from './model';
@@ -165,46 +166,100 @@ export function chapterGraphsOf(data: ProjectData, nodes: readonly GraphNode[]):
   return ids.map((id) => structuredClone(graphOf(data, id)!));
 }
 
+/** Where the pasted nodes came from and went: references between copied nodes follow the copies. */
+export interface PasteContext {
+  /** Graph the nodes were copied from (unknown for an old clipboard). */
+  from?: string;
+  /** Graph they were pasted into. */
+  to: string;
+  /** Old node id → new node id in `to`. */
+  ids: ReadonlyMap<string, string>;
+}
+
 /**
  * Pasted chapter nodes get copies of their graphs (from the clipboard), with new ids throughout, so the
- * copy and the original can be edited and deleted separately.
+ * copy and the original can be edited and deleted separately: jumps, consequences and payoffs between
+ * copied nodes point at the copies, and variables of a copied chapter are copied with it.
  */
-export function pasteChapterGraphs(d: ProjectData, pasted: readonly GraphNode[], carried: readonly GraphDoc[]): void {
+export function pasteChapterGraphs(
+  d: ProjectData,
+  pasted: readonly GraphNode[],
+  carried: readonly GraphDoc[],
+  context?: PasteContext,
+): void {
   const source = new Map(carried.map((g) => [g.id, g]));
-  const copy = (graphId: string, owner: GraphNode) => {
-    const original = source.get(graphId) ?? graphOf(d, graphId);
-    if (!original) {
+  const original = (id: string): GraphDoc | undefined => {
+    const g = source.get(id) ?? graphOf(d, id);
+    return g && isDraft(g) ? current(g) : g;
+  };
+  // Pass 1: copy every graph of the pasted chapters (sub-chapters too) and give all of it new ids.
+  const graphIds = new Map<string, string>();
+  const nodeIds = new Map<string, ReadonlyMap<string, string>>();
+  if (context?.from) {
+    graphIds.set(context.from, context.to);
+    nodeIds.set(context.from, context.ids);
+  }
+  const copies: { g: GraphDoc; oldId: string; owner: GraphNode }[] = [];
+  const plan = (owner: GraphNode) => {
+    const child = asStory(owner).graph;
+    if (owner.kind !== 'chapter' || !child) return;
+    const g0 = original(child);
+    if (!g0 || graphIds.has(child)) {
       delete asStory(owner).graph;
       return;
     }
-    const g = structuredClone(original);
-    const ids = new Map<string, string>();
-    const fresh = (old: string) => {
-      let id = ids.get(old);
-      if (!id) ids.set(old, (id = newId()));
-      return id;
-    };
-    g.id = newId();
+    const g = structuredClone(g0);
+    const ids = new Map(g.nodes.map((n) => [n.id, newId()]));
+    graphIds.set(child, newId());
+    nodeIds.set(child, ids);
+    copies.push({ g, oldId: child, owner });
+    for (const n of g.nodes) n.id = ids.get(n.id)!;
+    for (const n of g.nodes) plan(n);
+  };
+  for (const n of pasted) plan(n);
+
+  // Pass 2: wire the copies in.
+  for (const { g, oldId, owner } of copies) {
+    const ids = nodeIds.get(oldId)!;
+    const node = (old: string) => ids.get(old) ?? old;
+    g.id = graphIds.get(oldId)!;
     g.parent = { kind: 'node', id: owner.id };
-    for (const n of g.nodes) n.id = fresh(n.id);
     for (const e of g.edges) {
       e.id = newId();
-      e.from = { ...e.from, node: fresh(e.from.node) };
-      e.to = { ...e.to, node: fresh(e.to.node) };
+      e.from = { ...e.from, node: node(e.from.node) };
+      e.to = { ...e.to, node: node(e.to.node) };
     }
     for (const group of g.groups) {
       group.id = newId();
-      group.members = group.members.map(fresh);
+      group.members = group.members.map(node);
     }
-    d.graphs[g.id] = g as unknown as ProjectData['graphs'][string];
     asStory(owner).graph = g.id;
-    for (const n of g.nodes) {
-      const child = asStory(n).graph;
-      if (n.kind === 'chapter' && child) copy(child, n);
-    }
+    d.graphs[g.id] = g as unknown as ProjectData['graphs'][string];
+  }
+
+  // References between copied nodes point at the copies; references to anything else stay.
+  const remap = (ref: NodeRef): NodeRef => {
+    const graph = graphIds.get(ref.graph);
+    const node = nodeIds.get(ref.graph)?.get(ref.node);
+    return graph && node ? { graph, node } : ref;
   };
-  for (const n of pasted) {
-    const child = asStory(n).graph;
-    if (n.kind === 'chapter' && child) copy(child, n);
+  for (const n of [...pasted, ...copies.flatMap((c) => c.g.nodes)]) {
+    const s = asStory(n);
+    if (s.target) s.target = remap(s.target);
+    if (s.links) s.links = s.links.map(remap);
+  }
+
+  // Variables of a copied chapter get copies scoped to the new chapter.
+  const file = d.variables as { variables?: unknown[] };
+  const chapterVars = (file.variables ?? []).filter(
+    (v): v is { scope: { kind: string; id: string } } =>
+      typeof v === 'object' &&
+      v !== null &&
+      typeof (v as { scope?: unknown }).scope === 'object' &&
+      copies.some((c) => c.oldId === (v as { scope: { id?: string } }).scope?.id),
+  );
+  for (const v of chapterVars) {
+    const plain = isDraft(v) ? current(v) : structuredClone(v);
+    file.variables!.push({ ...plain, id: newId(), scope: { kind: 'graph', id: graphIds.get(v.scope.id)! } });
   }
 }

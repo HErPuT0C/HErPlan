@@ -12,7 +12,7 @@ import {
   TriangleAlert,
   Variable,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { benchGraph } from '../../canvas/bench';
 import type { CanvasEngine, GraphHooks, HitTarget } from '../../canvas/engine';
 import { createNode } from '../../canvas/ops';
@@ -198,14 +198,27 @@ function StoryWorkspace({ project, rootId }: { project: OpenProject; rootId: str
     [project, store, current, go, readOnly],
   );
 
-  // "Where used" and problems in other editors ask to show a place here.
-  const request = useAtom(revealRequest);
-  const handled = useRef(0);
+  // "Where used" and problems in other editors ask to show a place here. A request is used once, so
+  // switching tabs or reopening the editor does not jump back to an old place.
+  const goRef = useRef(go);
+  useLayoutEffect(() => {
+    goRef.current = go;
+  });
   useEffect(() => {
-    if (!request || request.at === handled.current) return;
-    handled.current = request.at;
-    go({ graph: request.graph, node: request.node, highlight: request.highlight });
-  }, [request, go]);
+    const take = () => {
+      const r = revealRequest.get();
+      if (!r) return;
+      revealRequest.set(null);
+      goRef.current({ graph: r.graph, node: r.node, highlight: r.highlight });
+    };
+    // A request made just before this editor opened (the workspace switched to it) is taken right away.
+    const timer = setTimeout(take, 0);
+    const unsubscribe = revealRequest.subscribe(take);
+    return () => {
+      clearTimeout(timer);
+      unsubscribe();
+    };
+  }, []);
 
   /** A new playthrough state; the canvas follows the current node. */
   const follow = (history: PlayHistory) => {
@@ -229,9 +242,10 @@ function StoryWorkspace({ project, rootId }: { project: OpenProject; rootId: str
         const graphs = chapterGraphsOf(data, clip.nodes);
         if (graphs.length) clip.graphs = graphs;
       },
-      paste: (d, nodes, clip) => pasteChapterGraphs(d, nodes, clip.graphs ?? []),
+      paste: (d, nodes, clip, ids) =>
+        pasteChapterGraphs(d, nodes, clip.graphs ?? [], { from: clip.source, to: current, ids }),
     }),
-    [],
+    [current],
   );
 
   const ext: CanvasExtensions = {

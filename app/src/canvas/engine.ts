@@ -92,7 +92,13 @@ export interface GraphHooks {
   remove?: (project: Draft<ProjectData>, nodes: GraphNode[]) => void;
   /** Adds what the copied nodes own to the clipboard (outside any change). */
   copy?: (clip: GraphClipboard, project: ProjectData) => void;
-  paste?: (project: Draft<ProjectData>, nodes: GraphNode[], clip: GraphClipboard) => void;
+  /** `ids` maps each copied node id to its copy's id in this graph. */
+  paste?: (
+    project: Draft<ProjectData>,
+    nodes: GraphNode[],
+    clip: GraphClipboard,
+    ids: ReadonlyMap<string, string>,
+  ) => void;
 }
 
 export interface CanvasView {
@@ -449,10 +455,11 @@ export class CanvasEngine {
   private pasteAt(clip: GraphClipboard, at: { x: number; y: number }, key: 'paste' | 'duplicate'): void {
     let pasted = { nodes: [] as string[], edges: [] as string[], groups: [] as string[] };
     this.change(key, (g, d) => {
-      pasted = pasteClipboard(g, clip, at);
-      const ids = new Set(pasted.nodes);
-      const nodes = g.nodes.filter((n) => ids.has(n.id));
-      if (nodes.length) this.callbacks.hooks?.paste?.(d, nodes, clip);
+      const result = pasteClipboard(g, clip, at);
+      pasted = result;
+      const fresh = new Set(result.nodes);
+      const nodes = g.nodes.filter((n) => fresh.has(n.id));
+      if (nodes.length) this.callbacks.hooks?.paste?.(d, nodes, clip, result.ids);
     });
     this.select({ nodes: new Set(pasted.nodes), edges: new Set(pasted.edges), groups: new Set(pasted.groups) });
   }

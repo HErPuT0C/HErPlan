@@ -21,7 +21,7 @@ import { sampleProject, sampleStats } from './sample';
 import { nodesUsing, renameEverywhere, unusedVariables, variableUsage } from './usage';
 import { guessType, listVariables, nameProblem, registryFor } from './variables';
 import { benchGraph } from '../canvas/bench';
-import { createNode } from '../canvas/ops';
+import { createNode, minSize } from '../canvas/ops';
 import { emptyGraph } from '../canvas/model';
 
 const g = (data: ProjectData, id: string) => graphOf(data, id)!;
@@ -406,6 +406,130 @@ describe('JSON export (F3-14)', () => {
     });
     const ch1 = exportStory(data, '0.2.0').story.graphs[1];
     expect(ch1.nodes.find((n) => n.id === 'a-check')?.condition).toEqual({ source: 'доверие <', ast: null });
+  });
+});
+
+describe('fixes from the code review', () => {
+  it('a chapter whose exits are all closed is a dead end, not the end of the story', () => {
+    const data = produce(sampleProject(), (d) => {
+      for (const e of g(d, 'g-root').edges) if (e.from.node === 'r-ch1') e.condition = 'пощадил_рыцаря';
+    });
+    let s = startPlay(data);
+    s = route(data, s, TO_CHOICE).s;
+    s = act(data, s, 'Спросить про ключ');
+    s = act(data, s, 'next');
+    expect(s.status).toBe('stuck');
+    expect(s.problem?.code).toBe('deadEnd');
+    expect(at(data, s)).toBe('Глава 1. Мельница');
+  });
+
+  it('an entity variable set to "none" by hand stays none; untouched ones keep their entity', () => {
+    const data = produce(sampleProject(), (d) => {
+      const vars = (d.variables as { variables: { id: string; initial: unknown }[] }).variables;
+      vars.find((v) => v.id === 'v-companion')!.initial = 'ent-mira';
+      // Two cards with one name: writing back by name must not move the untouched variable.
+      d.entities['ent-mira2'] = {
+        id: 'ent-mira2',
+        type: 'character',
+        name: 'Мира',
+        description: '',
+        image: null,
+        order: 5,
+      };
+    });
+    const companion = listVariables(data).find((v) => v.id === 'v-companion')!;
+    let s = startPlay(data);
+    expect(vars(data, s).спутник).toBe('ent-mira');
+    s = route(data, s, TO_CHOICE).s;
+    s = act(data, s, 'Помочь с мешками');
+    expect(vars(data, s).спутник).toBe('ent-mira');
+    s = playSetVariable(s, companion, null);
+    s = act(data, s, 'next');
+    expect(vars(data, s).спутник).toBeNull();
+  });
+
+  it('a pasted chapter points at its own nodes and has its own chapter variables', () => {
+    const base = produce(sampleProject(), (d) => {
+      // A jump inside chapter 2 to its own end, and a variable of chapter 2.
+      node(d, 'g-ch2', 'b-jump').target = { graph: 'g-ch2', node: 'b-end' };
+      (d.variables as { variables: unknown[] }).variables.push({
+        id: 'v-forest',
+        name: 'грибы',
+        type: 'int',
+        initial: 0,
+        scope: { kind: 'graph', id: 'g-ch2' },
+        owner: null,
+        description: '',
+      });
+    });
+    const carried = chapterGraphsOf(base, [node(base, 'g-root', 'r-ch2')]);
+    const clip = { ...structuredClone(node(base, 'g-root', 'r-ch2')), id: 'r-copy' } as StoryNode;
+    const pasted = produce(base, (d) => {
+      const copy = structuredClone(clip);
+      g(d, 'g-root').nodes.push(copy);
+      pasteChapterGraphs(d, [copy], carried, { from: 'g-root', to: 'g-root', ids: new Map([['r-ch2', 'r-copy']]) });
+    });
+    const copyGraph = node(pasted, 'g-root', 'r-copy').graph!;
+    const jump = graphOf(pasted, copyGraph)!.nodes.find((n) => n.kind === 'jump') as StoryNode;
+    expect(jump.target?.graph).toBe(copyGraph);
+    expect(findNode(pasted, jump.target)?.title).toBe('Конец главы 2');
+    const scoped = listVariables(pasted).filter((v) => v.name === 'грибы');
+    expect(scoped.map((v) => (v.scope === 'project' ? 'project' : v.scope.id)).sort()).toEqual(
+      ['g-ch2', copyGraph].sort(),
+    );
+    // Deleting the original leaves the copy whole.
+    const alone = produce(pasted, (d) => deleteChapterGraphs(d, [node(d, 'g-root', 'r-ch2')]));
+    expect(checkProject(alone).filter((p) => p.graph === copyGraph && p.code === 'jumpNoTarget')).toEqual([]);
+  });
+
+  it('pasting a chapter whose graph is not on the clipboard copies it from the project', () => {
+    const data = sampleProject();
+    const clip = { ...structuredClone(node(data, 'g-root', 'r-ch1')), id: 'r-copy' } as StoryNode;
+    const pasted = produce(data, (d) => {
+      const copy = structuredClone(clip);
+      g(d, 'g-root').nodes.push(copy);
+      pasteChapterGraphs(d, [copy], []);
+    });
+    expect(graphOf(pasted, node(pasted, 'g-root', 'r-copy').graph!)?.nodes).toHaveLength(16);
+  });
+
+  it('nested chapters cannot repeat a variable name; the closest scope wins in old files', () => {
+    const data = produce(sampleProject(), (d) => {
+      const c1 = g(d, 'g-ch1');
+      const sub = { ...createNode('chapter', 0, 900, 'Вставка'), id: 'sub' } as StoryNode;
+      c1.nodes.push(sub);
+      createChapterGraph(d, sub, 'Начало');
+      (d.variables as { variables: unknown[] }).variables.push({
+        id: 'v-outer',
+        name: 'мука',
+        type: 'int',
+        initial: 1,
+        scope: { kind: 'graph', id: 'g-ch1' },
+        owner: null,
+        description: '',
+      });
+    });
+    const inner = node(data, 'g-ch1', 'sub').graph!;
+    expect(nameProblem(data, 'мука', { kind: 'graph', id: inner }, null)).toBe('taken');
+    const both = produce(data, (d) => {
+      (d.variables as { variables: unknown[] }).variables.push({
+        id: 'v-inner',
+        name: 'мука',
+        type: 'int',
+        initial: 2,
+        scope: { kind: 'graph', id: inner },
+        owner: null,
+        description: '',
+      });
+    });
+    expect(registryFor(both, inner).get('мука')?.variable.id).toBe('v-inner');
+    expect(registryFor(both, 'g-ch1').get('мука')?.variable.id).toBe('v-outer');
+  });
+
+  it('content-sized nodes cannot be resized smaller than their content', () => {
+    const data = sampleProject();
+    const choice = node(data, 'g-ch1', 'a-choice');
+    expect(minSize(choice, false).h).toBe(choice.h);
   });
 });
 
