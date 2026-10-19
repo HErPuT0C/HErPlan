@@ -10,3 +10,8 @@ export function useStore<S extends object, T>(store: Store<S>, select: (state: S
 export function useAtom<T>(a: Atom<T>): T {
   return useSyncExternalStore(a.subscribe, a.get);
 }
+
+/** A derived value of an atom; the selector must return the same value (or reference) for the same input. */
+export function useAtomSelect<T, R>(a: Atom<T>, select: (value: T) => R): R {
+  return useSyncExternalStore(a.subscribe, () => select(a.get()));
+}

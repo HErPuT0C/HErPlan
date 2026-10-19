@@ -52,7 +52,11 @@ export function Dashboard({
                     <span className="module-name">{t(m.title)}</span>
                     <span className="module-desc">{t(m.description)}</span>
                   </span>
-                  <span className="module-badge">{t('module.comingIn', { version: m.release })}</span>
+                  {m.release && (
+                    <span className="module-badge">
+                      {t(m.partial ? 'module.fullIn' : 'module.comingIn', { version: m.release })}
+                    </span>
+                  )}
                 </button>
               </li>
             );

@@ -7,8 +7,10 @@ export interface ModuleInfo {
   icon: LucideIcon;
   title: MessageKey;
   description: MessageKey;
-  /** Version in which the editor arrives (PIPELINE.md). */
-  release: string;
+  /** Version in which the editor arrives (PIPELINE.md); null once it is here. */
+  release: string | null;
+  /** Part of the editor is already here, the rest arrives in `release`. */
+  partial?: boolean;
 }
 
 export const MODULES: Record<ModuleKind, ModuleInfo> = {
@@ -18,7 +20,7 @@ export const MODULES: Record<ModuleKind, ModuleInfo> = {
     icon: GitBranch,
     title: 'module.story',
     description: 'module.story.description',
-    release: '0.2',
+    release: null,
   },
   database: {
     kind: 'database',
@@ -26,6 +28,7 @@ export const MODULES: Record<ModuleKind, ModuleInfo> = {
     title: 'module.database',
     description: 'module.database.description',
     release: '0.3',
+    partial: true,
   },
   documents: {
     kind: 'documents',

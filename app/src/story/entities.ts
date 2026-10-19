@@ -33,14 +33,14 @@ export function asEntity(raw: JsonObject | undefined): WorldEntity | null {
 }
 
 /** Entities of one type (or all), in manual order, then by name. */
-export function listEntities(data: ProjectData, type?: WorldKind): WorldEntity[] {
+export function listEntities(data: Pick<ProjectData, 'entities'>, type?: WorldKind): WorldEntity[] {
   return Object.values(data.entities)
     .map(asEntity)
     .filter((e): e is WorldEntity => e !== null && (!type || e.type === type))
     .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
 }
 
-export function newEntity(data: ProjectData, type: WorldKind, name: string): WorldEntity {
+export function newEntity(data: Pick<ProjectData, 'entities'>, type: WorldKind, name: string): WorldEntity {
   const last = listEntities(data, type).at(-1);
   return { id: newId(), type, name: name.trim(), description: '', image: null, order: (last?.order ?? 0) + 10 };
 }

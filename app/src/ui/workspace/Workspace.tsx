@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAtom } from '../../core/useStore';
+import { closeVariables, revealRequest } from '../../state/navigation';
 import { t } from '../../i18n';
 import { platform } from '../../platform';
 import { closeProject, type OpenProject } from '../../state/project';
@@ -23,7 +24,9 @@ import { exportProject } from '../project/exportProject';
 import { HistoryDialog } from '../project/HistoryDialog';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import { Dashboard } from './Dashboard';
-import { StoryEditor } from '../canvas/StoryEditor';
+import { StoryEditor } from '../story/StoryEditor';
+import { VariablesPanel } from '../story/VariablesPanel';
+import { WorldEditor } from '../world/WorldEditor';
 import { ModulePlaceholder } from './ModulePlaceholder';
 import { ProjectHeader } from './ProjectHeader';
 import { TabStrip } from './TabStrip';
@@ -62,6 +65,19 @@ export function Workspace({ project }: { project: OpenProject }) {
 
   const activeTab = tabs.tabs.find((tab) => tab.id === tabs.active);
 
+  // "Show this node" from the variables panel or elsewhere: bring a story tab to the front.
+  const request = useAtom(revealRequest);
+  useEffect(() => {
+    if (!request) return;
+    setTabs((s) => {
+      if (s.tabs.find((tab) => tab.id === s.active)?.kind === 'story') return s;
+      const story = s.tabs.find((tab) => tab.kind === 'story');
+      return story ? { ...s, active: story.id } : openTab(s, 'story');
+    });
+  }, [request, setTabs]);
+  // The panel belongs to this project.
+  useEffect(() => closeVariables, []);
+
   return (
     <div className="workspace">
       <ProjectHeader
@@ -81,12 +97,15 @@ export function Workspace({ project }: { project: OpenProject }) {
       <main className="workspace-content" role="tabpanel" aria-label={t('tabs.content')}>
         {activeTab?.kind === 'story' ? (
           <StoryEditor key={activeTab.id} project={project} />
+        ) : activeTab?.kind === 'database' ? (
+          <WorldEditor key={activeTab.id} project={project} />
         ) : activeTab ? (
           <ModulePlaceholder key={activeTab.id} kind={activeTab.kind} />
         ) : (
           <Dashboard project={project} view={dashboardView} onOpen={(kind) => setTabs((s) => openTab(s, kind))} />
         )}
       </main>
+      <VariablesPanel project={project} />
       <HistoryDialog project={project} open={dialog === 'history'} onClose={() => setDialog(null)} />
       <SettingsDialog open={dialog === 'settings'} onClose={() => setDialog(null)} project={project} />
       <Dialog

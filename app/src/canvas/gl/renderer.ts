@@ -42,6 +42,9 @@ export interface Frame {
   groups: Batch;
   edges: Batch;
   arrows: Batch;
+  /** Dashed references between nodes (plot devices) with their arrow heads. */
+  links: Batch;
+  linkArrows: Batch;
   nodes: Batch;
   ports: Batch;
   /** Selection rectangle, edge being dragged, ports of the hovered node: small, rebuilt as needed. */
@@ -182,12 +185,18 @@ export class GraphRenderer {
     layer('nodes', this.box, quad, boxAttrs);
     layer('overlayBoxes', this.box, quad, boxAttrs);
     layer('edges', this.seg, segQuad, segAttrs);
+    layer('links', this.seg, segQuad, segAttrs);
     layer('overlaySegs', this.seg, segQuad, segAttrs);
     layer('ports', this.disc, quad, [
       ['a_disc', 4],
       ['a_color', 4],
     ]);
     layer('arrows', this.arrow, tri, [
+      ['a_tip', 2],
+      ['a_dir', 2],
+      ['a_color', 4],
+    ]);
+    layer('linkArrows', this.arrow, tri, [
       ['a_tip', 2],
       ['a_dir', 2],
       ['a_color', 4],
@@ -296,6 +305,8 @@ export class GraphRenderer {
     this.drawLayer('groups', f.groups, this.box, f.camera, 4, strip);
     this.drawLayer('edges', f.edges, this.seg, f.camera, 4, strip);
     this.drawLayer('arrows', f.arrows, this.arrow, f.camera, 3, gl.TRIANGLES);
+    this.drawLayer('links', f.links, this.seg, f.camera, 4, strip);
+    this.drawLayer('linkArrows', f.linkArrows, this.arrow, f.camera, 3, gl.TRIANGLES);
     this.drawLayer('nodes', f.nodes, this.box, f.camera, 4, strip);
     this.drawLayer('ports', f.ports, this.disc, f.camera, 4, strip);
     this.drawLayer('overlayDiscs', f.overlayDiscs, this.disc, f.camera, 4, strip);

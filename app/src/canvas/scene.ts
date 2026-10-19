@@ -2,9 +2,9 @@
 // and rebuilt only when its inputs change: moving the camera rebuilds nothing.
 
 import type { Lod } from './camera';
-import { curveBounds, endDirection, tessellate, SEGMENTS, edgeCurve, type Curve } from './geometry';
+import { curveBounds, curvePoint, endDirection, tessellate, SEGMENTS, edgeCurve, type Curve } from './geometry';
 import { portKey, type GraphIndex } from './graphIndex';
-import { kindOf, portsOf, portPosition } from './kinds';
+import { kindOf, portsOf, portPosition, type PortFace } from './kinds';
 import { colorHex, HEADER_H, type GraphNode } from './model';
 import type { Selection } from './ops';
 import {
@@ -305,6 +305,78 @@ export function buildGroups(s: SceneInput): Batch {
     );
   });
   return { data, count: groups.length };
+}
+
+/** A reference from one node to another in the same graph (`links` field: plot devices of story graphs). */
+interface LinkRef {
+  graph: string;
+  node: string;
+}
+
+function linksOf(n: GraphNode): LinkRef[] {
+  const raw = (n as { links?: unknown }).links;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (l): l is LinkRef => typeof l === 'object' && l !== null && typeof (l as LinkRef).node === 'string',
+  );
+}
+
+/** Sides that face each other: horizontal neighbours connect left/right, vertical ones top/bottom. */
+function facing(a: GraphNode, b: GraphNode): [PortFace, PortFace] {
+  const dx = b.x + b.w / 2 - (a.x + a.w / 2);
+  const dy = b.y + b.h / 2 - (a.y + a.h / 2);
+  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? ['right', 'left'] : ['left', 'right'];
+  return dy >= 0 ? ['bottom', 'top'] : ['top', 'bottom'];
+}
+
+function sidePoint(n: GraphNode, face: PortFace): { x: number; y: number } {
+  if (face === 'left') return { x: n.x, y: n.y + n.h / 2 };
+  if (face === 'right') return { x: n.x + n.w, y: n.y + n.h / 2 };
+  if (face === 'top') return { x: n.x + n.w / 2, y: n.y };
+  return { x: n.x + n.w / 2, y: n.y + n.h };
+}
+
+const DASH = 10;
+const GAP = 7;
+
+/**
+ * Dashed lines from nodes to the nodes their `links` point at in this graph (butterfly → consequence,
+ * gun → payoff), in the colour of the source's kind. Rebuilt only when the graph or a drag changes.
+ */
+export function buildLinks(s: SceneInput): { links: Batch; arrows: Batch } {
+  const { index, drag } = s;
+  const segs: number[] = [];
+  const arrows: number[] = [];
+  for (const raw of index.graph.nodes) {
+    const links = linksOf(raw);
+    if (!links.length) continue;
+    const a = placed(raw, drag);
+    const color = hexToRgba(colorHex(a.color, kindOf(a.kind).color), 0.9);
+    for (const link of links) {
+      const target = link.graph === index.graph.id ? index.node(link.node) : undefined;
+      if (!target || target.id === a.id) continue;
+      const b = placed(target, drag);
+      const [fa, fb] = facing(a, b);
+      const curve = edgeCurve(sidePoint(a, fa), sidePoint(b, fb), fa, fb);
+      // Walk the curve and lay dashes by length, so they look the same on short and long links.
+      let prev = curvePoint(curve, 0);
+      let along = 0;
+      for (let k = 1; k <= 48; k++) {
+        const p = curvePoint(curve, k / 48);
+        const len = Math.hypot(p.x - prev.x, p.y - prev.y);
+        const phase = along % (DASH + GAP);
+        if (phase < DASH) segs.push(prev.x, prev.y, p.x, p.y, ...color, 2);
+        along += len;
+        prev = p;
+      }
+      const d = endDirection(curve);
+      arrows.push(curve.x2, curve.y2, d.x, d.y, ...color);
+    }
+  }
+  return {
+    links: { data: Float32Array.from(segs), count: segs.length / SEG_STRIDE },
+    arrows: { data: Float32Array.from(arrows), count: arrows.length / ARROW_STRIDE },
+  };
 }
 
 /** Rectangle being dragged out to select (world coordinates). */

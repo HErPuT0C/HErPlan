@@ -2,6 +2,7 @@
 // React hosts it (CanvasView) and draws the near-zoom DOM nodes; everything per frame happens here,
 // outside React. Changes to the graph go through the project store, so they are undoable and autosaved.
 
+import type { Draft } from 'immer';
 import { atom, type Atom } from '../core/atom';
 import type { ProjectData } from '../core/project/types';
 import type { Store } from '../core/store';
@@ -47,6 +48,7 @@ import { GraphRenderer, EMPTY_BATCH } from './gl/renderer';
 import {
   anchorBatch,
   buildEdges,
+  buildLinks,
   buildGroups,
   buildNodes,
   marqueeBatch,
@@ -73,13 +75,24 @@ export interface CanvasCallbacks {
   onContextMenu: (target: HitTarget, x: number, y: number, world: { x: number; y: number }) => void;
   /** Double click on empty space, or an edge dropped on empty space: the host offers node kinds. */
   onCreateRequest: (x: number, y: number, world: { x: number; y: number }, from: PulledEdge | null) => void;
-  /** Double click on a node from up close (outside its text): the host may open it (a chapter). */
+  /** Double click on a node (outside its texts) or Enter: the host may open it (a chapter). */
   onOpenNode?: (id: string) => boolean;
+  /** Story graphs: chapter nodes own graphs, which must follow them through create, delete, copy and paste. */
+  hooks?: GraphHooks;
   onSearchRequest: () => void;
   /** Labels of undo steps, in the interface language. */
   label: (key: StepKey) => string;
   panButton: () => 'middle' | 'right';
   readOnly: boolean;
+}
+
+/** Called inside the same undo step as the canvas change, with the whole project to change. */
+export interface GraphHooks {
+  create?: (project: Draft<ProjectData>, node: GraphNode) => void;
+  remove?: (project: Draft<ProjectData>, nodes: GraphNode[]) => void;
+  /** Adds what the copied nodes own to the clipboard (outside any change). */
+  copy?: (clip: GraphClipboard, project: ProjectData) => void;
+  paste?: (project: Draft<ProjectData>, nodes: GraphNode[], clip: GraphClipboard) => void;
 }
 
 export interface CanvasView {
@@ -224,13 +237,13 @@ export class CanvasEngine {
     this.publishNear();
   }
 
-  private change(key: StepKey, recipe: (g: GraphDoc) => void, mergeKey?: string): void {
+  private change(key: StepKey, recipe: (g: GraphDoc, project: Draft<ProjectData>) => void, mergeKey?: string): void {
     if (this.callbacks.readOnly) return;
     this.store.dispatch(
       this.callbacks.label(key),
       (d) => {
         const g = d.graphs[this.graphId] as unknown as GraphDoc | undefined;
-        if (g) recipe(g);
+        if (g) recipe(g, d);
       },
       mergeKey ? { mergeKey } : {},
     );
@@ -361,7 +374,8 @@ export class CanvasEngine {
       node.y = snap(world.y);
     }
     init?.(node);
-    this.change('create', (g) => {
+    this.change('create', (g, d) => {
+      this.callbacks.hooks?.create?.(d, node);
       g.nodes.push(node);
       if (from && placed.port) {
         if (from.reverse) connect(g, { node: node.id, port: placed.port }, { node: from.node, port: from.port });
@@ -382,12 +396,23 @@ export class CanvasEngine {
   deleteSelection(): void {
     const s = this.selection.get();
     if (isEmptySelection(s)) return;
-    this.change('delete', (g) => deleteItems(g, s));
+    this.change('delete', (g, d) => {
+      const removed = g.nodes.filter((n) => s.nodes.has(n.id));
+      deleteItems(g, s);
+      if (removed.length) this.callbacks.hooks?.remove?.(d, removed);
+    });
     this.select(EMPTY_SELECTION);
   }
 
-  async copy(cut = false): Promise<void> {
+  /** The selection on a clipboard, with whatever its nodes own. */
+  private clip(): GraphClipboard | null {
     const clip = copySelection(this.graph, this.selection.get());
+    if (clip) this.callbacks.hooks?.copy?.(clip, this.store.getState());
+    return clip;
+  }
+
+  async copy(cut = false): Promise<void> {
+    const clip = this.clip();
     if (!clip) return;
     internalClipboard = clip;
     try {
@@ -412,7 +437,7 @@ export class CanvasEngine {
   }
 
   duplicate(): void {
-    const clip = copySelection(this.graph, this.selection.get());
+    const clip = this.clip();
     if (!clip) return;
     const b = clip.nodes.reduce((m, n) => ({ x: Math.min(m.x, n.x), y: Math.min(m.y, n.y) }), {
       x: Infinity,
@@ -423,8 +448,11 @@ export class CanvasEngine {
 
   private pasteAt(clip: GraphClipboard, at: { x: number; y: number }, key: 'paste' | 'duplicate'): void {
     let pasted = { nodes: [] as string[], edges: [] as string[], groups: [] as string[] };
-    this.change(key, (g) => {
+    this.change(key, (g, d) => {
       pasted = pasteClipboard(g, clip, at);
+      const ids = new Set(pasted.nodes);
+      const nodes = g.nodes.filter((n) => ids.has(n.id));
+      if (nodes.length) this.callbacks.hooks?.paste?.(d, nodes, clip);
     });
     this.select({ nodes: new Set(pasted.nodes), edges: new Set(pasted.edges), groups: new Set(pasted.groups) });
   }
@@ -851,6 +879,11 @@ export class CanvasEngine {
       return handled();
     }
     if (key === 'Delete' || key === 'Backspace') return (handled(), this.deleteSelection());
+    if (key === 'Enter' && !ctrl) {
+      const s = this.selection.get();
+      if (s.nodes.size === 1 && this.callbacks.onOpenNode?.([...s.nodes][0])) handled();
+      return;
+    }
     if (key === 'Escape') {
       if (this.gesture) this.cancelGesture();
       else this.select(EMPTY_SELECTION);
@@ -968,6 +1001,7 @@ export class CanvasEngine {
     const groups = this.layer('groups', [input.index, sel.groups, drag, resizing, this.theme], () =>
       buildGroups(input),
     );
+    const links = this.layer('links', [input.index, drag], () => buildLinks(input));
 
     let overlayBoxes = EMPTY_BATCH;
     let overlaySegs = EMPTY_BATCH;
@@ -985,6 +1019,8 @@ export class CanvasEngine {
       groups,
       edges: edges.edges,
       arrows: edges.arrows,
+      links: links.links,
+      linkArrows: links.arrows,
       nodes: nodes.nodes,
       ports: nodes.ports,
       overlayBoxes,

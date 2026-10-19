@@ -7,6 +7,7 @@ import type { ProjectData } from '../../core/project/types';
 import type { Store } from '../../core/store';
 import { useAtom, useStore } from '../../core/useStore';
 import { t } from '../../i18n';
+import { cardLook } from './cardRegistry';
 import { NodeIcon } from './icons';
 
 interface LayerProps {
@@ -176,6 +177,10 @@ const NodeCard = memo(function NodeCard({
 }: CardProps) {
   const linked = new Set(connected.split(' '));
   const kind = kindOf(node.kind);
+  const look = cardLook(node.kind);
+  const Body = look?.body;
+  const Extra = look?.headerExtra;
+  const KindIcon = look?.icon;
   const color = colorHex(node.color, kind.color);
   const sticker = kind.sticker === true;
   const style = { transform: `translate(${x}px, ${y}px)`, width: w, height: h, '--node-color': color } as CSSProperties;
@@ -196,25 +201,44 @@ const NodeCard = memo(function NodeCard({
     >
       {!sticker && (
         <div className="cnode-head" style={{ height: HEADER_H }}>
-          {node.icon && <NodeIcon name={node.icon} />}
-          <Editable
-            className="cnode-title"
-            value={node.title}
-            placeholder={t(kind.label)}
-            readOnly={readOnly}
-            onCommit={(v) => onRename(node.id, v)}
-          />
+          {node.icon ? (
+            <NodeIcon name={node.icon} />
+          ) : (
+            KindIcon && (
+              <span className="cnode-icon">
+                <KindIcon size={14} />
+              </span>
+            )
+          )}
+          {look?.titleEditable === false ? (
+            <div className={['cnode-title', !node.title && 'cnode-empty'].filter(Boolean).join(' ')}>
+              {node.title || t(kind.label)}
+            </div>
+          ) : (
+            <Editable
+              className="cnode-title"
+              value={node.title}
+              placeholder={t(kind.label)}
+              readOnly={readOnly}
+              onCommit={(v) => onRename(node.id, v)}
+            />
+          )}
+          {Extra && <Extra node={node} readOnly={readOnly} />}
           {node.comment && <span className="cnode-comment-dot" aria-label={t('canvas.hasComment')} />}
         </div>
       )}
-      <Editable
-        className="cnode-body"
-        value={node.text ?? ''}
-        placeholder={t('canvas.textPlaceholder')}
-        multiline
-        readOnly={readOnly}
-        onCommit={(v) => onText(node.id, v)}
-      />
+      {Body ? (
+        <Body node={node} w={w} h={h} readOnly={readOnly} onText={onText} />
+      ) : (
+        <Editable
+          className="cnode-body"
+          value={node.text ?? ''}
+          placeholder={t('canvas.textPlaceholder')}
+          multiline
+          readOnly={readOnly}
+          onCommit={(v) => onText(node.id, v)}
+        />
+      )}
       {portsOf({ ...node, w, h }).map((p) => (
         <span
           key={p.id}

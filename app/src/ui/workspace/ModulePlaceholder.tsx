@@ -16,7 +16,7 @@ export function ModulePlaceholder({ kind }: { kind: ModuleKind }) {
           <>
             {t(m.description)}
             <br />
-            {t('module.placeholder', { version: m.release })}
+            {t('module.placeholder', { version: m.release ?? '' })}
           </>
         }
       />

@@ -288,6 +288,8 @@ export interface GraphClipboard {
   /** Only edges with both ends inside the copied nodes. */
   edges: GraphEdge[];
   groups: GraphGroup[];
+  /** Graphs that copied nodes own (chapters carry their content along). */
+  graphs?: GraphDoc[];
 }
 
 export function copySelection(g: GraphDoc, s: Selection): GraphClipboard | null {

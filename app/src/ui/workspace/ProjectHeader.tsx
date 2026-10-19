@@ -1,7 +1,8 @@
-import { ArchiveRestore, Download, FolderSearch, ImagePlus, Redo2, Settings, Undo2, X } from 'lucide-react';
+import { ArchiveRestore, Download, FolderSearch, ImagePlus, Redo2, Settings, Undo2, Variable, X } from 'lucide-react';
 import { useStore } from '../../core/useStore';
 import { t } from '../../i18n';
 import { platform } from '../../platform';
+import { openVariables } from '../../state/navigation';
 import type { OpenProject } from '../../state/project';
 import { IconButton, toast, useContextMenu } from '../components';
 import { errorText } from '../errors';
@@ -97,6 +98,7 @@ export function ProjectHeader({ project, onHistory, onExport, onSettings, onClos
           onClick={() => store.redo()}
         />
         <span className="toolbar-sep" />
+        <IconButton label={t('var.title')} icon={<Variable size={18} />} onClick={() => openVariables()} />
         <IconButton label={t('history.title')} icon={<ArchiveRestore size={18} />} onClick={onHistory} />
         <IconButton label={t('export.button')} icon={<Download size={18} />} onClick={onExport} />
         <IconButton label={t('settings.title')} icon={<Settings size={18} />} onClick={onSettings} />

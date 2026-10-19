@@ -6,6 +6,8 @@ import { isTypingTarget, keyString } from './ui/hotkeys';
 import { closeProject } from './state/project';
 import { flushSettings, loadSettings } from './state/settings';
 import { App } from './ui/App';
+// Story node kinds join the canvas before any graph is opened.
+import './story/kinds';
 import './ui/theme/tokens.css';
 
 // Browser shortcuts that make no sense in a desktop application (reload, print, find in page, view source).

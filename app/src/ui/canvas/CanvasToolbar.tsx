@@ -10,11 +10,14 @@ export function CanvasToolbar({
   readOnly,
   onSearch,
   onCreate,
+  onCreateMenu,
 }: {
   engine: CanvasEngine;
   readOnly: boolean;
   onSearch: () => void;
   onCreate: (kind: string) => void;
+  /** Opens the list of node kinds under the button (screen point). */
+  onCreateMenu: (x: number, y: number) => void;
 }) {
   const { camera } = useAtom(engine.view);
   return (
@@ -25,7 +28,10 @@ export function CanvasToolbar({
             size="sm"
             label={t('canvas.addNode')}
             icon={<Plus size={16} />}
-            onClick={() => onCreate('node')}
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              onCreateMenu(r.left, r.bottom + 6);
+            }}
           />
           <IconButton
             size="sm"

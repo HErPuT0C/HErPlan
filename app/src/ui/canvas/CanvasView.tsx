@@ -11,14 +11,13 @@ import {
   Plus,
   Scissors,
   SquareDashed,
-  StickyNote,
   Trash,
   Type,
   Ungroup,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { Camera } from '../../canvas/camera';
-import { CanvasEngine, type HitTarget, type PulledEdge, type StepKey } from '../../canvas/engine';
+import { CanvasEngine, type GraphHooks, type HitTarget, type PulledEdge, type StepKey } from '../../canvas/engine';
 import { creatableKinds, kindOf } from '../../canvas/kinds';
 import type { GraphDoc } from '../../canvas/model';
 import { createNode, groupNodes, insertNodeIntoEdge, setNodeProps } from '../../canvas/ops';
@@ -29,6 +28,7 @@ import { useAtom } from '../../core/useStore';
 import { EmptyState, Menu, type MenuEntry } from '../components';
 import { CanvasToolbar } from './CanvasToolbar';
 import { CommentBubble } from './CommentBubble';
+import { CreatePalette } from './CreatePalette';
 import { FrameHandles } from './FrameHandles';
 import { HintPanel } from './HintPanel';
 import { Minimap } from './Minimap';
@@ -67,22 +67,43 @@ interface MenuState {
   entries: MenuEntry[];
 }
 
+interface PaletteState {
+  x: number;
+  y: number;
+  world: { x: number; y: number };
+  from: PulledEdge | null;
+}
+
+/** What an editor built on the canvas (the story editor) adds to it. */
+export interface CanvasExtensions {
+  hooks?: GraphHooks;
+  /** Double click or Enter on a node: true when the editor opened it (a chapter). */
+  onOpenNode?: (id: string) => boolean;
+  /** Entries put at the top of a node's or the background's context menu. */
+  menuEntries?: (target: HitTarget, world: { x: number; y: number }) => MenuEntry[];
+  /** Kind of node that "insert node into edge" creates. */
+  insertKind?: string;
+}
+
 /** A graph on the canvas (FR-CNV-*): WebGL below, DOM nodes above, panels on top. */
 export function CanvasView({
   project,
   graphId,
   onEngine,
+  ext,
 }: {
   project: OpenProject;
   graphId: string;
-  /** For the benchmark page, which drives the camera itself. */
+  /** The benchmark page and the story editor drive the engine themselves. */
   onEngine?: (engine: CanvasEngine | null) => void;
+  ext?: CanvasExtensions;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const dom = useRef<HTMLDivElement>(null);
   const [engine, setEngine] = useState<CanvasEngine | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [palette, setPalette] = useState<PaletteState | null>(null);
   const [searching, setSearching] = useState(false);
   const [prompt, setPrompt] = useState<PromptRequest | null>(null);
   const [swatch, setSwatch] = useState<SwatchRequest | null>(null);
@@ -93,6 +114,7 @@ export function CanvasView({
   const handlers = useRef<{
     contextMenu: (target: HitTarget, x: number, y: number, world: { x: number; y: number }) => void;
     create: (x: number, y: number, world: { x: number; y: number }, from: PulledEdge | null) => void;
+    ext: CanvasExtensions | undefined;
   } | null>(null);
   const onEngineRef = useRef(onEngine);
 
@@ -109,6 +131,13 @@ export function CanvasView({
         {
           onContextMenu: (target, x, y, world) => handlers.current?.contextMenu(target, x, y, world),
           onCreateRequest: (x, y, world, from) => handlers.current?.create(x, y, world, from),
+          onOpenNode: (id) => handlers.current?.ext?.onOpenNode?.(id) ?? false,
+          hooks: {
+            create: (d, node) => handlers.current?.ext?.hooks?.create?.(d, node),
+            remove: (d, nodes) => handlers.current?.ext?.hooks?.remove?.(d, nodes),
+            copy: (clip, data) => handlers.current?.ext?.hooks?.copy?.(clip, data),
+            paste: (d, nodes, clip) => handlers.current?.ext?.hooks?.paste?.(d, nodes, clip),
+          },
           onSearchRequest: () => setSearching(true),
           label: (key) => t(STEP_LABELS[key]),
           panButton: () => settings.get().panButton,
@@ -152,20 +181,19 @@ export function CanvasView({
     if (id) engine.select({ nodes: new Set(), edges: new Set(), groups: new Set([id]) });
   };
 
-  const kindEntries = (world: { x: number; y: number }, from: PulledEdge | null): MenuEntry[] =>
-    creatableKinds()
-      .filter((k) => !from || !k.sticker)
-      .map((k) => ({
-        id: `create-${k.id}`,
-        label: t(k.label),
-        icon: k.sticker ? <StickyNote size={16} /> : <Plus size={16} />,
-        onSelect: () => createAt(k.id, world, from),
-      }));
+  /** Kinds for this graph; an edge pulled into empty space needs a kind that can take it. */
+  const paletteKinds = (from: PulledEdge | null) =>
+    creatableKinds(graph()?.kind).filter((k) => {
+      if (!from) return true;
+      const ports = k.ports({ id: '', kind: k.id, title: '', x: 0, y: 0, w: k.size.w, h: k.size.h });
+      return ports.some((p) => (from.reverse ? p.side !== 'in' : p.side !== 'out'));
+    });
 
+  /** Opens "what to create?" at a point of the canvas (x, y relative to it). */
   const openCreateMenu = (x: number, y: number, world: { x: number; y: number }, from: PulledEdge | null) => {
     const rect = root.current?.getBoundingClientRect();
     if (readOnly || !rect) return;
-    setMenu({ x: x + rect.left, y: y + rect.top, entries: kindEntries(world, from) });
+    setPalette({ x: x + rect.left, y: y + rect.top, world, from });
   };
 
   const openContextMenu = (target: HitTarget, x: number, y: number, world: { x: number; y: number }) => {
@@ -175,8 +203,21 @@ export function CanvasView({
     const entries: MenuEntry[] = [];
     const sep = (id: string) => entries.push({ id, separator: true });
     const edit = !readOnly;
+    const extra = ext?.menuEntries?.(target, world) ?? [];
+    if (extra.length) entries.push(...extra, { id: 'sep-ext', separator: true });
     if (target.kind === 'background') {
-      if (edit) entries.push(...kindEntries(world, null), { id: 'sep1', separator: true });
+      const rect = root.current?.getBoundingClientRect();
+      if (edit && rect) {
+        entries.push(
+          {
+            id: 'create',
+            label: t('canvas.createMenu'),
+            icon: <Plus size={16} />,
+            onSelect: () => setPalette({ x, y, world, from: null }),
+          },
+          { id: 'sep1', separator: true },
+        );
+      }
       if (edit)
         entries.push({
           id: 'paste',
@@ -361,7 +402,9 @@ export function CanvasView({
             label: t('canvas.insertNode'),
             icon: <Plus size={16} />,
             onSelect: () => {
-              const node = createNode('node', world.x - 120, world.y - 60, t('canvas.kind.node'));
+              const kind = ext?.insertKind ?? 'node';
+              const def = kindOf(kind);
+              const node = createNode(kind, world.x - def.size.w / 2, world.y - def.size.h / 2, t(def.label));
               engine.apply(t('canvas.step.create'), (gr) => insertNodeIntoEdge(gr, edge.id, node));
             },
           },
@@ -454,7 +497,7 @@ export function CanvasView({
   };
 
   useLayoutEffect(() => {
-    handlers.current = { contextMenu: openContextMenu, create: openCreateMenu };
+    handlers.current = { contextMenu: openContextMenu, create: openCreateMenu, ext };
     onEngineRef.current = onEngine;
   });
 
@@ -510,6 +553,7 @@ export function CanvasView({
               readOnly={readOnly}
               onSearch={() => setSearching(true)}
               onCreate={(kind) => createAt(kind, engine.viewCenter())}
+              onCreateMenu={(x, y) => setPalette({ x, y, world: engine.viewCenter(), from: null })}
             />
             <FrameHandles engine={engine} store={project.store} graphId={graphId} readOnly={readOnly} />
             <SelectionBar engine={engine} onGroup={groupSelection} />
@@ -542,6 +586,18 @@ export function CanvasView({
           />
         )}
       </div>
+      {palette && (
+        <CreatePalette
+          x={palette.x}
+          y={palette.y}
+          kinds={paletteKinds(palette.from)}
+          onPick={(kind) => createAt(kind, palette.world, palette.from)}
+          onClose={() => {
+            setPalette(null);
+            root.current?.focus({ preventScroll: true });
+          }}
+        />
+      )}
       <PromptDialog request={prompt} onClose={() => setPrompt(null)} />
       <SwatchPopover request={swatch} onClose={() => setSwatch(null)} />
     </>
