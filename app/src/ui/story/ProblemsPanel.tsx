@@ -18,6 +18,9 @@ const FILTERS: [Filter, MessageKey][] = [
   ['info', 'problems.hints'],
 ];
 
+/** A huge generated graph can have thousands of problems; the list shows the first ones. */
+const SHOWN_LIMIT = 300;
+
 const ICONS: Record<Severity, typeof CircleAlert> = { error: CircleAlert, warning: TriangleAlert, info: Info };
 
 /** Project checks (FR-NAR-08, FR-NAR-10), live: click a problem to go to its place. */
@@ -67,7 +70,7 @@ export function ProblemsPanel() {
         </p>
       )}
       <ul className="problems-list">
-        {shown.map((p, i) => {
+        {shown.slice(0, SHOWN_LIMIT).map((p, i) => {
           const Icon = ICONS[p.severity];
           return (
             <li key={`${p.code}-${p.graph}-${p.node ?? p.edge ?? p.variable}-${i}`}>
@@ -80,6 +83,9 @@ export function ProblemsPanel() {
           );
         })}
       </ul>
+      {shown.length > SHOWN_LIMIT && (
+        <p className="muted small">{t('problems.more', { count: shown.length - SHOWN_LIMIT })}</p>
+      )}
     </div>
   );
 }

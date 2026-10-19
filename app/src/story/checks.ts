@@ -103,9 +103,8 @@ function reachableInGraph(g: GraphDoc, jumpTargets: ReadonlySet<string>): Set<st
     }
   };
   for (const n of g.nodes) if (n.kind === 'start' || jumpTargets.has(n.id)) push(n.id);
-  while (queue.length) {
-    const id = queue.shift()!;
-    for (const e of edgesFrom(g, id)) push(e.to.node);
+  for (let i = 0; i < queue.length; i++) {
+    for (const e of edgesFrom(g, queue[i])) push(e.to.node);
   }
   return seen;
 }

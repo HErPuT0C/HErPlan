@@ -1,6 +1,7 @@
 // Story node data (FR-NAR-02): fields that story kinds keep on top of the generic graph node.
 // Everything is stored in data/graphs/<id>.json (docs/format/project-v1.md); expressions are source text.
 
+import { isDraft } from 'immer';
 import type { GraphDoc, GraphNode } from '../canvas/model';
 import type { ProjectData } from '../core/project/types';
 
@@ -71,9 +72,19 @@ export function storyRoot(data: ProjectData): GraphDoc | undefined {
   return allGraphs(data).find((g) => g.kind === 'story');
 }
 
+/** Nodes by id, built once per version of a graph (see edgesFrom in flow.ts); drafts are not cached. */
+const nodeIndex = new WeakMap<GraphDoc, Map<string, GraphNode>>();
+
+export function nodeIn(g: GraphDoc | undefined, id: string): StoryNode | undefined {
+  if (!g) return undefined;
+  if (isDraft(g)) return g.nodes.find((n) => n.id === id) as StoryNode | undefined;
+  let byId = nodeIndex.get(g);
+  if (!byId) nodeIndex.set(g, (byId = new Map(g.nodes.map((n) => [n.id, n]))));
+  return byId.get(id) as StoryNode | undefined;
+}
+
 export function findNode(data: ProjectData, ref: NodeRef | null | undefined): StoryNode | undefined {
-  if (!ref) return undefined;
-  return graphOf(data, ref.graph)?.nodes.find((n) => n.id === ref.node) as StoryNode | undefined;
+  return ref ? nodeIn(graphOf(data, ref.graph), ref.node) : undefined;
 }
 
 /** Kinds that the playthrough stops at; the others (start, condition, effect, jump, chapter) it passes. */

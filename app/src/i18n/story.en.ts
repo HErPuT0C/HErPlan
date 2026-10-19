@@ -231,6 +231,7 @@ export const storyEn: Record<keyof typeof storyRu, string> = {
   'problems.warnings': 'Warnings',
   'problems.threads': 'Open plot threads',
   'problems.hints': 'Hints',
+  'problems.more': '…and {count} more. Fix the first ones or narrow the filter.',
   'problems.none': 'All checks passed: no problems found.',
 
   'var.title': 'Variables and labels',

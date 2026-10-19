@@ -20,6 +20,7 @@ import { playAct, playActions, playSetVariable, startPlay, type PlayState } from
 import { sampleProject, sampleStats } from './sample';
 import { nodesUsing, renameEverywhere, unusedVariables, variableUsage } from './usage';
 import { guessType, listVariables, nameProblem, registryFor } from './variables';
+import { benchGraph } from '../canvas/bench';
 import { createNode } from '../canvas/ops';
 import { emptyGraph } from '../canvas/model';
 
@@ -405,6 +406,27 @@ describe('JSON export (F3-14)', () => {
     });
     const ch1 = exportStory(data, '0.2.0').story.graphs[1];
     expect(ch1.nodes.find((n) => n.id === 'a-check')?.condition).toEqual({ source: 'доверие <', ast: null });
+  });
+});
+
+describe('speed on big graphs', () => {
+  it('checks a 20 000-node chapter in well under a second', () => {
+    const data = sampleProject();
+    const big = benchGraph(20000, 32000);
+    big.id = 'g-big';
+    big.kind = 'chapter';
+    big.parent = { kind: 'node', id: 'r-big' };
+    for (const n of big.nodes) n.kind = 'scene';
+    big.nodes.unshift({ ...createNode('start', 0, 0, 'S'), id: 's0' });
+    big.edges.push({ id: 'es', from: { node: 's0', port: 'out' }, to: { node: 'n0', port: 'in' } });
+    data.graphs['g-big'] = big as unknown as ProjectData['graphs'][string];
+    g(data, 'g-root').nodes.push({ ...createNode('chapter', 0, 900, 'Big'), id: 'r-big', graph: 'g-big' } as StoryNode);
+    checkProject(data);
+    const t = performance.now();
+    const problems = checkProject(data);
+    // Measured about 50 ms; the bound leaves room for slow CI machines (it was 12 s before edge indexes).
+    expect(performance.now() - t).toBeLessThan(1500);
+    expect(problems.some((p) => p.code === 'deadEnd' && p.graph === 'g-big')).toBe(true);
   });
 });
 

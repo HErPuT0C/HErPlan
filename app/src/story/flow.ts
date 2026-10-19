@@ -1,17 +1,36 @@
 // How the story flows across graphs: edges inside a graph, chapter nodes that enter their own graph,
 // end nodes that return to the chapter node above, jumps to any node. Used by the playthrough and checks.
 
+import { isDraft } from 'immer';
 import type { GraphDoc, GraphEdge } from '../canvas/model';
 import type { ProjectData } from '../core/project/types';
-import { asStory, findNode, graphOf, OFF_FLOW, storyRoot, type NodeRef, type StoryNode } from './model';
+import { asStory, findNode, graphOf, nodeIn, OFF_FLOW, storyRoot, type NodeRef, type StoryNode } from './model';
 
 export const refKey = (r: NodeRef): string => `${r.graph}/${r.node}`;
 export const sameRef = (a: NodeRef | null | undefined, b: NodeRef | null | undefined): boolean =>
   !!a && !!b && a.graph === b.graph && a.node === b.node;
 
+/**
+ * Outgoing edges by node id, built once per version of a graph: graphs never change in place outside a
+ * Store recipe, so the object identity is the version. Drafts inside a recipe are never cached.
+ */
+const outgoing = new WeakMap<GraphDoc, Map<string, GraphEdge[]>>();
+const NO_EDGES: GraphEdge[] = [];
+
 /** Edges leaving a node, optionally only from one port, in the order they were made. */
 export function edgesFrom(g: GraphDoc, nodeId: string, port?: string): GraphEdge[] {
-  return g.edges.filter((e) => e.from.node === nodeId && (port === undefined || e.from.port === port));
+  let byNode = isDraft(g) ? undefined : outgoing.get(g);
+  if (!byNode) {
+    byNode = new Map();
+    for (const e of g.edges) {
+      const list = byNode.get(e.from.node);
+      if (list) list.push(e);
+      else byNode.set(e.from.node, [e]);
+    }
+    if (!isDraft(g)) outgoing.set(g, byNode);
+  }
+  const list = byNode.get(nodeId) ?? NO_EDGES;
+  return port === undefined ? list : list.filter((e) => e.from.port === port);
 }
 
 /** The first start node of a graph: where the playthrough enters it. */
@@ -73,9 +92,8 @@ export function reachableFrom(data: ProjectData, from: NodeRef): Set<string> {
     queue.push(r);
   };
   for (const next of successors(data, from)) push(next);
-  while (queue.length) {
-    const r = queue.shift()!;
-    for (const next of successors(data, r)) push(next);
+  for (let i = 0; i < queue.length; i++) {
+    for (const next of successors(data, queue[i])) push(next);
   }
   return seen;
 }
@@ -83,7 +101,7 @@ export function reachableFrom(data: ProjectData, from: NodeRef): Set<string> {
 /** Where the flow can go right after a node, ignoring conditions. */
 export function successors(data: ProjectData, at: NodeRef): NodeRef[] {
   const g = graphOf(data, at.graph);
-  const node = g?.nodes.find((n) => n.id === at.node) as StoryNode | undefined;
+  const node = nodeIn(g, at.node);
   if (!g || !node || OFF_FLOW.has(node.kind)) return [];
   const out: NodeRef[] = edgesFrom(g, node.id).map((e) => ({ graph: at.graph, node: e.to.node }));
   if (node.kind === 'chapter' && node.graph) {

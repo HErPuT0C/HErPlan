@@ -233,6 +233,7 @@ export const storyRu = {
   'problems.warnings': 'Предупреждения',
   'problems.threads': 'Незакрытые завязки',
   'problems.hints': 'Подсказки',
+  'problems.more': '…и ещё {count}. Исправьте первые или сузьте фильтр.',
   'problems.none': 'Проверки прошли: проблем не найдено.',
 
   'var.title': 'Переменные и метки',
