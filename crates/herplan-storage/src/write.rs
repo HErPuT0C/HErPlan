@@ -135,23 +135,34 @@ pub fn import_file(dir: &Path, source: &Path, dest_dir: &str) -> Result<String> 
 }
 
 /// The first of `name`, `stem (2).ext`, `stem (3).ext`… that does not exist in `dir`.
-fn free_name(dir: &Path, name: &str) -> PathBuf {
-    let first = dir.join(name);
-    if !first.exists() {
-        return first;
-    }
+pub(crate) fn free_name(dir: &Path, name: &str) -> PathBuf {
     let (stem, ext) = match name.rfind('.') {
         Some(i) if i > 0 => (&name[..i], &name[i..]),
         _ => (name, ""),
     };
+    first_free(dir, name, stem, ext)
+}
+
+/// Like [`free_name`], but for a folder, whose dots are part of the name: `v1.2 (2)`.
+pub(crate) fn free_folder_name(dir: &Path, name: &str) -> PathBuf {
+    first_free(dir, name, name, "")
+}
+
+fn first_free(dir: &Path, name: &str, stem: &str, ext: &str) -> PathBuf {
+    // A broken symlink still takes the name, although `exists()` says it does not.
+    let taken = |path: &Path| fs::symlink_metadata(path).is_ok();
+    let first = dir.join(name);
+    if !taken(&first) {
+        return first;
+    }
     (2u32..)
         .map(|n| dir.join(format!("{stem} ({n}){ext}")))
-        .find(|candidate| !candidate.exists())
+        .find(|candidate| !taken(candidate))
         .expect("some numbered name is free")
 }
 
 /// Copies through a temporary file, so the target appears only once complete.
-fn copy_atomic(source: &Path, target: &Path) -> Result<()> {
+pub(crate) fn copy_atomic(source: &Path, target: &Path) -> Result<()> {
     write_atomic_with(target, |out| {
         let mut input = File::open(source).at(source)?;
         io::copy(&mut input, out)?;

@@ -1,13 +1,22 @@
 // Desktop platform: Rust commands of app/src-tauri plus the official dialog and opener plugins.
 
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
-import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { getCurrentWebview, type DragDropEvent } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
-import type { BackupInfo, BackupKind, FileText, PathStatus, Platform, ProjectSnapshot } from './types';
+import { openPath, openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
+import type { AssetEntry, BackupInfo, BackupKind, FileText, PathStatus, Platform, ProjectSnapshot } from './types';
 
 type Filters = { name: string; extensions: string[] }[];
+
+/**
+ * Native drag positions are physical pixels; the page works in CSS pixels. `devicePixelRatio` covers both the
+ * Windows display scale and the interface zoom (WebView2 zoom acts like browser zoom).
+ */
+function toCssPixels(position: { x: number; y: number }): { x: number; y: number } {
+  const scale = window.devicePixelRatio || 1;
+  return { x: position.x / scale, y: position.y / scale };
+}
 
 export class TauriPlatform implements Platform {
   readonly kind = 'tauri';
@@ -70,6 +79,38 @@ export class TauriPlatform implements Platform {
     return convertFileSrc(path);
   }
 
+  listAssets(dir: string): Promise<AssetEntry[]> {
+    return invoke('asset_list', { dir });
+  }
+
+  assetMkdir(dir: string, path: string): Promise<void> {
+    return invoke('asset_mkdir', { dir, path });
+  }
+
+  assetMove(dir: string, from: string, to: string): Promise<void> {
+    return invoke('asset_move', { dir, from, to });
+  }
+
+  assetDelete(dir: string, path: string, force = false): Promise<void> {
+    return invoke('asset_delete', { dir, path, force });
+  }
+
+  importAssets(dir: string, sources: string[], destDir: string): Promise<string[]> {
+    return invoke('asset_import', { dir, sources, destDir });
+  }
+
+  writeAsset(dir: string, destDir: string, name: string, data: Uint8Array): Promise<string> {
+    // The bytes go as the raw request body instead of a JSON array of numbers; the other arguments go in
+    // headers, which carry ASCII only, hence the encoding.
+    return invoke('asset_write', data, {
+      headers: {
+        'x-herplan-dir': encodeURIComponent(dir),
+        'x-herplan-dest-dir': encodeURIComponent(destDir),
+        'x-herplan-name': encodeURIComponent(name),
+      },
+    });
+  }
+
   createBackup(dir: string, kind: BackupKind, label: string | null): Promise<BackupInfo> {
     return invoke('backup_create', { dir, kind, label });
   }
@@ -118,8 +159,48 @@ export class TauriPlatform implements Platform {
     return revealItemInDir(path);
   }
 
+  openPath(path: string): Promise<void> {
+    // The capability allows only paths inside an "assets" folder (capabilities/default.json).
+    return openPath(path);
+  }
+
   openUrl(url: string): Promise<void> {
     return openUrl(url);
+  }
+
+  onFileDrop(handler: (paths: string[], x: number, y: number) => void): () => void {
+    return this.onDragDrop((event) => {
+      if (event.type !== 'drop') return;
+      const { x, y } = toCssPixels(event.position);
+      handler(event.paths, x, y);
+    });
+  }
+
+  onFileDragOver(handler: (point: { x: number; y: number } | null) => void): () => void {
+    return this.onDragDrop((event) => {
+      handler(event.type === 'enter' || event.type === 'over' ? toCssPixels(event.position) : null);
+    });
+  }
+
+  /** Listens to the webview's native drag and drop; the returned function works even before listening starts. */
+  private onDragDrop(handler: (event: DragDropEvent) => void): () => void {
+    let stopped = false;
+    let unlisten: (() => void) | null = null;
+    void getCurrentWebview()
+      .onDragDropEvent((event) => {
+        if (!stopped) handler(event.payload);
+      })
+      .then(
+        (stop) => {
+          if (stopped) stop();
+          else unlisten = stop;
+        },
+        (e: unknown) => console.error('file drop: cannot listen', e),
+      );
+    return () => {
+      stopped = true;
+      unlisten?.();
+    };
   }
 
   setUiScale(percent: number): Promise<void> {
