@@ -8,7 +8,7 @@ import type { ProjectData } from '../core/project/types';
 import { listEntities } from './entities';
 import { parseCondition, parseEffects, stripPositions, type BinaryOp, type EffectOp, type Expr } from './expr';
 import { graphTitle, parentChapter, startOf } from './flow';
-import { anchorText, resolveRange } from './marks';
+import { anchorText, resolveRange, rolesOf } from './marks';
 import { allGraphs, asStory, storyRoot, type NodeRef } from './model';
 import { joinedEffects, textPieces } from './textEffects';
 import { knownNames } from './usage';
@@ -149,7 +149,12 @@ function exportNode(raw: GraphDoc['nodes'][number], known: (name: string) => boo
   const n = asStory(raw);
   const out: ExportNode = { id: n.id, kind: n.kind, title: n.title, text: n.text ?? '', x: n.x, y: n.y };
   if (n.comment) out.comment = n.comment;
-  if (n.plotRole) out.plotRole = n.plotRole;
+  const roles = rolesOf(n);
+  // plotRole for readers of 0.2 exports (the first role); plotRoles has them all.
+  if (roles.length) {
+    out.plotRole = roles[0];
+    out.plotRoles = roles;
+  }
   // Effects written in the text, applied when the node is shown (textEffects.ts); parsed for engines.
   const written = [
     joinedEffects(textPieces(n.text, known)),

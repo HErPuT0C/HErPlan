@@ -6,7 +6,7 @@ import type { GraphDoc } from '../canvas/model';
 import type { ProjectData } from '../core/project/types';
 import { checkCondition, checkEffects, type Diagnostic } from './expr';
 import { edgesFrom, reachableFrom, refKey, startOf } from './flow';
-import { plotSources } from './marks';
+import { plotSources, rolesOf } from './marks';
 import { allGraphs, asStory, findNode, OFF_FLOW, type NodeRef, type StoryNode } from './model';
 import { projectExpressions, unusedVariables } from './usage';
 import { asRegistry, registryFor } from './variables';
@@ -221,10 +221,11 @@ export function checkProject(data: ProjectData): Problem[] {
     for (const raw of g.nodes) {
       const n = asStory(raw);
       const key = refKey({ graph: g.id, node: n.id });
-      if (n.plotRole === 'payoff' && !setups.has(key)) {
+      const roles = rolesOf(n);
+      if (roles.includes('payoff') && !setups.has(key)) {
         out.push(problem('payoffNoSetup', { graph: g.id, node: n.id }, { title: n.title }));
       }
-      if (n.plotRole === 'consequence' && !causes.has(key)) {
+      if (roles.includes('consequence') && !causes.has(key)) {
         out.push(problem('consequenceNoCause', { graph: g.id, node: n.id }, { title: n.title }));
       }
     }

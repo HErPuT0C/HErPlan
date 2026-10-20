@@ -1115,3 +1115,14 @@
 .play-plot .plot-butterfly svg {
   color: var(--plot-butterfly);
 }
+.imark-role-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.imark-role-source {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 44px;
+}

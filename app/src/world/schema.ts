@@ -394,6 +394,15 @@ export function rememberPair(d: ProjectData, label: string, inverse: string): vo
   }
 }
 
+/** Forgets a pair the project remembered (both ways). */
+export function forgetPair(d: ProjectData, label: string, inverse: string): void {
+  const t = editableTypes(d);
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  t.relationLabels = t.relationLabels.filter(
+    (p) => !(same(p.label, label) && same(p.inverse, inverse)) && !(same(p.label, inverse) && same(p.inverse, label)),
+  );
+}
+
 /** The usual other side of a label: the project's own pairs first, then the defaults ("жена" → "муж"). */
 export function inverseLabel(file: TypesFile, defaults: readonly LabelPair[], label: string): string | null {
   const key = label.trim().toLowerCase();

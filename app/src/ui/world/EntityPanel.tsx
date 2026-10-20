@@ -389,6 +389,7 @@ function Relations({ project, entity, schema }: { project: OpenProject; entity: 
           <Button size="sm" icon={<Plus size={14} />} disabled={!to || !label.trim()} onClick={add}>
             {t('world.relation.add')}
           </Button>
+          <p className="muted small world-relation-hint">{t('world.relation.anyHint')}</p>
         </div>
       )}
     </Section>

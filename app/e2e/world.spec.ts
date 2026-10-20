@@ -166,3 +166,22 @@ test('a portrait: pasted from the clipboard, dropped as a file, picked from the 
   await shot(page, 'w5-pictures');
   expect(errors).toEqual([]);
 });
+
+test('a pair of relation labels of our own is offered on both sides', async ({ page }) => {
+  const { errors } = await openSample(page);
+  await page.getByRole('button', { name: 'Типы и поля…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Типы и поля' });
+  await dialog.getByRole('button', { name: 'Подписи связей' }).click();
+  await dialog.getByLabel('Подпись (например, «должник»)').fill('должник');
+  await dialog.getByLabel('С другой стороны (например, «кредитор»)').fill('кредитор');
+  await dialog.getByRole('button', { name: 'Добавить пару' }).click();
+  await expect(dialog).toContainText('должник');
+  await page.keyboard.press('Escape');
+
+  await card(page, 'Борис').click();
+  const panel = page.locator('.world-panel');
+  await panel.getByRole('combobox', { name: 'С кем…' }).selectOption({ label: 'Мира' });
+  await panel.getByRole('combobox', { name: /Кто это для этой карточки/ }).fill('кредитор');
+  await expect(panel.getByRole('combobox', { name: /Подпись с другой стороны/ })).toHaveValue('должник');
+  expect(errors).toEqual([]);
+});

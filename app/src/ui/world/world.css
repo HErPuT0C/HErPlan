@@ -520,3 +520,7 @@ html[data-dragging] * {
   width: 100%;
   text-align: left;
 }
+.world-relation-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+}

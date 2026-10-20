@@ -24,6 +24,14 @@ describe('export schema v1', () => {
     expect(validate(JSON.parse(JSON.stringify(exportStory(data, '0.2.0'))))).toBe(true);
   });
 
+  it('accepts a node that is both a payoff and a consequence (0.3.1)', () => {
+    const data = produce(sampleProject(), (d) => {
+      findNode(d, { graph: 'g-ch1', node: 'a-check' })!.plotRoles = ['payoff', 'consequence'];
+    });
+    expect(validate(JSON.parse(JSON.stringify(exportStory(data, '0.3.1'))))).toBe(true);
+    expect(validate.errors ?? []).toEqual([]);
+  });
+
   it('rejects a file of another format', () => {
     expect(validate({ format: 'something-else', version: 1 })).toBe(false);
   });

@@ -17,12 +17,26 @@ import type { GraphDoc, GraphEdge } from '../../canvas/model';
 import { setNodeProps } from '../../canvas/ops';
 import type { ProjectData } from '../../core/project/types';
 import { useAtom, useStore } from '../../core/useStore';
-import { t } from '../../i18n';
+import { t, type MessageKey } from '../../i18n';
 import { platform } from '../../platform';
 import { openEntity } from '../../state/navigation';
 import { listEntities, newEntity, type WorldEntity } from '../../story/entities';
 import { graphTitle, refKey } from '../../story/flow';
-import { addMark, linkMark, markLabel, removeMark, unlinkMark, updateMark } from '../../story/marks';
+import {
+  addMark,
+  allSources,
+  deviceOf,
+  linkMark,
+  linkSource,
+  markLabel,
+  removeMark,
+  rolesOf,
+  setRole,
+  unlinkAllTo,
+  unlinkMark,
+  updateMark,
+  type PlotSource,
+} from '../../story/marks';
 import {
   asStory,
   findNode,
@@ -32,6 +46,7 @@ import {
   type NodeRef,
   type PlotDevice,
   type PlotMark,
+  type PlotRole as Role,
   type StoryNode,
   type WorldKind,
 } from '../../story/model';
@@ -52,9 +67,19 @@ import {
 } from '../../story/ops';
 import { knownNames } from '../../story/usage';
 import { fullName, registryFor } from '../../story/variables';
-import { Button, IconButton, Menu, SelectField, Switch, TextArea, TextField, toast } from '../components';
+import {
+  Button,
+  IconButton,
+  Menu,
+  SelectField,
+  Switch,
+  TextArea,
+  TextField,
+  toast,
+  type MenuEntry,
+} from '../components';
 import { errorText } from '../errors';
-import { DeviceIcon, KindIcon } from '../canvas/kindIcons';
+import { DeviceIcon, KindIcon, LandingIcon } from '../canvas/kindIcons';
 import { PromptDialog, type PromptRequest } from '../canvas/PromptDialog';
 import { IMAGE_FILTERS } from '../start/filters';
 import { useStory } from './context';
@@ -944,27 +969,101 @@ function RefSection({ node, kind }: { node: StoryNode; kind: WorldKind }) {
   );
 }
 
-/** The node is where a gun fires or a butterfly lands, even before anything points at it (for checks). */
+const ROLES: { role: Role; label: MessageKey; empty: MessageKey }[] = [
+  { role: 'consequence', label: 'story.plot.consequence', empty: 'story.plot.noButterflies' },
+  { role: 'payoff', label: 'story.plot.payoff', empty: 'story.plot.noGuns' },
+];
+
+/**
+ * Where guns fire and butterflies land. A switch is on when a device already points here (or the node is
+ * marked as waiting for one); turning it on links a device chosen from the project, turning it off removes
+ * those links. A node can be both.
+ */
 function PlotRole({ node }: { node: StoryNode }) {
-  const { project, edit } = useStory();
-  const set = (role: 'consequence' | 'payoff', on: boolean) =>
-    edit(t('story.step.plot'), (g) => setNodeProps(g, [node.id], { plotRole: on ? role : null }));
+  const { project, graphId, edit, show } = useStory();
+  const data = useStore(project.store, (s) => s);
+  const [menu, setMenu] = useState<{ role: Role; x: number; y: number } | null>(null);
+  const here = { graph: graphId, node: node.id };
+  const lands = (src: PlotSource) => src.links.some((l) => l.graph === here.graph && l.node === here.node);
+  const roles = rolesOf(node);
+  const label = (src: PlotSource) => `${src.title || t('story.untitled')} · ${graphTitle(data, src.at.graph)}`;
+
+  const turn = (role: Role, on: boolean, at: { x: number; y: number }) => {
+    if (on) return setMenu({ role, ...at });
+    edit(t('story.step.plot'), (g, d) => {
+      const n = storyNode(g, node.id);
+      if (n) setRole(n, role, false);
+      unlinkAllTo(d, here, deviceOf(role));
+    });
+  };
+  const entries = (role: Role): MenuEntry[] => {
+    const sources = allSources(data, deviceOf(role)).filter((s) => !lands(s) && s.at.node !== node.id);
+    return [
+      ...sources.map((src, i) => ({
+        id: `src-${i}`,
+        label: label(src),
+        icon: <DeviceIcon device={src.device} />,
+        onSelect: () => edit(t('story.step.link'), (_g, d) => linkSource(d, src, here)),
+      })),
+      ...(sources.length ? [{ id: 'sep', separator: true as const }] : []),
+      {
+        id: 'wait',
+        label: t(sources.length ? 'story.plot.waiting' : ROLES.find((r) => r.role === role)!.empty),
+        onSelect: () =>
+          edit(t('story.step.plot'), (g) => {
+            const n = storyNode(g, node.id);
+            if (n) setRole(n, role, true);
+          }),
+      },
+    ];
+  };
+
   return (
     <div className="imark-role">
-      <Switch
-        label={t('story.plot.consequence')}
-        checked={node.plotRole === 'consequence'}
-        disabled={project.readOnly}
-        onChange={(on) => set('consequence', on)}
-      />
-      <Switch
-        label={t('story.plot.payoff')}
-        checked={node.plotRole === 'payoff'}
-        disabled={project.readOnly}
-        onChange={(on) => set('payoff', on)}
-      />
+      {ROLES.map(({ role, label: text }) => {
+        const linked = allSources(data, deviceOf(role)).filter(lands);
+        return (
+          <div key={role} className="imark-role-row">
+            <Switch
+              label={t(text)}
+              checked={linked.length > 0 || roles.includes(role)}
+              disabled={project.readOnly}
+              onChange={(on) => {
+                const box = document
+                  .querySelector(`[data-role-switch="${role}"]`)
+                  ?.closest('label')
+                  ?.getBoundingClientRect();
+                turn(role, on, { x: box?.left ?? 0, y: (box?.bottom ?? 0) + 4 });
+              }}
+              data-role-switch={role}
+            />
+            {linked.map((src, i) => (
+              <div key={i} className="imark-role-source small">
+                <LandingIcon device={src.device} size={13} />
+                <button type="button" className="entity-link" onClick={() => openSource(src)}>
+                  {label(src)}
+                </button>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+      {menu && (
+        <Menu
+          x={menu.x}
+          y={menu.y}
+          label={t(ROLES.find((r) => r.role === menu.role)!.label)}
+          entries={entries(menu.role)}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
   );
+
+  function openSource(src: PlotSource) {
+    // The device where it sits: a mark in its node's inspector, an old device node itself.
+    show(src.at, src.mark ? `mark:${src.mark.id}` : undefined);
+  }
 }
 
 // ---------- edge and graph ----------

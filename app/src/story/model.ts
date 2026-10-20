@@ -86,7 +86,10 @@ export interface StoryNode extends GraphNode {
   graph?: string;
   /** Chapter: picture inside the project ("assets/…"). */
   image?: string | null;
+  /** 0.2 files: a single role; read through rolesOf() (marks.ts). */
   plotRole?: PlotRole | null;
+  /** Expected roles (a node can be both a payoff and a consequence), for checks; see rolesOf(). */
+  plotRoles?: PlotRole[];
   /** Plot devices laid over this node, its options or its lines. */
   marks?: PlotMark[];
 }

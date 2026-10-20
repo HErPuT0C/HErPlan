@@ -325,6 +325,7 @@
         "y": { "type": "number" },
         "comment": { "type": "string" },
         "plotRole": { "enum": ["consequence", "payoff"] },
+        "plotRoles": { "type": "array", "items": { "enum": ["consequence", "payoff"] } },
         "lines": {
           "type": "array",
           "items": {

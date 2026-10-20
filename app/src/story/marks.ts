@@ -5,12 +5,15 @@
 
 import type { GraphDoc } from '../canvas/model';
 import { newId } from '../core/ids';
+import type { ProjectData } from '../core/project/types';
 import {
+  allGraphs,
   asStory,
   type MarkAnchor,
   type NodeRef,
   type PlotDevice,
   type PlotMark,
+  type PlotRole,
   type StoryNode,
   type TextRange,
 } from './model';
@@ -165,4 +168,54 @@ export function plotSources(g: GraphDoc): PlotSource[] {
     }
   }
   return out;
+}
+
+// ---------- the other end: payoffs and consequences ----------
+
+/** Roles a node is expected to play (set by hand), read from 0.2 files (`plotRole`) as well. */
+export function rolesOf(n: StoryNode): PlotRole[] {
+  return n.plotRoles ?? (n.plotRole ? [n.plotRole] : []);
+}
+
+export function setRole(n: StoryNode, role: PlotRole, on: boolean): void {
+  const roles = rolesOf(n).filter((r) => r !== role);
+  if (on) roles.push(role);
+  delete n.plotRole;
+  if (roles.length) n.plotRoles = roles;
+  else delete n.plotRoles;
+}
+
+/** The device whose target has this role: guns land in payoffs, butterflies in consequences. */
+export const deviceOf = (role: PlotRole): PlotDevice => (role === 'payoff' ? 'gun' : 'butterfly');
+
+/** Every gun or butterfly of the project, wherever it is. */
+export function allSources(data: ProjectData, device?: PlotDevice): PlotSource[] {
+  return allGraphs(data)
+    .flatMap(plotSources)
+    .filter((s) => !device || s.device === device);
+}
+
+/** Links a source (a mark, or a gun or butterfly node of old) to a node (inside a Store recipe). */
+export function linkSource(d: ProjectData, src: Pick<PlotSource, 'at' | 'mark'>, to: NodeRef): void {
+  const g = allGraphs(d).find((x) => x.id === src.at.graph);
+  const n = g?.nodes.find((x) => x.id === src.at.node) as StoryNode | undefined;
+  if (!n) return;
+  const links = src.mark ? markOf(n, src.mark.id)?.links : (n.links ??= []);
+  if (links && !links.some((l) => l.graph === to.graph && l.node === to.node)) {
+    links.push({ graph: to.graph, node: to.node });
+  }
+}
+
+/** Removes every link of a device that lands in `to` (inside a Store recipe). */
+export function unlinkAllTo(d: ProjectData, to: NodeRef, device: PlotDevice): void {
+  const other = (l: NodeRef) => !(l.graph === to.graph && l.node === to.node);
+  for (const g of allGraphs(d)) {
+    for (const raw of g.nodes) {
+      const n = asStory(raw);
+      if (n.kind === device && n.links?.some((l) => !other(l))) n.links = n.links.filter(other);
+      for (const m of n.marks ?? []) {
+        if (m.device === device && m.links.some((l) => !other(l))) m.links = m.links.filter(other);
+      }
+    }
+  }
 }

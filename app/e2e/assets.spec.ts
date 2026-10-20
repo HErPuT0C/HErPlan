@@ -76,3 +76,27 @@ test('files dropped in, a folder made, a file moved into it, the folder renamed 
   await shot(page, 'a1-assets');
   expect(errors).toEqual([]);
 });
+
+test('search finds folders by name and keeps them in the tree', async ({ page }) => {
+  const { errors } = await openAssets(page);
+  for (const name of ['Персонажи', 'Локации']) {
+    await page.getByRole('button', { name: 'Новая папка' }).click();
+    await page.getByRole('dialog', { name: 'Новая папка' }).getByLabel('Имя').fill(name);
+    await page.getByRole('button', { name: 'Сохранить' }).click();
+  }
+  const tree = page.getByRole('navigation', { name: 'Папки' });
+  await tree.getByRole('button', { name: 'Персонажи' }).click();
+  await dropFiles(page, '.assets-content', ['mira.png']);
+  await tree.getByRole('button', { name: 'Ресурсы' }).click();
+
+  await page.getByRole('searchbox', { name: 'Поиск папок и файлов' }).fill('перс');
+  await expect(tree.getByRole('button', { name: 'Персонажи' })).toBeVisible();
+  await expect(tree.getByRole('button', { name: 'Локации' })).toHaveCount(0);
+  // The folder and the file inside it are found.
+  await expect(page.locator('.asset-item-folder', { hasText: 'Персонажи' })).toBeVisible();
+  await expect(page.locator('.asset-item', { hasText: 'mira.png' })).toBeVisible();
+  await page.locator('.asset-item-folder', { hasText: 'Персонажи' }).click();
+  await expect(page.getByRole('searchbox', { name: 'Поиск папок и файлов' })).toHaveValue('');
+  await expect(page.locator('.asset-item', { hasText: 'mira.png' })).toBeVisible();
+  expect(errors).toEqual([]);
+});

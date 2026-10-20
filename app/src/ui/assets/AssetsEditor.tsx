@@ -95,14 +95,27 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
   const folders = useMemo(() => (entries ?? []).filter((e) => e.kind === 'folder').map((e) => e.path), [entries]);
   const known = new Set(folders);
   const current = folder === ROOT || known.has(folder) ? folder : ROOT;
+  const q = searchKey(query.trim());
   const shown = useMemo(() => {
-    const q = searchKey(query.trim());
     const list = entries ?? [];
-    // Searching looks through every folder; otherwise the open folder's own files and subfolders.
-    return q
-      ? list.filter((e) => e.kind === 'file' && searchKey(e.path).includes(q))
-      : list.filter((e) => parentOf(e.path) === current);
-  }, [entries, query, current]);
+    if (!q) return list.filter((e) => parentOf(e.path) === current);
+    // Searching looks through every folder: folders by their name first, then files by name or by the
+    // folders they are in.
+    return [
+      ...list.filter((e) => e.kind === 'folder' && searchKey(baseName(e.path)).includes(q)),
+      ...list.filter((e) => e.kind === 'file' && searchKey(e.path.slice(ROOT.length)).includes(q)),
+    ];
+  }, [entries, q, current]);
+  /** While searching, the tree keeps the folders that match and the folders above them. */
+  const treeFolders = useMemo(() => {
+    if (!q) return folders;
+    const keep = new Set<string>();
+    for (const path of folders) {
+      if (!searchKey(baseName(path)).includes(q)) continue;
+      for (let p = path; p !== ROOT && p; p = parentOf(p)) keep.add(p);
+    }
+    return folders.filter((path) => keep.has(path));
+  }, [folders, q]);
 
   /** Runs a disk operation, reports a failure, and lists the library again. */
   const run = async (job: () => Promise<unknown>) => {
@@ -287,7 +300,7 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
           onDropPaths={(paths) => void importPaths(paths, ROOT)}
           onDropFiles={(files) => void importFiles(files, ROOT)}
         />
-        {folders.map((path) => (
+        {treeFolders.map((path) => (
           <FolderRow
             key={path}
             path={path}
@@ -363,8 +376,10 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
                     key={e.path}
                     type="button"
                     className="asset-item asset-item-folder"
-                    onDoubleClick={() => setFolder(e.path)}
-                    onClick={() => setFolder(e.path)}
+                    onClick={() => {
+                      setFolder(e.path);
+                      setQuery('');
+                    }}
                     onContextMenu={(m) => {
                       m.preventDefault();
                       folderMenu(e.path, m.clientX, m.clientY);

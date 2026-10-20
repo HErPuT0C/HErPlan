@@ -6,7 +6,18 @@ import { GraphIndex } from '../canvas/graphIndex';
 import { HEADER_H } from '../canvas/model';
 import { checkProject } from './checks';
 import { exportStory } from './export';
-import { addMark, followText, markLabel, plotSources, resolveRange } from './marks';
+import {
+  addMark,
+  allSources,
+  followText,
+  linkSource,
+  markLabel,
+  plotSources,
+  resolveRange,
+  rolesOf,
+  setRole,
+  unlinkAllTo,
+} from './marks';
 import { findNode, graphOf, type StoryNode } from './model';
 import { markRowY } from './kinds';
 import { pasteChapterGraphs, chapterGraphsOf, removeLine, removeOption, updateLine } from './ops';
@@ -293,5 +304,31 @@ describe('fixes from the review of 0.3', () => {
     const meet = node(renamed, 'g-ch1', 'a-meet');
     expect(meet.lines![1].text).toBe('Над дверью висит {деньги += 1} старое ружьё.');
     expect(meet.marks![0].range).toEqual({ start: 31, end: 43, quote: 'старое ружьё' });
+  });
+});
+
+describe('payoff and consequence switches (0.3.1)', () => {
+  it('a node can be both; turning a role off removes the links that land there', () => {
+    const shot = { graph: 'g-ch3', node: 'c-shot' };
+    const data = produce(sampleProject(), (d) => {
+      const n = node(d, 'g-ch3', 'c-shot');
+      setRole(n, 'consequence', true);
+      expect(rolesOf(n)).toEqual(['payoff', 'consequence']);
+      // The knight's butterfly now also lands in the shot.
+      const knight = allSources(d, 'butterfly').find((s) => s.mark?.id === 'm-knight')!;
+      linkSource(d, knight, shot);
+    });
+    expect(node(data, 'g-ch3', 'c-shot').plotRole).toBeUndefined();
+    const landing = (d: typeof data, device: 'gun' | 'butterfly') =>
+      allSources(d, device).filter((s) => s.links.some((l) => l.node === 'c-shot')).length;
+    expect(landing(data, 'gun')).toBe(2);
+    expect(landing(data, 'butterfly')).toBe(1);
+    const off = produce(data, (d) => {
+      setRole(node(d, 'g-ch3', 'c-shot'), 'payoff', false);
+      unlinkAllTo(d, shot, 'gun');
+    });
+    expect(landing(off, 'gun')).toBe(0);
+    expect(landing(off, 'butterfly')).toBe(1);
+    expect(rolesOf(node(off, 'g-ch3', 'c-shot'))).toEqual(['consequence']);
   });
 });

@@ -1,7 +1,7 @@
 // "Types and fields" (F4-01…F4-05): the type tree with subtypes, the fields of each type, property sets
 // shared by many types, and ready-made sets. Changes apply at once and can be undone.
 
-import { ArrowDown, ArrowUp, Layers, Plus, Shapes, Trash } from 'lucide-react';
+import { ArrowDown, ArrowLeftRight, ArrowUp, Layers, Link2, Plus, Shapes, Trash } from 'lucide-react';
 import { useState } from 'react';
 import type { ProjectData } from '../../core/project/types';
 import { useStore } from '../../core/useStore';
@@ -15,6 +15,9 @@ import {
   addType,
   attachSet,
   canSetParent,
+  forgetPair,
+  parsePairs,
+  rememberPair,
   deleteSet,
   deleteType,
   FIELD_KINDS,
@@ -37,7 +40,7 @@ import {
 import { Button, Checkbox, Dialog, IconButton } from '../components';
 import { FIELD_KIND_NAMES, typeName } from './typeNames';
 
-type Selected = { kind: 'type' | 'set'; id: string };
+type Selected = { kind: 'type' | 'set' | 'relations'; id: string };
 
 const csv = (list: readonly string[] | undefined) => (list ?? []).join(', ');
 const fromCsv = (text: string) =>
@@ -63,9 +66,11 @@ export function SchemaDialog({
     !readOnly && store.dispatch(label, recipe, merge ? { mergeKey: `schema:${merge}` } : {});
 
   const current =
-    selected.kind === 'type'
-      ? schema.types.find((x) => x.id === selected.id)
-      : schema.propertySets.find((x) => x.id === selected.id);
+    selected.kind === 'relations'
+      ? true
+      : selected.kind === 'type'
+        ? schema.types.find((x) => x.id === selected.id)
+        : schema.propertySets.find((x) => x.id === selected.id);
   const shown: Selected = current ? selected : { kind: 'type', id: 'character' };
 
   const newType = (parent: string | null) => {
@@ -132,9 +137,21 @@ export function SchemaDialog({
               {t('schema.addSet')}
             </Button>
           )}
+          <h3 className="insp-heading">{t('schema.relations')}</h3>
+          <button
+            type="button"
+            className="schema-item"
+            aria-current={shown.kind === 'relations' ? 'true' : undefined}
+            onClick={() => setSelected({ kind: 'relations', id: '' })}
+          >
+            <Link2 size={14} aria-hidden="true" />
+            {t('schema.relationLabels')}
+          </button>
         </nav>
         <div className="schema-editor">
-          {shown.kind === 'type' ? (
+          {shown.kind === 'relations' ? (
+            <RelationLabels project={project} schema={schema} change={change} />
+          ) : shown.kind === 'type' ? (
             <TypeEditor
               project={project}
               schema={schema}
@@ -492,5 +509,74 @@ function ListInput({
         onChange(fromCsv(e.target.value));
       }}
     />
+  );
+}
+
+/** Pairs of relation labels (жена ↔ муж): the project's own, which can be added and removed, and the built-in ones. */
+function RelationLabels({ project, schema, change }: { project: OpenProject; schema: TypesFile; change: Change }) {
+  const [label, setLabel] = useState('');
+  const [inverse, setInverse] = useState('');
+  // Each pair is kept both ways; it is listed once.
+  const once = (pairs: { label: string; inverse: string }[]) =>
+    pairs.filter((p, i) => !pairs.slice(0, i).some((q) => q.label === p.inverse && q.inverse === p.label));
+  const own = once(schema.relationLabels);
+  const builtIn = once(parsePairs(t('world.relation.pairs')));
+  const add = () => {
+    if (!label.trim()) return;
+    change(t('schema.step.pair'), (d) => rememberPair(d, label, inverse.trim() || label));
+    setLabel('');
+    setInverse('');
+  };
+  return (
+    <>
+      <p className="muted small">{t('schema.relationsHint')}</p>
+      <section className="insp-section">
+        <h3 className="insp-heading">{t('schema.ownPairs')}</h3>
+        {own.length === 0 && <p className="muted small">{t('schema.noPairs')}</p>}
+        {own.map((p) => (
+          <div key={`${p.label}|${p.inverse}`} className="schema-set-row">
+            <span>
+              {p.label} <ArrowLeftRight size={12} aria-hidden="true" className="muted" /> {p.inverse}
+            </span>
+            {!project.readOnly && (
+              <IconButton
+                size="sm"
+                label={t('schema.removePair')}
+                icon={<Trash size={14} />}
+                onClick={() => change(t('schema.step.pair'), (d) => forgetPair(d, p.label, p.inverse))}
+              />
+            )}
+          </div>
+        ))}
+        {!project.readOnly && (
+          <div className="world-relation-add">
+            <input
+              className="input"
+              value={label}
+              placeholder={t('schema.pairLabel')}
+              aria-label={t('schema.pairLabel')}
+              onChange={(e) => setLabel(e.target.value)}
+            />
+            <input
+              className="input"
+              value={inverse}
+              placeholder={t('schema.pairInverse')}
+              aria-label={t('schema.pairInverse')}
+              onChange={(e) => setInverse(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && add()}
+            />
+            <Button size="sm" icon={<Plus size={14} />} disabled={!label.trim()} onClick={add}>
+              {t('schema.addPair')}
+            </Button>
+          </div>
+        )}
+      </section>
+      <section className="insp-section">
+        <h3 className="insp-heading">{t('schema.builtInPairs')}</h3>
+        <p className="muted small">
+          {builtIn.map((p) => (p.label === p.inverse ? p.label : `${p.label} ↔ ${p.inverse}`)).join(', ')}
+        </p>
+      </section>
+    </>
   );
 }

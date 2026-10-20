@@ -123,3 +123,33 @@ test('selected words get a device from the text menu; options take a comment', a
   await shot(page, 'option-note');
   expect(errors).toEqual([]);
 });
+
+test('payoff and consequence switches link and unlink, and both can be on', async ({ page }) => {
+  const { errors } = await openSample(page);
+  await openChapter(page, 'Глава 1. Мельница');
+  await goTo(page, 'Мешки');
+  await page.locator('.cnode', { hasText: 'Мешки' }).first().locator('.cnode-head').click();
+  const payoff = page.getByRole('switch', { name: 'Это «выстрел» чеховского ружья' });
+  const consequence = page.getByRole('switch', { name: 'Это последствие эффекта бабочки' });
+  await expect(payoff).not.toBeChecked();
+
+  // On: pick the gun that fires here; its dashed link is drawn and the switch stays on.
+  await payoff.click({ force: true });
+  await page.getByRole('menuitem', { name: /старое ружьё/ }).click();
+  await expect(payoff).toBeChecked();
+  await expect(page.locator('.cnode', { hasText: 'Мешки' }).first().locator('.cland-gun')).toBeVisible();
+  // The other switch too, at the same time.
+  await consequence.click({ force: true });
+  await page.getByRole('menuitem', { name: /Освободить/ }).click();
+  await expect(consequence).toBeChecked();
+  await expect(payoff).toBeChecked();
+  await page.waitForTimeout(400);
+  await shot(page, 'roles-on');
+
+  // Off: the link goes away.
+  await payoff.click({ force: true });
+  await expect(payoff).not.toBeChecked();
+  await expect(page.locator('.cnode', { hasText: 'Мешки' }).first().locator('.cland-gun')).toHaveCount(0);
+  await expect(consequence).toBeChecked();
+  expect(errors).toEqual([]);
+});
