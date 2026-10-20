@@ -1,15 +1,17 @@
 import { CircleAlert, Flag, Play, RotateCcw, Undo2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { useStore } from '../../core/useStore';
+import { useAtomSelect, useStore } from '../../core/useStore';
 import { t } from '../../i18n';
 import type { Value } from '../../story/expr';
 import { graphTitle } from '../../story/flow';
+import { refKey } from '../../story/flow';
 import { findNode } from '../../story/model';
-import { playAct, playActions, playSetVariable, type LogEntry, type PlayState } from '../../story/play';
+import { markLabel } from '../../story/marks';
+import { playAct, playActions, playSetVariable, playText, type LogEntry, type PlayState } from '../../story/play';
 import { listVariables, registryFor, valueText } from '../../story/variables';
 import { Button, IconButton, Switch } from '../components';
-import { KindIcon } from '../canvas/kindIcons';
-import { useStory } from './context';
+import { DeviceIcon, KindIcon, LandingIcon } from '../canvas/kindIcons';
+import { storyIndex, useStory } from './context';
 import { playProblemText } from './messages';
 import { ValueInput } from './ValueInput';
 
@@ -47,6 +49,9 @@ export function PlayPanel({
   const shown = actions.filter((a) => a.kind !== 'option' || a.enabled || showHidden);
   const deadEnd = state.status === 'running' && actions.length === 0 && node?.kind !== 'end';
   const hasHidden = actions.some((a) => a.kind === 'option' && !a.enabled);
+  const incoming = useAtomSelect(storyIndex, (i) => (state.pos ? i.incoming.get(refKey(state.pos)) : undefined));
+  const say = (text: string) =>
+    state.pos ? playText(data, state, state.pos.graph, text, t('var.yes'), t('var.no')) : text;
   const speakerName = (id: string | null) =>
     id ? ((entities[id]?.name as string | undefined) ?? t('story.lines.deletedSpeaker')) : t('story.narrator');
 
@@ -81,12 +86,28 @@ export function PlayPanel({
               <div className="play-lines">
                 {(node.lines ?? []).map((l) => (
                   <p key={l.id}>
-                    <strong>{speakerName(l.speaker)}:</strong> {l.text}
+                    <strong>{speakerName(l.speaker)}:</strong> {say(l.text)}
                   </p>
                 ))}
               </div>
             ) : (
-              node.text && <p className="play-text">{node.text}</p>
+              node.text && <p className="play-text">{say(node.text)}</p>
+            )}
+            {((node.marks?.length ?? 0) > 0 || (incoming?.length ?? 0) > 0) && (
+              <ul className="play-plot">
+                {node.marks?.map((m) => (
+                  <li key={m.id} className={`plot-${m.device}`}>
+                    <DeviceIcon device={m.device} size={14} />
+                    {t(m.device === 'gun' ? 'play.plot.gun' : 'play.plot.butterfly', { title: markLabel(node, m) })}
+                  </li>
+                ))}
+                {incoming?.map((l) => (
+                  <li key={`${refKey(l.from)}-${l.mark ?? ''}`} className={`plot-${l.kind}`}>
+                    <LandingIcon device={l.kind} size={14} />
+                    {t(l.kind === 'gun' ? 'play.plot.payoff' : 'play.plot.consequence', { title: l.title })}
+                  </li>
+                ))}
+              </ul>
             )}
           </>
         )}
@@ -119,7 +140,7 @@ export function PlayPanel({
                   title={a.enabled ? undefined : t('play.hiddenOption')}
                   onClick={() => push(playAct(data, state, a))}
                 >
-                  {a.label || t('story.untitled')}
+                  {say(a.label) || t('story.untitled')}
                 </Button>
               ) : (
                 <Button

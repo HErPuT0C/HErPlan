@@ -1,9 +1,17 @@
 // Story node kinds (FR-NAR-02) on the shared canvas engine: sizes, colours and ports. How each kind looks up
 // close is in ui/story/cards.tsx; how the playthrough treats it is in play.ts.
 
-import { registerKind, sideAnchors, type Port } from '../canvas/kinds';
-import { HEADER_H, type GraphNode } from '../canvas/model';
-import { asStory, CHOICE_ROW_H, DIALOGUE_LINE_H } from './model';
+import { registerKind as register, sideAnchors, type KindLink, type NodeKindDef, type Port } from '../canvas/kinds';
+import { colorHex, HEADER_H, type GraphNode } from '../canvas/model';
+import {
+  asStory,
+  CHOICE_ROW_H,
+  DIALOGUE_LINE_H,
+  DIALOGUE_TOP,
+  type PlotDevice,
+  type PlotMark,
+  type StoryNode,
+} from './model';
 
 const STORY_GRAPHS = ['story', 'chapter'] as const;
 
@@ -11,6 +19,47 @@ const STORY_GRAPHS = ['story', 'chapter'] as const;
 export const FOLDED_LINES = 3;
 /** Space for the question above the options of a choice node. */
 export const CHOICE_PROMPT_H = 40;
+
+/** Colours of the plot devices on the canvas (the same as --plot-* in tokens.css). */
+export const PLOT_COLORS: Record<PlotDevice, string> = { gun: '#e8b931', butterfly: '#e0609f' };
+
+/** Where a mark's line leaves its card: level with its option or line (hidden lines: the "more" row). */
+export function markRowY(n: StoryNode, m: PlotMark): number | undefined {
+  if (m.anchor.kind === 'option') {
+    const id = m.anchor.id;
+    const i = (n.options ?? []).findIndex((o) => o.id === id);
+    return i < 0 ? undefined : HEADER_H + CHOICE_PROMPT_H + i * CHOICE_ROW_H + CHOICE_ROW_H / 2;
+  }
+  if (m.anchor.kind === 'line') {
+    const id = m.anchor.id;
+    const lines = n.lines ?? [];
+    const i = lines.findIndex((l) => l.id === id);
+    if (i < 0) return undefined;
+    const shown = n.expanded ? lines.length : Math.min(lines.length, FOLDED_LINES);
+    return HEADER_H + DIALOGUE_TOP + Math.min(i, shown) * DIALOGUE_LINE_H + DIALOGUE_LINE_H / 2;
+  }
+  return undefined;
+}
+
+/** Lines from plot devices: marks (with a trail, from their row) and gun or butterfly nodes of old. */
+function storyLinks(n: GraphNode): KindLink[] {
+  const s = asStory(n);
+  const out: KindLink[] = [];
+  if ((n.kind === 'gun' || n.kind === 'butterfly') && s.links) {
+    const color = colorHex(n.color, n.kind === 'gun' ? '#8c6b4f' : '#b8458a');
+    for (const to of s.links) out.push({ key: `${to.graph}/${to.node}`, to, color });
+  }
+  for (const m of s.marks ?? []) {
+    const y = markRowY(s, m);
+    for (const to of m.links) {
+      out.push({ key: `${m.id}/${to.graph}/${to.node}`, to, color: PLOT_COLORS[m.device], y, trail: true });
+    }
+  }
+  return out;
+}
+
+/** Story kinds all draw the lines of plot devices laid over them. */
+const registerKind = (def: NodeKindDef) => register({ links: storyLinks, ...def });
 
 const both = (n: GraphNode) => sideAnchors(n);
 const inputsOnly = (n: GraphNode) => sideAnchors(n, 'in');
@@ -145,7 +194,7 @@ registerKind({
   size: { w: 260, h: 140 },
   ports: both,
   graphs: STORY_GRAPHS,
-  menu: { group: 'plot', order: 0 },
+  hidden: true,
 });
 registerKind({
   id: 'gun',
@@ -154,7 +203,7 @@ registerKind({
   size: { w: 260, h: 120 },
   ports: both,
   graphs: STORY_GRAPHS,
-  menu: { group: 'plot', order: 1 },
+  hidden: true,
 });
 registerKind({
   id: 'character',

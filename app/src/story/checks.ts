@@ -6,6 +6,7 @@ import type { GraphDoc } from '../canvas/model';
 import type { ProjectData } from '../core/project/types';
 import { checkCondition, checkEffects, type Diagnostic } from './expr';
 import { edgesFrom, reachableFrom, refKey, startOf } from './flow';
+import { plotSources } from './marks';
 import { allGraphs, asStory, findNode, OFF_FLOW, type NodeRef, type StoryNode } from './model';
 import { projectExpressions, unusedVariables } from './usage';
 import { asRegistry, registryFor } from './variables';
@@ -42,6 +43,8 @@ export interface Problem {
   node?: string;
   edge?: string;
   variable?: string;
+  /** Plot devices laid over a node: which mark. */
+  mark?: string;
   params: Record<string, string | number>;
   /** Expression problems: the diagnostic, for its message and position. */
   diagnostic?: Diagnostic;
@@ -145,7 +148,6 @@ export function checkProject(data: ProjectData): Problem[] {
     for (const raw of g.nodes) {
       const n = asStory(raw);
       const where = { graph: g.id, node: n.id };
-      const at: NodeRef = { graph: g.id, node: n.id };
       if (OFF_FLOW.has(n.kind)) continue;
       const annotation = ANNOTATION_KINDS.has(n.kind) && !connected.has(n.id);
       if (reached && !reached.has(n.id) && !annotation) out.push(problem('unreachable', where, { title: n.title }));
@@ -182,30 +184,33 @@ export function checkProject(data: ProjectData): Problem[] {
         out.push(problem('refMissing', where, { title: n.title }));
       }
       if (n.kind === 'dialogue') checkDialogue(n, where, limits, out);
-      if (n.kind === 'gun' || n.kind === 'butterfly') {
-        const gun = n.kind === 'gun';
-        const links = n.links ?? [];
-        if (links.length === 0)
-          out.push(problem(gun ? 'gunNoPayoff' : 'butterflyNoConsequence', where, { title: n.title }));
-        let reachable: Set<string> | null = null;
-        for (const link of links) {
-          const target = findNode(data, link);
-          if (!target) {
-            out.push(problem(gun ? 'payoffMissing' : 'consequenceMissing', where, { title: n.title }));
-            continue;
-          }
-          const map = gun ? setups : causes;
-          const key = refKey(link);
-          map.set(key, [...(map.get(key) ?? []), at]);
-          reachable ??= reachableFrom(data, at);
-          if (!reachable.has(key)) {
-            out.push(
-              problem(gun ? 'payoffBeforeSetup' : 'consequenceBeforeCause', where, {
-                title: n.title,
-                target: target.title,
-              }),
-            );
-          }
+    }
+
+    // Guns and butterflies, laid over nodes or (in older projects) nodes of their own.
+    const reachableFromNode = new Map<string, Set<string>>();
+    for (const src of plotSources(g)) {
+      const gun = src.device === 'gun';
+      const where = { graph: g.id, node: src.at.node, ...(src.mark ? { mark: src.mark.id } : {}) };
+      if (src.links.length === 0)
+        out.push(problem(gun ? 'gunNoPayoff' : 'butterflyNoConsequence', where, { title: src.title }));
+      for (const link of src.links) {
+        const target = findNode(data, link);
+        if (!target) {
+          out.push(problem(gun ? 'payoffMissing' : 'consequenceMissing', where, { title: src.title }));
+          continue;
+        }
+        const map = gun ? setups : causes;
+        const key = refKey(link);
+        map.set(key, [...(map.get(key) ?? []), src.at]);
+        let reachable = reachableFromNode.get(src.at.node);
+        if (!reachable) reachableFromNode.set(src.at.node, (reachable = reachableFrom(data, src.at)));
+        if (!reachable.has(key)) {
+          out.push(
+            problem(gun ? 'payoffBeforeSetup' : 'consequenceBeforeCause', where, {
+              title: src.title,
+              target: target.title,
+            }),
+          );
         }
       }
     }

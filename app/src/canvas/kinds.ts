@@ -22,6 +22,18 @@ export interface Port {
   label?: MessageKey;
 }
 
+/** A dashed reference from a node to another node (plot devices), drawn under the cards. */
+export interface KindLink {
+  /** Tells the links of one node apart (a mark id). */
+  key: string;
+  to: { graph: string; node: string };
+  color: string;
+  /** Leaves the left or right side at this offset from the top (a dialogue line, an option row). */
+  y?: number;
+  /** A wide translucent trail under the dashes. */
+  trail?: boolean;
+}
+
 export interface NodeKindDef {
   id: string;
   label: MessageKey;
@@ -35,6 +47,10 @@ export interface NodeKindDef {
   fit?: (node: GraphNode) => void;
   /** Offered in the create menus of these graph kinds; omitted means everywhere. */
   graphs?: readonly string[];
+  /** References to other nodes; without it, the node's `links` field in the kind's colour. */
+  links?: (node: GraphNode) => KindLink[];
+  /** Not offered in create menus: kept so that older projects still open (gun and butterfly nodes). */
+  hidden?: boolean;
   /** Order and grouping in the create menu. */
   menu?: { group: 'basic' | 'flow' | 'logic' | 'plot' | 'world'; order: number };
 }
@@ -106,7 +122,7 @@ export function kindOf(kind: string): NodeKindDef {
 export function creatableKinds(graphKind?: string): NodeKindDef[] {
   const groups = ['basic', 'flow', 'logic', 'plot', 'world'];
   return [...KINDS.values()]
-    .filter((k) => !k.graphs || !graphKind || k.graphs.includes(graphKind))
+    .filter((k) => !k.hidden && (!k.graphs || !graphKind || k.graphs.includes(graphKind)))
     .sort((a, b) => {
       const ga = groups.indexOf(a.menu?.group ?? 'basic');
       const gb = groups.indexOf(b.menu?.group ?? 'basic');

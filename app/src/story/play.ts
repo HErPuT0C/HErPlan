@@ -16,6 +16,7 @@ import {
 } from './expr';
 import { chapterStack, edgesFrom, startOf } from './flow';
 import { asStory, findNode, graphOf, PASS_THROUGH, type NodeRef, type StoryNode } from './model';
+import { joinedEffects, playerText, textPieces } from './textEffects';
 import { entityName, listVariables, registryFor, type Variable } from './variables';
 
 export type PlayStatus = 'running' | 'ended' | 'stuck' | 'error';
@@ -145,6 +146,39 @@ function runEffects(
   }
 }
 
+/** Effects written in a node's description, comment and lines ("{x = 1}", see textEffects.ts). */
+function nodeTextEffects(data: ProjectData, graph: string, node: StoryNode): string {
+  if (!node.text && !node.comment && !node.lines?.length) return '';
+  const reg = registryFor(data, graph);
+  const known = (name: string) => reg.has(name);
+  return [
+    joinedEffects(textPieces(node.text, known)),
+    joinedEffects(textPieces(node.comment, known)),
+    ...(node.lines ?? []).map((l) => joinedEffects(textPieces(l.text))),
+  ]
+    .filter(Boolean)
+    .join('; ');
+}
+
+/** A text as the player sees it now: braced effects left out, "{name}" replaced by the value. */
+export function playText(
+  data: ProjectData,
+  s: PlayState,
+  graph: string,
+  text: string,
+  yes: string,
+  no: string,
+): string {
+  const pieces = textPieces(text);
+  if (!pieces.effects.length && !pieces.shows.length) return text;
+  const state = stateFor(data, graph, s.vars);
+  return playerText(text, pieces, (name) => {
+    if (!state.has(name)) return null;
+    const v = state.get(name)!;
+    return typeof v === 'boolean' ? (v ? yes : no) : String(v);
+  });
+}
+
 function resetChapterVariables(data: ProjectData, graph: string, vars: PlayState['vars']): PlayState['vars'] {
   const scoped = listVariables(data).filter((v: Variable) => v.scope !== 'project' && v.scope.id === graph);
   if (!scoped.length) return vars;
@@ -184,7 +218,11 @@ function arrive(data: ProjectData, s0: PlayState, to: NodeRef): PlayState {
     const at = s.pos!;
     const node = findNode(data, at);
     if (!node) return fail(s, 'missingNode');
-    if (!s.leaving) s = { ...s, log: [...s.log, { kind: 'arrive', at, title: node.title, nodeKind: node.kind }] };
+    if (!s.leaving) {
+      s = { ...s, log: [...s.log, { kind: 'arrive', at, title: node.title, nodeKind: node.kind }] };
+      s = runEffects(data, s, at.graph, nodeTextEffects(data, at.graph, node), at);
+      if (s.status !== 'running') return s;
+    }
     const r = step(data, s, at, node);
     if (r.stop || r.s.status !== 'running') return r.s;
     s = r.s;
@@ -329,6 +367,9 @@ export function playAct(data: ProjectData, s: PlayState, action: PlayAction): Pl
     if (!option || !holds(data, at.graph, option.condition, s.vars)) return s;
     let next: PlayState = { ...s, log: [...s.log, { kind: 'option', at, text: option.text }] };
     next = runEffects(data, next, at.graph, option.effects, at);
+    if (next.status !== 'running') return next;
+    const reg = registryFor(data, at.graph);
+    next = runEffects(data, next, at.graph, joinedEffects(textPieces(option.note, (n) => reg.has(n))), at);
     if (next.status !== 'running') return next;
     const exit = openExits(data, next, at, option.id)[0];
     if (!exit) return fail(next, 'deadEnd', { node: option.text || node?.title || '' });

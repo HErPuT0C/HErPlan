@@ -44,13 +44,14 @@ import {
   type Selection,
 } from './ops';
 import { QUALITY, type QualityName, type QualityProfile } from './quality';
-import { GraphRenderer, EMPTY_BATCH } from './gl/renderer';
+import { GraphRenderer, EMPTY_BATCH, type Rgba } from './gl/renderer';
 import {
   anchorBatch,
   buildEdges,
   buildLinks,
   buildGroups,
   buildNodes,
+  hexToRgba,
   marqueeBatch,
   previewBatch,
   readTheme,
@@ -80,6 +81,11 @@ export interface CanvasCallbacks {
   /** Story graphs: chapter nodes own graphs, which must follow them through create, delete, copy and paste. */
   hooks?: GraphHooks;
   onSearchRequest: () => void;
+  /**
+   * A plot link pulled out of a handle in a card (an element with `data-link-from`, optionally
+   * `data-link-color`) and dropped on another node of this graph.
+   */
+  onLink?: (from: string, key: string, to: string) => void;
   /** Labels of undo steps, in the interface language. */
   label: (key: StepKey) => string;
   panButton: () => 'middle' | 'right';
@@ -138,6 +144,17 @@ type Gesture =
       moved: boolean;
     }
   | { kind: 'connect'; from: PulledEdge; wx: number; wy: number }
+  | {
+      kind: 'link';
+      node: string;
+      key: string;
+      color: Rgba | null;
+      x0: number;
+      y0: number;
+      wx: number;
+      wy: number;
+      moved: boolean;
+    }
   | {
       kind: 'resize';
       target: 'node' | 'group';
@@ -533,6 +550,11 @@ export class CanvasEngine {
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
+  private localXY(clientX: number, clientY: number): [number, number] {
+    const p = this.local({ clientX, clientY });
+    return [p.x, p.y];
+  }
+
   /** Text fields inside DOM nodes keep their own mouse and keyboard behaviour. */
   private isEditable(target: EventTarget | null): boolean {
     if (!(target instanceof Element)) return false;
@@ -593,6 +615,27 @@ export class CanvasEngine {
         this.root.dataset.gesture = `resize-${dir}`;
         return;
       }
+    }
+    const linkHandle = (e.target as Element | null)?.closest?.('[data-link-from]');
+    const linkNode = linkHandle?.closest('[data-node]')?.getAttribute('data-node');
+    if (linkHandle && linkNode && this.callbacks.onLink && !this.callbacks.readOnly) {
+      // Pulled from a mark in a card: the line starts at the mark and follows the cursor.
+      const r = linkHandle.getBoundingClientRect();
+      const start = toWorld(this.camera, ...this.localXY(r.left + r.width / 2, r.top + r.height / 2));
+      const color = linkHandle.getAttribute('data-link-color');
+      e.preventDefault();
+      this.gesture = {
+        kind: 'link',
+        node: linkNode,
+        key: linkHandle.getAttribute('data-link-from') ?? '',
+        color: color ? hexToRgba(color, 0.95) : null,
+        x0: start.x,
+        y0: start.y,
+        wx: w.x,
+        wy: w.y,
+        moved: false,
+      };
+      return;
     }
     const hit = this.hitAt(p.x, p.y);
     const additive = e.shiftKey || e.ctrlKey || e.metaKey;
@@ -692,6 +735,24 @@ export class CanvasEngine {
         this.requestRender();
         return;
       }
+      case 'link': {
+        if (!g.moved && Math.hypot(w.x - g.wx, w.y - g.wy) * this.camera.scale < DRAG_THRESHOLD) return;
+        if (!g.moved) {
+          this.root.setPointerCapture(e.pointerId);
+          this.root.dataset.gesture = 'connect';
+        }
+        g.moved = true;
+        g.wx = w.x;
+        g.wy = w.y;
+        const over = this.index.nodeAt(w.x, w.y);
+        const id = over >= 0 && this.graph.nodes[over].id !== g.node ? this.graph.nodes[over].id : null;
+        if (id !== this.connectHover) {
+          this.connectHover = id;
+          this.hover.set(id);
+        }
+        this.requestRender();
+        return;
+      }
       case 'resize': {
         const r = resizeRect(g.start, g.dir, w.x - g.wx, w.y - g.wy, g.min, e.altKey);
         this.resizing.set({ kind: g.target, id: g.id, ...r });
@@ -753,6 +814,14 @@ export class CanvasEngine {
           // Dropped on empty space: offer a node that comes already connected (FR-CNV-02).
           this.callbacks.onCreateRequest(p.x, p.y, { x: g.wx, y: g.wy }, g.from);
         }
+        return;
+      }
+      case 'link': {
+        const to = this.connectHover;
+        this.connectHover = null;
+        this.hover.set(null);
+        this.requestRender();
+        if (g.moved && to) this.callbacks.onLink?.(g.node, g.key, to);
         return;
       }
       case 'resize': {
@@ -1016,6 +1085,11 @@ export class CanvasEngine {
     const g = this.gesture;
     if (g?.kind === 'marquee') overlayBoxes = marqueeBatch(g.x0, g.y0, g.x1, g.y1, this.theme);
     if (g?.kind === 'connect') overlaySegs = previewBatch(this.previewCurve(g.from, g.wx, g.wy), this.theme);
+    if (g?.kind === 'link' && g.moved) {
+      const face = g.wx >= g.x0 ? 'right' : 'left';
+      const curve = edgeCurve({ x: g.x0, y: g.y0 }, { x: g.wx, y: g.wy }, face, OPPOSITE_FACE[face]);
+      overlaySegs = previewBatch(curve, this.theme, g.color ?? undefined);
+    }
     // Mid zoom: WebGL shows the free anchors of the node under the cursor (up close the DOM card does).
     const hot = g?.kind === 'connect' ? this.connectHover : g ? null : this.hoverNode;
     const hotNode = hot && this.lod === 'mid' ? this.index.node(hot) : undefined;

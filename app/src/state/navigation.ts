@@ -7,6 +7,8 @@ export interface RevealRequest {
   graph: string;
   node?: string;
   edge?: string;
+  /** A field of the node to open in the inspector ("mark:<id>" for a plot device). */
+  field?: string;
   /** Nodes to highlight on the canvas along with it (every place a variable is used). */
   highlight?: string[];
   /** Distinguishes two requests for the same place. */

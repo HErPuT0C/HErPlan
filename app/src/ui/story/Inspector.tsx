@@ -1,5 +1,5 @@
-import { ArrowDown, ArrowRight, ArrowUp, BookOpen, ImagePlus, Plus, Trash, X } from 'lucide-react';
-import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
+import { ArrowDown, ArrowRight, ArrowUp, BookOpen, ImagePlus, Plus, Sparkles, Trash, X } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { CanvasEngine } from '../../canvas/engine';
 import { kindOf } from '../../canvas/kinds';
 import type { GraphDoc, GraphEdge } from '../../canvas/model';
@@ -10,12 +10,16 @@ import { t } from '../../i18n';
 import { platform } from '../../platform';
 import { listEntities, newEntity, type WorldEntity } from '../../story/entities';
 import { graphTitle, refKey } from '../../story/flow';
+import { addMark, linkMark, markLabel, removeMark, unlinkMark, updateMark } from '../../story/marks';
 import {
   asStory,
   findNode,
   graphOf,
   type DialogueLine,
+  type MarkAnchor,
   type NodeRef,
+  type PlotDevice,
+  type PlotMark,
   type StoryNode,
   type WorldKind,
 } from '../../story/model';
@@ -29,17 +33,21 @@ import {
   removeLink,
   removeOption,
   setExpanded,
+  setNodeText,
   storyNode,
   updateLine,
   updateOption,
 } from '../../story/ops';
-import { Button, IconButton, SelectField, Switch, TextArea, TextField, toast } from '../components';
+import { knownNames } from '../../story/usage';
+import { fullName, registryFor } from '../../story/variables';
+import { Button, IconButton, Menu, SelectField, Switch, TextArea, TextField, toast } from '../components';
 import { errorText } from '../errors';
-import { KindIcon } from '../canvas/kindIcons';
+import { DeviceIcon, KindIcon } from '../canvas/kindIcons';
 import { PromptDialog, type PromptRequest } from '../canvas/PromptDialog';
 import { IMAGE_FILTERS } from '../start/filters';
 import { useStory } from './context';
 import { ExpressionField } from './ExpressionField';
+import { MarkedTextArea, textHighlights, useTextMenu } from './MarkedText';
 import { NodePicker } from './NodePicker';
 
 export interface InspectFocus {
@@ -135,16 +143,7 @@ function NodeInspector({ node }: { node: StoryNode }) {
           {t('story.chapter.open')}
         </Button>
       )}
-      {hasText && (
-        <TextArea
-          label={textLabel}
-          value={node.text ?? ''}
-          rows={3}
-          disabled={readOnly}
-          data-field="text"
-          onChange={(e) => set('text', { text: e.target.value }, t('canvas.step.text'))}
-        />
-      )}
+      {hasText && <NodeText node={node} label={textLabel} />}
       {node.kind === 'dialogue' && <DialogueSection node={node} />}
       {node.kind === 'choice' && <ChoiceSection node={node} />}
       {node.kind === 'condition' && (
@@ -179,15 +178,15 @@ function NodeInspector({ node }: { node: StoryNode }) {
       {(node.kind === 'character' || node.kind === 'location' || node.kind === 'item') && (
         <RefSection node={node} kind={node.kind} />
       )}
-      {!['gun', 'butterfly', 'start', 'chapter'].includes(node.kind) && <PlotRole node={node} />}
-      <TextArea
+      {!['gun', 'butterfly', 'start'].includes(node.kind) && <MarksSection node={node} />}
+      <NoteField
         label={t('canvas.comment')}
+        field="comment"
         value={node.comment ?? ''}
         rows={2}
-        disabled={readOnly}
-        data-field="comment"
-        onChange={(e) => set('comment', { comment: e.target.value }, t('canvas.step.comment'))}
+        onChange={(comment) => set('comment', { comment }, t('canvas.step.comment'))}
       />
+      <p className="muted small">{t('story.textEffects.hint')}</p>
     </>
   );
 }
@@ -223,7 +222,7 @@ function DialogueSection({ node }: { node: StoryNode }) {
           line={line}
           index={i}
           last={i === lines.length - 1}
-          nodeId={node.id}
+          node={node}
           maxChars={limits.maxLineChars}
           characters={characters}
           entities={entities}
@@ -246,11 +245,11 @@ function DialogueSection({ node }: { node: StoryNode }) {
   );
 }
 
-const LineRow = memo(function LineRow({
+function LineRow({
   line,
   index,
   last,
-  nodeId,
+  node,
   maxChars,
   characters,
   entities,
@@ -259,13 +258,17 @@ const LineRow = memo(function LineRow({
   line: DialogueLine;
   index: number;
   last: boolean;
-  nodeId: string;
+  node: StoryNode;
   maxChars: number;
   characters: WorldEntity[];
   entities: ProjectData['entities'];
   readOnly: boolean;
 }) {
   const { edit } = useStory();
+  const nodeId = node.id;
+  const anchor: MarkAnchor = { kind: 'line', id: line.id };
+  const addDevice = useAddDevice(node.id);
+  const menu = useTextMenu({ readOnly, onDevice: (device, sel) => addDevice(device, anchor, sel) });
   const chars = [...line.text].length;
   const unknownSpeaker = line.speaker && !entities[line.speaker];
   return (
@@ -307,6 +310,7 @@ const LineRow = memo(function LineRow({
               disabled={last}
               onClick={() => edit(t('story.step.lines'), (g) => moveLine(g, nodeId, index, index + 1))}
             />
+            <DeviceMenu onDevice={(device) => addDevice(device, anchor)} />
             <IconButton
               size="sm"
               label={t('story.lines.remove')}
@@ -316,12 +320,14 @@ const LineRow = memo(function LineRow({
           </span>
         )}
       </div>
-      <textarea
-        className={['input', 'iline-text', chars > maxChars && 'iline-over'].filter(Boolean).join(' ')}
+      <MarkedTextArea
+        className={['iline-text', chars > maxChars && 'iline-over'].filter(Boolean).join(' ')}
         value={line.text}
+        highlights={textHighlights(line.text, node, anchor)}
         rows={1}
         readOnly={readOnly}
         aria-label={t('story.lines.text', { n: index + 1 })}
+        onContextMenu={menu.onContextMenu}
         onChange={(e) =>
           edit(
             t('story.step.lines'),
@@ -330,9 +336,10 @@ const LineRow = memo(function LineRow({
           )
         }
       />
+      {menu.menu}
     </div>
   );
-});
+}
 
 // ---------- choice ----------
 
@@ -343,69 +350,7 @@ function ChoiceSection({ node }: { node: StoryNode }) {
   return (
     <Section title={t('story.options')} field="options">
       {options.map((o, i) => (
-        <div key={o.id} className="ioption" data-field={`option:${o.id}`}>
-          <div className="iline-head">
-            <span className="ioption-n">{i + 1}</span>
-            <input
-              className="input ioption-text"
-              value={o.text}
-              readOnly={readOnly}
-              placeholder={t('story.optionPlaceholder', { n: i + 1 })}
-              aria-label={t('story.options.text', { n: i + 1 })}
-              onChange={(e) =>
-                edit(
-                  t('story.step.options'),
-                  (g) => updateOption(g, node.id, o.id, { text: e.target.value }),
-                  `option:${o.id}`,
-                )
-              }
-            />
-            {!readOnly && (
-              <span className="iline-tools">
-                <IconButton
-                  size="sm"
-                  label={t('story.up')}
-                  icon={<ArrowUp size={14} />}
-                  disabled={i === 0}
-                  onClick={() => edit(t('story.step.options'), (g) => moveOption(g, node.id, i, i - 1))}
-                />
-                <IconButton
-                  size="sm"
-                  label={t('story.down')}
-                  icon={<ArrowDown size={14} />}
-                  disabled={i === options.length - 1}
-                  onClick={() => edit(t('story.step.options'), (g) => moveOption(g, node.id, i, i + 1))}
-                />
-                <IconButton
-                  size="sm"
-                  label={t('story.options.remove')}
-                  icon={<Trash size={14} />}
-                  onClick={() => edit(t('story.step.options'), (g) => removeOption(g, node.id, o.id))}
-                />
-              </span>
-            )}
-          </div>
-          <ExpressionField
-            label={t('story.options.condition')}
-            kind="condition"
-            field={`option:${o.id}:condition`}
-            value={o.condition}
-            readOnly={readOnly}
-            onChange={(condition) =>
-              edit(t('story.step.condition'), (g) => updateOption(g, node.id, o.id, { condition }), `cond:${o.id}`)
-            }
-          />
-          <ExpressionField
-            label={t('story.options.effects')}
-            kind="effects"
-            field={`option:${o.id}:effects`}
-            value={o.effects}
-            readOnly={readOnly}
-            onChange={(effects) =>
-              edit(t('story.step.effects'), (g) => updateOption(g, node.id, o.id, { effects }), `eff:${o.id}`)
-            }
-          />
-        </div>
+        <OptionRow key={o.id} node={node} index={i} />
       ))}
       {!readOnly && (
         <Button
@@ -421,6 +366,395 @@ function ChoiceSection({ node }: { node: StoryNode }) {
         </Button>
       )}
     </Section>
+  );
+}
+
+// ---------- text with effects and plot devices ----------
+
+/** Names that are variables as seen from the graph on the canvas (effects written without braces). */
+function useKnown(): (name: string) => boolean {
+  const { project, graphId } = useStory();
+  const data = useStore(project.store, (s) => s);
+  return knownNames(data, graphId);
+}
+
+/** Lays a plot device over a node, option, line or words; the inspector then shows the new mark. */
+function useAddDevice(nodeId: string) {
+  const { edit, inspect } = useStory();
+  return (device: PlotDevice, anchor: MarkAnchor, selection: { start: number; end: number } | null = null) => {
+    let id: string | null = null;
+    edit(t(device === 'gun' ? 'plot.step.gun' : 'plot.step.butterfly'), (g) => {
+      const n = storyNode(g, nodeId);
+      if (n) id = addMark(n, device, anchor, selection)?.id ?? null;
+    });
+    if (id) inspect(nodeId, `mark:${id}`);
+  };
+}
+
+/** A small menu button: lay Chekhov's gun or the butterfly effect over this option or line. */
+function DeviceMenu({ onDevice }: { onDevice: (device: PlotDevice) => void }) {
+  const [at, setAt] = useState<{ x: number; y: number; anchor: HTMLElement } | null>(null);
+  return (
+    <>
+      <IconButton
+        size="sm"
+        label={t('plot.add')}
+        icon={<Sparkles size={14} />}
+        aria-haspopup="menu"
+        onClick={(e) => {
+          const anchor = e.currentTarget;
+          const r = anchor.getBoundingClientRect();
+          setAt(at ? null : { x: r.left, y: r.bottom + 4, anchor });
+        }}
+      />
+      {at && (
+        <Menu
+          x={at.x}
+          y={at.y}
+          anchor={at.anchor}
+          label={t('plot.add')}
+          onClose={() => setAt(null)}
+          entries={[
+            { id: 'gun', label: t('plot.gun'), icon: <DeviceIcon device="gun" />, onSelect: () => onDevice('gun') },
+            {
+              id: 'butterfly',
+              label: t('plot.butterfly'),
+              icon: <DeviceIcon device="butterfly" />,
+              onSelect: () => onDevice('butterfly'),
+            },
+          ]}
+        />
+      )}
+    </>
+  );
+}
+
+/** The node's own text: marked words are highlighted, and selected words can carry a plot device. */
+function NodeText({ node, label }: { node: StoryNode; label: string }) {
+  const { project, edit } = useStory();
+  const id = useId();
+  const known = useKnown();
+  const addDevice = useAddDevice(node.id);
+  const anchor: MarkAnchor = { kind: 'node' };
+  const menu = useTextMenu({ readOnly: project.readOnly, onDevice: (d, sel) => addDevice(d, anchor, sel) });
+  const value = node.text ?? '';
+  return (
+    <div className="field" data-field="text">
+      <label htmlFor={id} className="field-label">
+        {label}
+      </label>
+      <MarkedTextArea
+        id={id}
+        className="mtext-tall"
+        value={value}
+        highlights={textHighlights(value, node, anchor, known)}
+        rows={3}
+        readOnly={project.readOnly}
+        onContextMenu={menu.onContextMenu}
+        onChange={(e) => edit(t('canvas.step.text'), (g) => setNodeText(g, node.id, e.target.value), `text:${node.id}`)}
+      />
+      {menu.menu}
+    </div>
+  );
+}
+
+/** A comment (of a node or an option): effects written in it are highlighted. */
+function NoteField({
+  label,
+  field,
+  value,
+  rows,
+  onChange,
+}: {
+  label: string;
+  field: string;
+  value: string;
+  rows: number;
+  onChange: (value: string) => void;
+}) {
+  const { project } = useStory();
+  const id = useId();
+  const known = useKnown();
+  const menu = useTextMenu({ readOnly: project.readOnly });
+  return (
+    <div className="field" data-field={field}>
+      <label htmlFor={id} className="field-label">
+        {label}
+      </label>
+      <MarkedTextArea
+        id={id}
+        value={value}
+        highlights={textHighlights(value, undefined, undefined, known)}
+        rows={rows}
+        readOnly={project.readOnly}
+        onContextMenu={menu.onContextMenu}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {menu.menu}
+    </div>
+  );
+}
+
+function OptionRow({ node, index: i }: { node: StoryNode; index: number }) {
+  const { project, edit } = useStory();
+  const readOnly = project.readOnly;
+  const options = node.options ?? [];
+  const o = options[i];
+  const anchor: MarkAnchor = { kind: 'option', id: o.id };
+  const addDevice = useAddDevice(node.id);
+  const menu = useTextMenu({ readOnly, onDevice: (d, sel) => addDevice(d, anchor, sel) });
+  return (
+    <div className="ioption" data-field={`option:${o.id}`}>
+      <div className="iline-head">
+        <span className="ioption-n">{i + 1}</span>
+        <MarkedTextArea
+          className="ioption-text"
+          singleLine
+          value={o.text}
+          highlights={textHighlights(o.text, node, anchor)}
+          rows={1}
+          readOnly={readOnly}
+          placeholder={t('story.optionPlaceholder', { n: i + 1 })}
+          aria-label={t('story.options.text', { n: i + 1 })}
+          onContextMenu={menu.onContextMenu}
+          onChange={(e) =>
+            edit(
+              t('story.step.options'),
+              (g) => updateOption(g, node.id, o.id, { text: e.target.value.replace(/\n/g, ' ') }),
+              `option:${o.id}`,
+            )
+          }
+        />
+        {!readOnly && (
+          <span className="iline-tools">
+            <IconButton
+              size="sm"
+              label={t('story.up')}
+              icon={<ArrowUp size={14} />}
+              disabled={i === 0}
+              onClick={() => edit(t('story.step.options'), (g) => moveOption(g, node.id, i, i - 1))}
+            />
+            <IconButton
+              size="sm"
+              label={t('story.down')}
+              icon={<ArrowDown size={14} />}
+              disabled={i === options.length - 1}
+              onClick={() => edit(t('story.step.options'), (g) => moveOption(g, node.id, i, i + 1))}
+            />
+            <DeviceMenu onDevice={(device) => addDevice(device, anchor)} />
+            <IconButton
+              size="sm"
+              label={t('story.options.remove')}
+              icon={<Trash size={14} />}
+              onClick={() => edit(t('story.step.options'), (g) => removeOption(g, node.id, o.id))}
+            />
+          </span>
+        )}
+      </div>
+      {menu.menu}
+      <ExpressionField
+        label={t('story.options.condition')}
+        kind="condition"
+        field={`option:${o.id}:condition`}
+        value={o.condition}
+        readOnly={readOnly}
+        onChange={(condition) =>
+          edit(t('story.step.condition'), (g) => updateOption(g, node.id, o.id, { condition }), `cond:${o.id}`)
+        }
+      />
+      <ExpressionField
+        label={t('story.options.effects')}
+        kind="effects"
+        field={`option:${o.id}:effects`}
+        value={o.effects}
+        readOnly={readOnly}
+        onChange={(effects) =>
+          edit(t('story.step.effects'), (g) => updateOption(g, node.id, o.id, { effects }), `eff:${o.id}`)
+        }
+      />
+      <NoteField
+        label={t('story.options.note')}
+        field={`option:${o.id}:note`}
+        value={o.note ?? ''}
+        rows={1}
+        onChange={(note) =>
+          edit(t('story.step.options'), (g) => updateOption(g, node.id, o.id, { note }), `note:${o.id}`)
+        }
+      />
+    </div>
+  );
+}
+
+// ---------- plot devices laid over the node ----------
+
+/** Where a mark sits, for its heading: "Line 2", "Option 1", "Whole node". */
+function anchorName(node: StoryNode, m: PlotMark): string {
+  if (m.anchor.kind === 'line') {
+    const id = m.anchor.id;
+    return t('plot.onLine', { n: (node.lines ?? []).findIndex((l) => l.id === id) + 1 });
+  }
+  if (m.anchor.kind === 'option') {
+    const id = m.anchor.id;
+    return t('plot.onOption', { n: (node.options ?? []).findIndex((o) => o.id === id) + 1 });
+  }
+  return m.range ? t('plot.onText') : t('plot.onNode');
+}
+
+function MarksSection({ node }: { node: StoryNode }) {
+  const { project } = useStory();
+  const addDevice = useAddDevice(node.id);
+  const marks = node.marks ?? [];
+  return (
+    <Section title={t('story.plot')} field="plot">
+      {marks.length === 0 && <p className="muted small">{t('plot.hint')}</p>}
+      {marks.map((m) => (
+        <MarkRow key={m.id} node={node} mark={m} />
+      ))}
+      {!project.readOnly && (
+        <div className="insp-actions">
+          <Button
+            size="sm"
+            icon={<DeviceIcon device="gun" size={14} />}
+            onClick={() => addDevice('gun', { kind: 'node' })}
+          >
+            {t('plot.gun')}
+          </Button>
+          <Button
+            size="sm"
+            icon={<DeviceIcon device="butterfly" size={14} />}
+            onClick={() => addDevice('butterfly', { kind: 'node' })}
+          >
+            {t('plot.butterfly')}
+          </Button>
+        </div>
+      )}
+      {node.kind !== 'chapter' && <PlotRole node={node} />}
+    </Section>
+  );
+}
+
+function MarkRow({ node, mark: m }: { node: StoryNode; mark: PlotMark }) {
+  const { project, graphId, edit } = useStory();
+  const [picking, setPicking] = useState(false);
+  const readOnly = project.readOnly;
+  const gun = m.device === 'gun';
+  const change = (recipe: (n: StoryNode) => void, mergeKey?: string) =>
+    edit(
+      t('story.step.link'),
+      (g) => {
+        const n = storyNode(g, node.id);
+        if (n) recipe(n);
+      },
+      mergeKey,
+    );
+  const add = t(gun ? 'story.payoffs.add' : 'story.consequences.add');
+  return (
+    <div className={`imark imark-${m.device}`} data-field={`mark:${m.id}`}>
+      <div className="imark-head">
+        <DeviceIcon device={m.device} size={16} />
+        <span className="imark-title">
+          <strong>{t(gun ? 'plot.gun' : 'plot.butterfly')}</strong>
+          <span className="muted small">
+            {anchorName(node, m)} · «{markLabel(node, m) || t('story.untitled')}»
+          </span>
+        </span>
+        {!readOnly && (
+          <IconButton
+            size="sm"
+            label={t('plot.remove')}
+            icon={<Trash size={14} />}
+            onClick={() => change((n) => removeMark(n, m.id))}
+          />
+        )}
+      </div>
+      <div className="imark-links">
+        <span className="small muted">{t(gun ? 'story.payoffs' : 'story.consequences')}</span>
+        {m.links.map((link) => (
+          <LinkRow
+            key={refKey(link)}
+            link={link}
+            readOnly={readOnly}
+            onRemove={() => change((n) => unlinkMark(n, m.id, link))}
+          />
+        ))}
+        {m.links.length === 0 && <p className="muted small">{t('plot.dragHint')}</p>}
+        {!readOnly && (
+          <Button size="sm" variant="ghost" icon={<Plus size={14} />} onClick={() => setPicking(true)}>
+            {add}
+          </Button>
+        )}
+      </div>
+      {!gun && <MarkVariables node={node} mark={m} readOnly={readOnly} />}
+      <TextArea
+        label={t('plot.note')}
+        value={m.note}
+        rows={1}
+        disabled={readOnly}
+        onChange={(e) => change((n) => updateMark(n, m.id, { note: e.target.value }), `mark-note:${m.id}`)}
+      />
+      {picking && (
+        <NodePicker
+          title={add}
+          exclude={{ graph: graphId, node: node.id }}
+          onPick={(ref) => change((n) => linkMark(n, m.id, ref))}
+          onClose={() => setPicking(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Butterfly: the variables its consequences depend on (optional), chosen from those seen here. */
+function MarkVariables({ node, mark: m, readOnly }: { node: StoryNode; mark: PlotMark; readOnly: boolean }) {
+  const { project, graphId, edit } = useStory();
+  const data = useStore(project.store, (s) => s);
+  const visible = [...registryFor(data, graphId).values()].map((e) => e.variable);
+  const byId = new Map(visible.map((v) => [v.id, v]));
+  const set = (variables: string[]) =>
+    edit(t('plot.step.variables'), (g) => {
+      const n = storyNode(g, node.id);
+      if (n) updateMark(n, m.id, { variables });
+    });
+  const rest = visible.filter((v) => !m.variables.includes(v.id));
+  return (
+    <div className="imark-vars">
+      <span className="small muted">{t('plot.variables')}</span>
+      <div className="imark-chips">
+        {m.variables.map((id) => {
+          const v = byId.get(id);
+          return (
+            <span key={id} className={['chip', !v && 'text-warning'].filter(Boolean).join(' ')}>
+              {v ? fullName(v, data) : t('plot.variableGone')}
+              {!readOnly && (
+                <button
+                  type="button"
+                  className="chip-x"
+                  aria-label={t('plot.variableRemove')}
+                  onClick={() => set(m.variables.filter((x) => x !== id))}
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </span>
+          );
+        })}
+        {!readOnly && rest.length > 0 && (
+          <select
+            className="input imark-add"
+            value=""
+            aria-label={t('plot.variableAdd')}
+            onChange={(e) => e.target.value && set([...m.variables, e.target.value])}
+          >
+            <option value="">{t('plot.variableAdd')}</option>
+            {rest.map((v) => (
+              <option key={v.id} value={v.id}>
+                {fullName(v, data)}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -591,12 +925,13 @@ function RefSection({ node, kind }: { node: StoryNode; kind: WorldKind }) {
   );
 }
 
+/** The node is where a gun fires or a butterfly lands, even before anything points at it (for checks). */
 function PlotRole({ node }: { node: StoryNode }) {
   const { project, edit } = useStory();
   const set = (role: 'consequence' | 'payoff', on: boolean) =>
     edit(t('story.step.plot'), (g) => setNodeProps(g, [node.id], { plotRole: on ? role : null }));
   return (
-    <Section title={t('story.plot')} field="plot">
+    <div className="imark-role">
       <Switch
         label={t('story.plot.consequence')}
         checked={node.plotRole === 'consequence'}
@@ -609,7 +944,7 @@ function PlotRole({ node }: { node: StoryNode }) {
         disabled={project.readOnly}
         onChange={(on) => set('payoff', on)}
       />
-    </Section>
+    </div>
   );
 }
 

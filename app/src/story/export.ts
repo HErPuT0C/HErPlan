@@ -7,7 +7,10 @@ import type { ProjectData } from '../core/project/types';
 import { listEntities } from './entities';
 import { parseCondition, parseEffects, stripPositions, type BinaryOp, type EffectOp, type Expr } from './expr';
 import { graphTitle, parentChapter, startOf } from './flow';
+import { anchorText, resolveRange } from './marks';
 import { allGraphs, asStory, storyRoot, type NodeRef } from './model';
+import { joinedEffects, textPieces } from './textEffects';
+import { knownNames } from './usage';
 import { fullName, listVariables } from './variables';
 
 export const EXPORT_FORMAT = 'herplan-export';
@@ -109,11 +112,35 @@ function effects(source: string | undefined): ExportEffects | null {
   }
 }
 
-function exportNode(raw: GraphDoc['nodes'][number]): ExportNode {
+function exportNode(raw: GraphDoc['nodes'][number], known: (name: string) => boolean): ExportNode {
   const n = asStory(raw);
   const out: ExportNode = { id: n.id, kind: n.kind, title: n.title, text: n.text ?? '', x: n.x, y: n.y };
   if (n.comment) out.comment = n.comment;
   if (n.plotRole) out.plotRole = n.plotRole;
+  // Effects written in the text, applied when the node is shown (textEffects.ts); parsed for engines.
+  const written = [
+    joinedEffects(textPieces(n.text, known)),
+    joinedEffects(textPieces(n.comment, known)),
+    ...(n.lines ?? []).map((l) => joinedEffects(textPieces(l.text))),
+  ]
+    .filter(Boolean)
+    .join('; ');
+  if (written) out.textEffects = effects(written);
+  const marks = (n.marks ?? []).filter((m) => anchorText(n, m.anchor) !== undefined);
+  if (marks.length) {
+    out.marks = marks.map((m) => {
+      const r = resolveRange(anchorText(n, m.anchor) ?? '', m.range);
+      return {
+        id: m.id,
+        device: m.device,
+        anchor: m.anchor,
+        range: r && m.range ? { start: r.start, end: r.end, quote: m.range.quote } : null,
+        links: m.links,
+        note: m.note,
+        variables: m.variables,
+      };
+    });
+  }
   switch (n.kind) {
     case 'dialogue':
       out.lines = (n.lines ?? []).map((l) => ({ id: l.id, speaker: l.speaker, text: l.text }));
@@ -124,6 +151,8 @@ function exportNode(raw: GraphDoc['nodes'][number]): ExportNode {
         text: o.text,
         condition: condition(o.condition),
         effects: effects(o.effects),
+        note: o.note ?? '',
+        noteEffects: effects(joinedEffects(textPieces(o.note, known))),
       }));
       break;
     case 'condition':
@@ -184,22 +213,25 @@ export function exportStory(data: ProjectData, appVersion: string, now = new Dat
     })),
     story: {
       root: storyRoot(data)?.id ?? null,
-      graphs: graphs.map((g) => ({
-        id: g.id,
-        kind: g.kind as 'story' | 'chapter',
-        name: g.kind === 'chapter' ? graphTitle(data, g.id) : g.name,
-        parent: parentChapter(data, g.id),
-        start: startOf(g)?.id ?? null,
-        nodes: g.nodes.filter((n) => n.kind !== 'sticker').map(exportNode),
-        edges: g.edges.map((e) => ({
-          id: e.id,
-          from: e.from.node,
-          fromPort: e.from.port,
-          to: e.to.node,
-          label: e.label || null,
-          condition: condition(e.condition),
-        })),
-      })),
+      graphs: graphs.map((g) => {
+        const known = knownNames(data, g.id);
+        return {
+          id: g.id,
+          kind: g.kind as 'story' | 'chapter',
+          name: g.kind === 'chapter' ? graphTitle(data, g.id) : g.name,
+          parent: parentChapter(data, g.id),
+          start: startOf(g)?.id ?? null,
+          nodes: g.nodes.filter((n) => n.kind !== 'sticker').map((n) => exportNode(n, known)),
+          edges: g.edges.map((e) => ({
+            id: e.id,
+            from: e.from.node,
+            fromPort: e.from.port,
+            to: e.to.node,
+            label: e.label || null,
+            condition: condition(e.condition),
+          })),
+        };
+      }),
     },
   };
 }

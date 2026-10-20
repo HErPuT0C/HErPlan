@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { memo, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import type { CanvasEngine } from '../../canvas/engine';
 import { kindOf, portsOf } from '../../canvas/kinds';
 import { colorHex, HEADER_H, type GraphDoc, type GraphGroup, type GraphNode } from '../../canvas/model';
@@ -273,10 +273,20 @@ interface EditableProps {
   multiline?: boolean;
   readOnly: boolean;
   onCommit: (value: string) => void;
+  /** How the text looks when not being edited (highlights); the plain text by default. */
+  display?: ReactNode;
 }
 
 /** Text that turns into a field on double click: Enter (Ctrl+Enter for several lines) saves, Escape cancels. */
-export function Editable({ value, placeholder, className, multiline = false, readOnly, onCommit }: EditableProps) {
+export function Editable({
+  value,
+  placeholder,
+  className,
+  multiline = false,
+  readOnly,
+  onCommit,
+  display,
+}: EditableProps) {
   const [draft, setDraft] = useState<string | null>(null);
   // Escape and Enter finish editing; the blur that follows must not save a second time.
   const finished = useRef(false);
@@ -291,7 +301,7 @@ export function Editable({ value, placeholder, className, multiline = false, rea
           setDraft(value);
         }}
       >
-        {value || placeholder}
+        {value ? (display ?? value) : placeholder}
       </div>
     );
   }

@@ -70,7 +70,7 @@ ${CAMERA}
 in vec2 a_corner;    // x: 0..1 along, y: -1..1 across
 in vec4 a_seg;       // x0, y0, x1, y1 (world)
 in vec4 a_color;
-in float a_width;    // CSS px
+in float a_width;    // CSS px; negative: no overlap at the ends (translucent trails show no beads)
 out float v_across;
 out float v_half;
 out vec4 v_color;
@@ -81,11 +81,13 @@ void main() {
   float len = max(length(d), 0.0001);
   vec2 dir = d / len;
   vec2 n = vec2(-dir.y, dir.x);
-  float half_ = a_width * 0.5 + 1.0;
-  vec2 along = mix(p0 - dir * half_ * 0.5, p1 + dir * half_ * 0.5, a_corner.x);
+  float w = abs(a_width);
+  float half_ = w * 0.5 + 1.0;
+  float cap = a_width < 0.0 ? 0.0 : half_ * 0.5;
+  vec2 along = mix(p0 - dir * cap, p1 + dir * cap, a_corner.x);
   gl_Position = clipFromScreen(along + n * a_corner.y * half_);
   v_across = a_corner.y * half_;
-  v_half = a_width * 0.5;
+  v_half = w * 0.5;
   v_color = a_color;
 }`;
 

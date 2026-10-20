@@ -83,6 +83,8 @@ export interface CanvasExtensions {
   menuEntries?: (target: HitTarget, world: { x: number; y: number }) => MenuEntry[];
   /** Kind of node that "insert node into edge" creates. */
   insertKind?: string;
+  /** A plot link dragged from a card (see CanvasCallbacks.onLink). */
+  onLink?: (from: string, key: string, to: string) => void;
 }
 
 /** A graph on the canvas (FR-CNV-*): WebGL below, DOM nodes above, panels on top. */
@@ -141,6 +143,7 @@ export function CanvasView({
             copy: (clip, data) => handlers.current?.ext?.hooks?.copy?.(clip, data),
             paste: (d, nodes, clip, ids) => handlers.current?.ext?.hooks?.paste?.(d, nodes, clip, ids),
           },
+          onLink: (from, key, to) => handlers.current?.ext?.onLink?.(from, key, to),
           onSearchRequest: () => setSearching(true),
           label: (key) => t(STEP_LABELS[key]),
           panButton: () => settings.get().panButton,

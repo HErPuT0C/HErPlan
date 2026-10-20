@@ -6,15 +6,15 @@ import { atom } from '../../core/atom';
 import type { GraphDoc } from '../../canvas/model';
 import type { ProjectData } from '../../core/project/types';
 import type { Problem, Severity } from '../../story/checks';
-import type { NodeRef } from '../../story/model';
+import type { NodeRef, PlotDevice } from '../../story/model';
 import type { OpenProject } from '../../state/project';
 
 export interface StoryActions {
   project: OpenProject;
   /** The graph on the canvas now. */
   graphId: string;
-  /** Opens a graph and shows a node in it (jump targets, links, problems). */
-  show: (ref: NodeRef) => void;
+  /** Opens a graph and shows a node in it (jump targets, links, problems); `field`: opens it in the inspector. */
+  show: (ref: NodeRef, field?: string) => void;
   /** Opens a chapter node's graph. */
   openChapter: (nodeId: string) => void;
   /** Shows the inspector for a node, optionally focusing one field. */
@@ -32,9 +32,11 @@ export function useStory(): StoryActions {
 }
 
 export interface IncomingLink {
-  kind: 'gun' | 'butterfly';
+  kind: PlotDevice;
   from: NodeRef;
   title: string;
+  /** The mark it comes from (absent for a gun or butterfly node). */
+  mark?: string;
 }
 
 export interface StoryIndex {

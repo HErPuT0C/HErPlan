@@ -4,7 +4,7 @@
 import type { Lod } from './camera';
 import { curveBounds, curvePoint, endDirection, tessellate, SEGMENTS, edgeCurve, type Curve } from './geometry';
 import { portKey, type GraphIndex } from './graphIndex';
-import { kindOf, portsOf, portPosition, type PortFace } from './kinds';
+import { kindOf, portsOf, portPosition, type KindLink, type PortFace } from './kinds';
 import { colorHex, HEADER_H, type GraphNode } from './model';
 import type { Selection } from './ops';
 import {
@@ -307,18 +307,17 @@ export function buildGroups(s: SceneInput): Batch {
   return { data, count: groups.length };
 }
 
-/** A reference from one node to another in the same graph (`links` field: plot devices of story graphs). */
-interface LinkRef {
-  graph: string;
-  node: string;
-}
-
-function linksOf(n: GraphNode): LinkRef[] {
+/** The `links` field (gun and butterfly nodes of older projects): references in the kind's colour. */
+function linksOf(n: GraphNode): KindLink[] {
   const raw = (n as { links?: unknown }).links;
   if (!Array.isArray(raw)) return [];
-  return raw.filter(
-    (l): l is LinkRef => typeof l === 'object' && l !== null && typeof (l as LinkRef).node === 'string',
-  );
+  const color = colorHex(n.color, kindOf(n.kind).color);
+  return raw
+    .filter(
+      (l): l is { graph: string; node: string } =>
+        typeof l === 'object' && l !== null && typeof (l as { node?: unknown }).node === 'string',
+    )
+    .map((l) => ({ key: `${l.graph}/${l.node}`, to: l, color }));
 }
 
 /** Sides that face each other: horizontal neighbours connect left/right, vertical ones top/bottom. */
@@ -338,31 +337,49 @@ function sidePoint(n: GraphNode, face: PortFace): { x: number; y: number } {
 
 const DASH = 10;
 const GAP = 7;
+const STEPS = 48;
 
 /**
- * Dashed lines from nodes to the nodes their `links` point at in this graph (butterfly → consequence,
- * gun → payoff), in the colour of the source's kind. Rebuilt only when the graph or a drag changes.
+ * Dashed lines from nodes to the nodes they refer to in this graph (gun → where it fires, butterfly → its
+ * consequences): from the line or option that holds the device when there is one, with a translucent
+ * trail that thins out towards the target. Rebuilt only when the graph or a drag changes.
  */
 export function buildLinks(s: SceneInput): { links: Batch; arrows: Batch } {
   const { index, drag } = s;
   const segs: number[] = [];
   const arrows: number[] = [];
   for (const raw of index.graph.nodes) {
-    const links = linksOf(raw);
+    const links = kindOf(raw.kind).links?.(raw) ?? linksOf(raw);
     if (!links.length) continue;
     const a = placed(raw, drag);
-    const color = hexToRgba(colorHex(a.color, kindOf(a.kind).color), 0.9);
     for (const link of links) {
-      const target = link.graph === index.graph.id ? index.node(link.node) : undefined;
+      const target = link.to.graph === index.graph.id ? index.node(link.to.node) : undefined;
       if (!target || target.id === a.id) continue;
       const b = placed(target, drag);
-      const [fa, fb] = facing(a, b);
-      const curve = edgeCurve(sidePoint(a, fa), sidePoint(b, fb), fa, fb);
+      let [fa, fb] = facing(a, b);
+      let from = sidePoint(a, fa);
+      if (link.y !== undefined) {
+        // From a row of the card: out of its left or right side, whichever looks at the target.
+        fa = b.x + b.w / 2 >= a.x + a.w / 2 ? 'right' : 'left';
+        fb = fa === 'right' ? (b.x >= a.x + a.w ? 'left' : 'right') : b.x + b.w <= a.x ? 'right' : 'left';
+        from = { x: fa === 'right' ? a.x + a.w : a.x, y: a.y + Math.min(link.y, a.h) };
+      }
+      const curve = edgeCurve(from, sidePoint(b, fb), fa, fb);
+      const color = hexToRgba(link.color, 0.9);
+      if (link.trail) {
+        let prev = curvePoint(curve, 0);
+        for (let k = 1; k <= STEPS / 2; k++) {
+          const t = k / (STEPS / 2);
+          const p = curvePoint(curve, t);
+          segs.push(prev.x, prev.y, p.x, p.y, ...hexToRgba(link.color, 0.34 - 0.2 * t), -(14 - 8 * t));
+          prev = p;
+        }
+      }
       // Walk the curve and lay dashes by length, so they look the same on short and long links.
       let prev = curvePoint(curve, 0);
       let along = 0;
-      for (let k = 1; k <= 48; k++) {
-        const p = curvePoint(curve, k / 48);
+      for (let k = 1; k <= STEPS; k++) {
+        const p = curvePoint(curve, k / STEPS);
         const len = Math.hypot(p.x - prev.x, p.y - prev.y);
         const phase = along % (DASH + GAP);
         if (phase < DASH) segs.push(prev.x, prev.y, p.x, p.y, ...color, 2);
@@ -399,14 +416,14 @@ export function marqueeBatch(x0: number, y0: number, x1: number, y1: number, the
   return { data, count: 1 };
 }
 
-/** The edge that follows the cursor while connecting. */
-export function previewBatch(curve: Curve, theme: Theme): Batch {
+/** The edge that follows the cursor while connecting (or a plot link being dragged, in its colour). */
+export function previewBatch(curve: Curve, theme: Theme, color: Rgba = theme.accent): Batch {
   const segs = new Float32Array(SEGMENTS * 4);
   tessellate(curve, segs, 0);
   const data = new Float32Array(SEGMENTS * SEG_STRIDE);
   for (let k = 0; k < SEGMENTS; k++) {
     data.set(segs.subarray(k * 4, k * 4 + 4), k * SEG_STRIDE);
-    data.set(theme.accent, k * SEG_STRIDE + 4);
+    data.set(color, k * SEG_STRIDE + 4);
     data[k * SEG_STRIDE + 8] = 2;
   }
   return { data, count: SEGMENTS };

@@ -118,17 +118,32 @@ export function sampleProject(): ProjectData {
   root.edge('r-ch2', 'r-ch3');
   root.edge('r-ch3', 'r-end');
 
-  // Chapter 1: dialogue, the gun on the wall, a choice with a condition and effects.
+  // Chapter 1: dialogue with a gun laid over words of a line, a gun node (as older projects have them),
+  // a choice with a condition and effects, a variable set from a comment.
   const c1 = new Builder('g-ch1', 'chapter', 'Глава 1. Мельница', 'r-ch1');
   c1.node('a-start', 'start', 'Начало');
   c1.node('a-morning', 'scene', 'Утро', { text: 'Туман над рекой.' });
   c1.node('a-mill', 'effect', 'Был на мельнице', { effects: 'был_на_мельнице = истина' });
-  c1.node('a-arrive', 'scene', 'У мельницы', { text: 'Жернова скрипят.' });
+  c1.node('a-arrive', 'scene', 'У мельницы', {
+    text: 'Жернова скрипят.',
+    comment: 'Отметка на будущее: был_на_мельнице = истина',
+  });
   c1.node('a-meet', 'dialogue', 'Встреча', {
     lines: [
       line('l1', 'ent-mira', 'Ты пришёл.'),
-      line('l2', null, 'Ветер стихает.'),
+      line('l2', null, 'Над дверью висит старое ружьё.'),
       line('l3', 'ent-mira', 'Помоги мне.'),
+    ],
+    marks: [
+      {
+        id: 'm-rifle',
+        device: 'gun',
+        anchor: { kind: 'line', id: 'l2' },
+        range: { start: 17, end: 29, quote: 'старое ружьё' },
+        links: [{ graph: 'g-ch3', node: 'c-shot' }],
+        note: 'Выстрелит в тронном зале',
+        variables: [],
+      },
     ],
   });
   c1.node('a-gun', 'gun', 'Ружьё на стене', {
@@ -167,7 +182,8 @@ export function sampleProject(): ProjectData {
   c1.edge('a-check', 'a-end', { port: 'no' });
   c1.edge('a-hurt', 'a-end');
 
-  // Chapter 2: the knight (a butterfly effect into chapter 3), a conditional option, a jump ahead.
+  // Chapter 2: the knight (a butterfly effect laid over an option, and a butterfly node as older projects
+  // have them, both into chapter 3), a conditional option, a jump ahead.
   const c2 = new Builder('g-ch2', 'chapter', 'Глава 2. Лес', 'r-ch2');
   c2.node('b-start', 'start', 'Начало');
   c2.node('b-edge', 'scene', 'Опушка');
@@ -175,6 +191,17 @@ export function sampleProject(): ProjectData {
     options: [
       opt('o-free', 'Освободить', '', 'пощадил_рыцаря = истина; репутация += 1.5'),
       opt('o-pass', 'Пройти мимо', '', 'пощадил_рыцаря = ложь'),
+    ],
+    marks: [
+      {
+        id: 'm-knight',
+        device: 'butterfly',
+        anchor: { kind: 'option', id: 'o-free' },
+        range: null,
+        links: [{ graph: 'g-ch3', node: 'c-gate' }],
+        note: '',
+        variables: ['v-spared'],
+      },
     ],
   });
   c2.node('b-remember', 'butterfly', 'Рыцарь запомнит', {
@@ -223,7 +250,9 @@ export function sampleProject(): ProjectData {
     options: [opt('o-quiet', 'Тихо'), opt('o-fight', 'С боем', 'репутация >= 1')],
   });
   c3.node('c-sum', 'effect', 'Итог', { effects: 'доверие += 1' });
-  c3.node('c-hall', 'dialogue', 'Тронный зал', { lines: [line('l6', 'ent-boris', 'Это конец пути.')] });
+  c3.node('c-hall', 'dialogue', 'Тронный зал', {
+    lines: [line('l6', 'ent-boris', 'Это конец пути. Золота у тебя: {золото}.')],
+  });
   c3.node('c-last', 'choice', 'Последний выбор', {
     options: [
       opt('o-shoot', 'Стрелять', 'есть_ключ или доверие >= 2'),

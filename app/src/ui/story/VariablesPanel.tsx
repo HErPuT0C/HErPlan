@@ -9,8 +9,16 @@ import { closeVariables, revealInStory, variablesPanel } from '../../state/navig
 import type { OpenProject } from '../../state/project';
 import { listEntities } from '../../story/entities';
 import { graphTitle } from '../../story/flow';
-import { allGraphs, findNode } from '../../story/model';
-import { nodesUsing, renameEverywhere, variableUsage, type Usage } from '../../story/usage';
+import { markLabel } from '../../story/marks';
+import { allGraphs, asStory, findNode } from '../../story/model';
+import {
+  markMentions,
+  nodesUsing,
+  renameEverywhere,
+  variableUsage,
+  type MarkMention,
+  type Usage,
+} from '../../story/usage';
 import {
   coerce,
   fullName,
@@ -24,6 +32,7 @@ import {
   type VarType,
 } from '../../story/variables';
 import { Button, IconButton, SelectField, TabPanel, Tabs, TextArea, TextField, toast } from '../components';
+import { ButterflyIcon } from '../canvas/kindIcons';
 import { useDraft } from '../useDraft';
 import { ValueInput } from './ValueInput';
 
@@ -118,6 +127,7 @@ function VariableList({ project, focus }: { project: OpenProject; focus: string 
   }
   const variables = listVariables(data);
   const usage = useMemo(() => variableUsage(data), [data]);
+  const mentions = useMemo(() => markMentions(data), [data]);
   const problem = name.trim() ? nameProblem(data, name, 'project', null) : null;
 
   const create = () => {
@@ -189,6 +199,7 @@ function VariableList({ project, focus }: { project: OpenProject; focus: string 
               project={project}
               variable={v}
               usage={usage.get(v.id) ?? []}
+              mentions={mentions.get(v.id) ?? NO_MENTIONS}
               open={expanded === v.id}
               onToggle={() => setExpanded((x) => (x === v.id ? null : v.id))}
             />
@@ -199,16 +210,31 @@ function VariableList({ project, focus }: { project: OpenProject; focus: string 
   );
 }
 
+const NO_MENTIONS: MarkMention[] = [];
+
+/** A deleted variable leaves the butterflies that listed it. */
+function forgetInMarks(d: ProjectData, id: string): void {
+  for (const g of allGraphs(d)) {
+    for (const raw of g.nodes) {
+      for (const m of asStory(raw).marks ?? []) {
+        if (m.variables.includes(id)) m.variables = m.variables.filter((x) => x !== id);
+      }
+    }
+  }
+}
+
 function VariableRow({
   project,
   variable: v,
   usage,
+  mentions,
   open,
   onToggle,
 }: {
   project: OpenProject;
   variable: Variable;
   usage: Usage[];
+  mentions: MarkMention[];
   open: boolean;
   onToggle: () => void;
 }) {
@@ -234,6 +260,11 @@ function VariableRow({
               <Eye size={12} aria-hidden="true" />
               {reads}
             </>
+          ) : mentions.length ? (
+            <>
+              <ButterflyIcon size={12} aria-hidden="true" />
+              {mentions.length}
+            </>
           ) : (
             t('var.unused')
           )}
@@ -242,7 +273,7 @@ function VariableRow({
       {open && (
         <div className="var-details">
           <VariableEditor project={project} variable={v} edit={edit} entities={entities} />
-          <WhereUsed project={project} usage={usage} />
+          <WhereUsed project={project} usage={usage} mentions={mentions} />
           {!readOnly && (
             <Button
               size="sm"
@@ -253,6 +284,7 @@ function VariableRow({
                 store.dispatch(t('var.step.delete'), (d) => {
                   const f = file(d);
                   f.variables = (f.variables ?? []).filter((x) => x.id !== v.id);
+                  forgetInMarks(d, v.id);
                 });
               }}
             >
@@ -391,9 +423,9 @@ function VariableEditor({
 }
 
 /** Where the variable changes and where it is read (FR-NAR-06), with a way to each place. */
-function WhereUsed({ project, usage }: { project: OpenProject; usage: Usage[] }) {
+function WhereUsed({ project, usage, mentions }: { project: OpenProject; usage: Usage[]; mentions: MarkMention[] }) {
   const data = project.store.getState();
-  if (usage.length === 0) return <p className="muted small">{t('var.notUsed')}</p>;
+  if (usage.length === 0 && mentions.length === 0) return <p className="muted small">{t('var.notUsed')}</p>;
   const place = (u: Usage) => {
     const node = u.site.node ? findNode(data, { graph: u.site.graph, node: u.site.node }) : undefined;
     const g = data.graphs[u.site.graph] as unknown as Parameters<typeof nodesUsing>[0];
@@ -446,6 +478,30 @@ function WhereUsed({ project, usage }: { project: OpenProject; usage: Usage[] })
         'var.reads',
         usage.filter((u) => u.reads && !u.writes),
         <Eye size={13} aria-hidden="true" />,
+      )}
+      {mentions.length > 0 && (
+        <div className="var-uses">
+          <h4 className="small muted">{t('var.butterflies', { count: mentions.length })}</h4>
+          {mentions.map((m) => {
+            const n = findNode(data, m);
+            const mark = n?.marks?.find((x) => x.id === m.mark);
+            return (
+              <button
+                key={`${m.graph}-${m.node}-${m.mark}`}
+                type="button"
+                className="var-use"
+                onClick={() => {
+                  closeVariables();
+                  revealInStory({ graph: m.graph, node: m.node, field: `mark:${m.mark}` });
+                }}
+              >
+                <ButterflyIcon size={13} aria-hidden="true" />
+                <span className="var-use-what">{n && mark ? markLabel(n, mark) : t('story.card.deleted')}</span>
+                <span className="muted small">{graphTitle(data, m.graph)}</span>
+              </button>
+            );
+          })}
+        </div>
       )}
     </>
   );

@@ -194,6 +194,7 @@ describe('project checks (F3-13)', () => {
     expect(codes(data)).toEqual(expect.arrayContaining<ProblemCode>(['payoffMissing', 'optionNoExit']));
     const noLinks = produce(sampleProject(), (d) => {
       node(d, 'g-ch1', 'a-gun').links = [];
+      node(d, 'g-ch1', 'a-meet').marks![0].links = [];
     });
     expect(codes(noLinks)).toEqual(expect.arrayContaining<ProblemCode>(['gunNoPayoff', 'payoffNoSetup']));
   });
@@ -227,6 +228,7 @@ describe('project checks (F3-13)', () => {
     const data = produce(sampleProject(), (d) => {
       // The gun now hangs in chapter 3, after the shot: the shot cannot follow it.
       node(d, 'g-ch1', 'a-gun').links = [];
+      node(d, 'g-ch1', 'a-meet').marks = [];
       const c3 = g(d, 'g-ch3');
       const gun = { ...createNode('gun', 0, 0, 'Поздно'), id: 'late' } as StoryNode;
       gun.links = [{ graph: 'g-ch3', node: 'c-shot' }];

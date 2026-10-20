@@ -259,7 +259,53 @@
               "id": { "type": "string" },
               "text": { "type": "string" },
               "condition": { "$ref": "#/$defs/condition" },
-              "effects": { "$ref": "#/$defs/effects" }
+              "effects": { "$ref": "#/$defs/effects" },
+              "note": { "type": "string", "description": "Since 0.3: the designer's comment on the option." },
+              "noteEffects": {
+                "$ref": "#/$defs/effects",
+                "description": "Since 0.3: effects written in the comment, applied after `effects` when the option is chosen."
+              }
+            }
+          }
+        },
+        "textEffects": {
+          "$ref": "#/$defs/effects",
+          "description": "Since 0.3: effects written in the node's text, comment and lines, applied when the node is shown."
+        },
+        "marks": {
+          "type": "array",
+          "description": "Since 0.3: plot devices laid over the node, an option or a line, or words of their text.",
+          "items": {
+            "type": "object",
+            "required": ["id", "device", "anchor", "range", "links", "note", "variables"],
+            "properties": {
+              "id": { "type": "string" },
+              "device": { "type": "string", "description": "gun or butterfly; more devices may follow." },
+              "anchor": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": {
+                  "kind": { "enum": ["node", "option", "line"] },
+                  "id": { "type": "string" }
+                }
+              },
+              "range": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": ["start", "end", "quote"],
+                    "properties": {
+                      "start": { "type": "integer" },
+                      "end": { "type": "integer" },
+                      "quote": { "type": "string" }
+                    }
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "links": { "type": "array", "items": { "$ref": "#/$defs/nodeRef" } },
+              "note": { "type": "string" },
+              "variables": { "type": "array", "items": { "type": "string" } }
             }
           }
         },

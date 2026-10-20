@@ -5,26 +5,36 @@ import type { GraphDoc } from '../canvas/model';
 import type { ProjectData } from '../core/project/types';
 import { namesInCondition, namesInEffects, renameVariable } from './expr';
 import { allGraphs, asStory } from './model';
+import { renameInText, textPieces } from './textEffects';
 import { listVariables, registryFor, type Variable } from './variables';
 
 export type ExprKind = 'condition' | 'effects';
 
-/** Where an expression lives: an edge, a choice option, or a node field. */
+/** Where an expression lives: an edge, a choice option, a node field, or effects written in a text. */
 export interface ExprSite {
   graph: string;
   node?: string;
   edge?: string;
   option?: string;
-  field: 'condition' | 'expr' | 'effects';
+  line?: string;
+  /** text, comment, note, line: effects written in that text ("{x = 1}", see textEffects.ts). */
+  field: 'condition' | 'expr' | 'effects' | 'text' | 'comment' | 'note' | 'line';
   kind: ExprKind;
   source: string;
 }
 
-/** All non-blank expressions of one graph. */
-export function graphExpressions(g: GraphDoc): ExprSite[] {
+/**
+ * All non-blank expressions of one graph. `known` tells variable names apart, for effects written without
+ * braces in descriptions and comments; without it only braced ones are found.
+ */
+export function graphExpressions(g: GraphDoc, known?: (name: string) => boolean): ExprSite[] {
   const out: ExprSite[] = [];
   const add = (site: Omit<ExprSite, 'graph'>) => {
     if (site.source.trim()) out.push({ graph: g.id, ...site });
+  };
+  const inText = (text: string | undefined, site: Omit<ExprSite, 'graph' | 'kind' | 'source'>, bare: boolean) => {
+    for (const e of textPieces(text, bare ? known : undefined).effects)
+      add({ ...site, kind: 'effects', source: e.source });
   };
   for (const e of g.edges) add({ edge: e.id, field: 'condition', kind: 'condition', source: e.condition ?? '' });
   for (const raw of g.nodes) {
@@ -37,14 +47,24 @@ export function graphExpressions(g: GraphDoc): ExprSite[] {
       for (const o of n.options ?? []) {
         add({ node: n.id, option: o.id, field: 'condition', kind: 'condition', source: o.condition ?? '' });
         add({ node: n.id, option: o.id, field: 'effects', kind: 'effects', source: o.effects ?? '' });
+        inText(o.note, { node: n.id, option: o.id, field: 'note' }, true);
       }
     }
+    inText(n.text, { node: n.id, field: 'text' }, true);
+    inText(n.comment, { node: n.id, field: 'comment' }, true);
+    for (const l of n.lines ?? []) inText(l.text, { node: n.id, line: l.id, field: 'line' }, false);
   }
   return out;
 }
 
+/** Is a name a variable as seen from a graph: for effects written without braces. */
+export function knownNames(data: ProjectData, graphId: string): (name: string) => boolean {
+  let reg: ReturnType<typeof registryFor> | null = null;
+  return (name) => (reg ??= registryFor(data, graphId)).has(name);
+}
+
 export function projectExpressions(data: ProjectData): ExprSite[] {
-  return allGraphs(data).flatMap(graphExpressions);
+  return allGraphs(data).flatMap((g) => graphExpressions(g, knownNames(data, g.id)));
 }
 
 export interface Usage {
@@ -113,23 +133,55 @@ export function renameEverywhere(draft: ProjectData, oldName: string, newName: s
     // Only graphs where the old name meant this variable.
     if (reg.get(oldName)?.variable.id !== v.id) continue;
     const fix = (src: string | undefined) => (src ? renameVariable(src, oldName, newName) : src);
+    const known = (name: string) => reg.has(name);
+    const fixText = (text: string | undefined, bare: boolean) =>
+      text ? renameInText(text, oldName, newName, bare ? known : undefined) : text;
     for (const e of g.edges) if (e.condition) e.condition = fix(e.condition);
     for (const raw of g.nodes) {
       const n = asStory(raw);
       if (n.expr) n.expr = fix(n.expr);
       if (n.effects) n.effects = fix(n.effects);
+      if (n.text) n.text = fixText(n.text, true);
+      if (n.comment) n.comment = fixText(n.comment, true);
       for (const o of n.options ?? []) {
         if (o.condition) o.condition = fix(o.condition)!;
         if (o.effects) o.effects = fix(o.effects)!;
+        if (o.note) o.note = fixText(o.note, true);
       }
+      for (const l of n.lines ?? []) if (l.text) l.text = fixText(l.text, false)!;
     }
   }
 }
 
-/** Variables never mentioned by any expression. */
+export interface MarkMention {
+  graph: string;
+  node: string;
+  mark: string;
+}
+
+/** Butterflies that name a variable among the ones their consequences depend on, by variable id. */
+export function markMentions(data: ProjectData): Map<string, MarkMention[]> {
+  const out = new Map<string, MarkMention[]>();
+  for (const g of allGraphs(data)) {
+    for (const raw of g.nodes) {
+      for (const m of asStory(raw).marks ?? []) {
+        for (const id of m.variables) {
+          const entry = { graph: g.id, node: raw.id, mark: m.id };
+          const list = out.get(id);
+          if (list) list.push(entry);
+          else out.set(id, [entry]);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** Variables never mentioned by any expression (or by a butterfly). */
 export function unusedVariables(data: ProjectData): Variable[] {
   const usage = variableUsage(data);
-  return listVariables(data).filter((v) => !usage.has(v.id));
+  const mentions = markMentions(data);
+  return listVariables(data).filter((v) => !usage.has(v.id) && !mentions.has(v.id));
 }
 
 /** Expression names of every variable, for autocompletion in a graph. */

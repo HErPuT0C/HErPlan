@@ -2,22 +2,34 @@
 // structured content (lines, options, expressions, links) happens in the inspector; a double click on that
 // content opens it there.
 
-import { ChevronDown, ChevronUp, Crosshair, Diamond, Zap } from 'lucide-react';
+import { ChevronDown, ChevronUp, Diamond, MessageSquareText, Zap } from 'lucide-react';
 import { useContext, type ReactNode } from 'react';
 import { registerCard, type CardBodyProps, type CardLook } from '../canvas/cardRegistry';
 import { Editable } from '../canvas/NodeLayer';
-import { ButterflyIcon, KindIcon } from '../canvas/kindIcons';
+import { DeviceIcon, KindIcon, LandingIcon } from '../canvas/kindIcons';
 import type { GraphNode } from '../../canvas/model';
 import { useAtomSelect, useStore } from '../../core/useStore';
 import { t } from '../../i18n';
 import { platform } from '../../platform';
 import { asEntity } from '../../story/entities';
 import { graphTitle, refKey } from '../../story/flow';
-import { CHOICE_ROW_H, asStory, findNode, graphOf, type NodeRef } from '../../story/model';
+import { marksOn, resolveRange } from '../../story/marks';
+import {
+  CHOICE_ROW_H,
+  asStory,
+  findNode,
+  graphOf,
+  type MarkAnchor,
+  type NodeRef,
+  type PlotMark,
+  type StoryNode,
+} from '../../story/model';
 import { setExpanded } from '../../story/ops';
-import { CHOICE_PROMPT_H, FOLDED_LINES } from '../../story/kinds';
+import { CHOICE_PROMPT_H, FOLDED_LINES, PLOT_COLORS } from '../../story/kinds';
+import { knownNames } from '../../story/usage';
 import { useAsync } from '../useAsync';
 import { StoryContext, storyIndex, useStory } from './context';
+import { highlightPieces, textHighlights } from './MarkedText';
 
 /** Content that opens the inspector on double click (the engine leaves `data-canvas-text` alone). */
 function Inspectable({
@@ -40,15 +52,93 @@ function Inspectable({
 }
 
 function TextBody({ node, readOnly, onText }: CardBodyProps) {
+  const text = node.text ?? '';
   return (
     <Editable
       className="cnode-body"
-      value={node.text ?? ''}
+      value={text}
       placeholder={t('canvas.textPlaceholder')}
       multiline
       readOnly={readOnly}
       onCommit={(v) => onText(node.id, v)}
+      display={<CardText node={asStory(node)} anchor={NODE} text={text} bare />}
     />
+  );
+}
+
+const NODE: MarkAnchor = { kind: 'node' };
+
+const deviceName = (m: PlotMark) => t(m.device === 'gun' ? 'plot.gun' : 'plot.butterfly');
+
+/** What a mark on a card says when hovered: what it is and that its link can be dragged from it. */
+function markTitle(m: PlotMark): string {
+  return t(m.links.length ? 'plot.handleLinked' : 'plot.handle', { device: deviceName(m), count: m.links.length });
+}
+
+/** Props that make an element a mark on a card: drag it to a node to link, click it to edit it. */
+function markHandle(m: PlotMark, open: () => void) {
+  return {
+    'data-link-from': m.id,
+    'data-link-color': PLOT_COLORS[m.device],
+    title: markTitle(m),
+    onClick: (e: { stopPropagation: () => void }) => {
+      e.stopPropagation();
+      open();
+    },
+  };
+}
+
+/**
+ * Text on a card with marked words highlighted (each a handle for its link) and effects written in it
+ * tinted; `bare` also finds effects written without braces (descriptions).
+ */
+function CardText({ node, anchor, text, bare }: { node: StoryNode; anchor: MarkAnchor; text: string; bare?: boolean }) {
+  const { project, graphId, inspect } = useStory();
+  // Effects without braces depend on which names are variables.
+  useStore(project.store, (s) => (bare ? s.variables : null));
+  const known = bare ? knownNames(project.store.getState(), graphId) : undefined;
+  const highlights = textHighlights(text, node, anchor, known);
+  if (!highlights.length) return <>{text}</>;
+  return (
+    <>
+      {highlightPieces(text, highlights).map((p, i) => {
+        const mark = p.over.find((h) => h.mark)?.mark;
+        if (mark) {
+          const open = () => inspect(node.id, `mark:${mark.id}`);
+          return (
+            <span key={i} className={`cmark cmark-${mark.device}`} {...markHandle(mark, open)}>
+              {p.text}
+            </span>
+          );
+        }
+        return p.over.length ? (
+          <span key={i} className="ceffect">
+            {p.text}
+          </span>
+        ) : (
+          <span key={i}>{p.text}</span>
+        );
+      })}
+    </>
+  );
+}
+
+/** Marks over a whole option, line or node (no words marked): an icon each, a handle for its link. */
+function MarkIcons({ node, anchor, text }: { node: StoryNode; anchor: MarkAnchor; text: string }) {
+  const { inspect } = useStory();
+  const whole = marksOn(node, anchor).filter((m) => !resolveRange(text, m.range));
+  return (
+    <>
+      {whole.map((m) => (
+        <span
+          key={m.id}
+          className={`cmark-icon cmark-${m.device}`}
+          {...markHandle(m, () => inspect(node.id, `mark:${m.id}`))}
+        >
+          <DeviceIcon device={m.device} size={13} />
+        </span>
+      ))}
+    </>
   );
 }
 
@@ -77,7 +167,10 @@ function DialogueBody({ node }: CardBodyProps) {
             <span className={speaker ? 'cline-speaker' : 'cline-speaker cline-narrator'}>
               {speaker ?? t('story.narrator')}
             </span>
-            <span className="cline-text">{line.text || '…'}</span>
+            <MarkIcons node={n} anchor={{ kind: 'line', id: line.id }} text={line.text} />
+            <span className="cline-text">
+              {line.text ? <CardText node={n} anchor={{ kind: 'line', id: line.id }} text={line.text} /> : '…'}
+            </span>
           </div>
         );
       })}
@@ -144,9 +237,19 @@ function ChoiceBody({ node, readOnly, onText }: CardBodyProps) {
           <span className="coption-n" style={{ height: CHOICE_ROW_H }}>
             {i + 1}
           </span>
+          <MarkIcons node={n} anchor={{ kind: 'option', id: o.id }} text={o.text} />
           <span className={['coption-text', !o.text && 'cnode-empty'].filter(Boolean).join(' ')}>
-            {o.text || t('story.optionPlaceholder', { n: i + 1 })}
+            {o.text ? (
+              <CardText node={n} anchor={{ kind: 'option', id: o.id }} text={o.text} />
+            ) : (
+              t('story.optionPlaceholder', { n: i + 1 })
+            )}
           </span>
+          {o.note?.trim() && (
+            <span className="coption-mark" title={o.note}>
+              <MessageSquareText size={12} />
+            </span>
+          )}
           {o.condition.trim() && (
             <span className="coption-mark" title={t('story.card.showIf', { condition: o.condition })}>
               <Diamond size={12} />
@@ -180,10 +283,16 @@ function EffectBody({ node }: CardBodyProps) {
 }
 
 /** Titles of linked nodes ("→ Рыцарь у ворот · Глава 3"), clickable. */
-function LinkList({ links, empty }: { links: NodeRef[]; empty: string }) {
+function LinkList({ links, empty, color }: { links: NodeRef[]; empty: string; color: string }) {
   const { project, show } = useStory();
   const data = project.store.getState();
-  if (links.length === 0) return <div className="clinks cnode-empty">{empty}</div>;
+  // A gun or butterfly node of an older project: its links are dragged from here (key "": the node's own).
+  if (links.length === 0)
+    return (
+      <div className="clinks cnode-empty cmark" data-link-from="" data-link-color={color}>
+        {empty}
+      </div>
+    );
   return (
     <div className="clinks">
       {links.slice(0, 3).map((l) => {
@@ -219,7 +328,7 @@ function ButterflyBody(props: CardBodyProps) {
           <Code source={n.effects} placeholder="" />
         </Inspectable>
       )}
-      <LinkList links={n.links ?? []} empty={t('story.card.noConsequences')} />
+      <LinkList links={n.links ?? []} empty={t('story.card.noConsequences')} color={PLOT_COLORS.butterfly} />
     </div>
   );
 }
@@ -229,7 +338,7 @@ function GunBody(props: CardBodyProps) {
   return (
     <div className="cplot">
       <TextBody {...props} />
-      <LinkList links={asStory(props.node).links ?? []} empty={t('story.card.notFired')} />
+      <LinkList links={asStory(props.node).links ?? []} empty={t('story.card.notFired')} color={PLOT_COLORS.gun} />
     </div>
   );
 }
@@ -297,30 +406,38 @@ function RefBody(props: CardBodyProps) {
 
 const EMPTY = () => <div className="cnode-body" />;
 
-/** Plot links pointing at this node and its worst problem, in the header of every story card. */
+/**
+ * In the header of every story card: plot devices laid over the whole node (handles for their links),
+ * where guns fire and butterflies land here (click: go to the source), and the node's worst problem.
+ */
 function Marks({ node }: { node: GraphNode }) {
   const story = useContext(StoryContext);
   const key = story ? refKey({ graph: story.graphId, node: node.id }) : '';
   const incoming = useAtomSelect(storyIndex, (i) => i.incoming.get(key));
   const worst = useAtomSelect(storyIndex, (i) => i.worst.get(key));
   if (!story) return null;
+  const n = asStory(node);
   return (
     <>
-      {incoming?.map((link) => (
-        <button
-          key={refKey(link.from)}
-          type="button"
-          className="cnode-btn"
-          data-canvas-ignore=""
-          title={t(link.kind === 'gun' ? 'story.card.payoffOf' : 'story.card.consequenceOf', { title: link.title })}
-          aria-label={t(link.kind === 'gun' ? 'story.card.payoffOf' : 'story.card.consequenceOf', {
-            title: link.title,
-          })}
-          onClick={() => story.show(link.from)}
-        >
-          {link.kind === 'gun' ? <Crosshair size={13} /> : <ButterflyIcon size={13} />}
-        </button>
-      ))}
+      {n.marks?.length ? <MarkIcons node={n} anchor={NODE} text={n.text ?? ''} /> : null}
+      {incoming?.map((link) => {
+        const label = t(link.kind === 'gun' ? 'story.card.payoffOf' : 'story.card.consequenceOf', {
+          title: link.title,
+        });
+        return (
+          <button
+            key={`${refKey(link.from)}-${link.mark ?? ''}`}
+            type="button"
+            className={`cland cland-${link.kind}`}
+            data-canvas-ignore=""
+            title={label}
+            aria-label={label}
+            onClick={() => story.show(link.from, link.mark ? `mark:${link.mark}` : undefined)}
+          >
+            <LandingIcon device={link.kind} size={13} />
+          </button>
+        );
+      })}
       {worst && worst !== 'info' && (
         <span
           className={`cproblem cproblem-${worst}`}

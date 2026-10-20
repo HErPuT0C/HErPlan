@@ -8,6 +8,7 @@ import { createNode } from '../canvas/ops';
 import { current, isDraft } from 'immer';
 import { newId } from '../core/ids';
 import type { ProjectData } from '../core/project/types';
+import { dropMarksOn, followText } from './marks';
 import { asStory, graphOf, type ChoiceOption, type DialogueLine, type NodeRef, type StoryNode } from './model';
 
 export function storyNode(g: GraphDoc, id: string): StoryNode | undefined {
@@ -37,14 +38,18 @@ export function updateLine(
   lineId: string,
   patch: Partial<Omit<DialogueLine, 'id'>>,
 ): void {
-  const line = storyNode(g, nodeId)?.lines?.find((l) => l.id === lineId);
-  if (line) Object.assign(line, patch);
+  const n = storyNode(g, nodeId);
+  const line = n?.lines?.find((l) => l.id === lineId);
+  if (!n || !line) return;
+  if (patch.text !== undefined) followText(n, { kind: 'line', id: lineId }, line.text, patch.text);
+  Object.assign(line, patch);
 }
 
 export function removeLine(g: GraphDoc, nodeId: string, lineId: string): void {
   const n = storyNode(g, nodeId);
   if (!n?.lines) return;
   n.lines = n.lines.filter((l) => l.id !== lineId);
+  dropMarksOn(n, { kind: 'line', id: lineId });
   fitNode(n);
 }
 
@@ -83,8 +88,11 @@ export function updateOption(
   optionId: string,
   patch: Partial<Omit<ChoiceOption, 'id'>>,
 ): void {
-  const option = storyNode(g, nodeId)?.options?.find((o) => o.id === optionId);
-  if (option) Object.assign(option, patch);
+  const n = storyNode(g, nodeId);
+  const option = n?.options?.find((o) => o.id === optionId);
+  if (!n || !option) return;
+  if (patch.text !== undefined) followText(n, { kind: 'option', id: optionId }, option.text, patch.text);
+  Object.assign(option, patch);
 }
 
 /** Removes an option together with the edges leaving its port. */
@@ -92,12 +100,21 @@ export function removeOption(g: GraphDoc, nodeId: string, optionId: string): voi
   const n = storyNode(g, nodeId);
   if (!n?.options) return;
   n.options = n.options.filter((o) => o.id !== optionId);
+  dropMarksOn(n, { kind: 'option', id: optionId });
   g.edges = g.edges.filter((e) => !(e.from.node === nodeId && e.from.port === optionId));
   fitNode(n);
 }
 
 export function moveOption(g: GraphDoc, nodeId: string, from: number, to: number): void {
   move(storyNode(g, nodeId)?.options, from, to);
+}
+
+/** The node's own text (description, question, ending); marked fragments in it follow the edit. */
+export function setNodeText(g: GraphDoc, nodeId: string, text: string): void {
+  const n = storyNode(g, nodeId);
+  if (!n) return;
+  followText(n, { kind: 'node' }, n.text ?? '', text);
+  n.text = text;
 }
 
 // ---------- links to other nodes ----------
@@ -243,23 +260,30 @@ export function pasteChapterGraphs(
     const node = nodeIds.get(ref.graph)?.get(ref.node);
     return graph && node ? { graph, node } : ref;
   };
-  for (const n of [...pasted, ...copies.flatMap((c) => c.g.nodes)]) {
-    const s = asStory(n);
-    if (s.target) s.target = remap(s.target);
-    if (s.links) s.links = s.links.map(remap);
-  }
-
   // Variables of a copied chapter get copies scoped to the new chapter.
   const file = d.variables as { variables?: unknown[] };
   const chapterVars = (file.variables ?? []).filter(
-    (v): v is { scope: { kind: string; id: string } } =>
+    (v): v is { id: string; scope: { kind: string; id: string } } =>
       typeof v === 'object' &&
       v !== null &&
       typeof (v as { scope?: unknown }).scope === 'object' &&
       copies.some((c) => c.oldId === (v as { scope: { id?: string } }).scope?.id),
   );
+  const varIds = new Map<string, string>();
   for (const v of chapterVars) {
     const plain = isDraft(v) ? current(v) : structuredClone(v);
-    file.variables!.push({ ...plain, id: newId(), scope: { kind: 'graph', id: graphIds.get(v.scope.id)! } });
+    const id = newId();
+    varIds.set(v.id, id);
+    file.variables!.push({ ...plain, id, scope: { kind: 'graph', id: graphIds.get(v.scope.id)! } });
+  }
+
+  for (const n of [...pasted, ...copies.flatMap((c) => c.g.nodes)]) {
+    const s = asStory(n);
+    if (s.target) s.target = remap(s.target);
+    if (s.links) s.links = s.links.map(remap);
+    for (const m of s.marks ?? []) {
+      m.links = m.links.map(remap);
+      m.variables = m.variables.map((id) => varIds.get(id) ?? id);
+    }
   }
 }

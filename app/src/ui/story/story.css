@@ -186,7 +186,6 @@
 .ioption-text {
   flex: 1;
   min-width: 0;
-  height: var(--control-h-sm);
 }
 .ilink {
   display: flex;
@@ -666,7 +665,7 @@
   gap: 6px;
   height: 22px;
   line-height: 22px;
-  overflow: hidden;
+  overflow: clip;
   white-space: nowrap;
 }
 .cline-speaker {
@@ -683,7 +682,8 @@
   font-style: italic;
 }
 .cline-text {
-  overflow: hidden;
+  /* clip, not hidden: nothing can scroll the line sideways (a click on a mark near the edge). */
+  overflow: clip;
   text-overflow: ellipsis;
 }
 .cline-long .cline-text {
@@ -779,7 +779,7 @@
 .coption-text {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
+  overflow: clip;
   text-overflow: ellipsis;
 }
 .coption-mark {
@@ -898,4 +898,220 @@
     clip-path: inset(50%);
     white-space: nowrap;
   }
+}
+
+/* --- Text fields with highlights (marked words, effects written in text) --- */
+.mtext {
+  position: relative;
+  display: grid;
+  isolation: isolate;
+}
+.mtext-mirror,
+.mtext .mtext-input {
+  grid-area: 1 / 1;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 5px var(--space-3);
+  border: 1px solid transparent;
+  font: inherit;
+  line-height: var(--lh);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.mtext-mirror {
+  color: transparent;
+  pointer-events: none;
+}
+.mtext-mirror mark {
+  color: transparent;
+  border-radius: 3px;
+}
+.mtext .mtext-input {
+  height: auto;
+  min-height: 32px;
+  resize: none;
+  overflow: hidden;
+  border-color: transparent;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  box-shadow: none;
+  field-sizing: content;
+}
+.mtext.mtext-tall .mtext-input {
+  min-height: 72px;
+}
+.mtext::before {
+  content: '';
+  grid-area: 1 / 1;
+  z-index: -1;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.mtext:focus-within::before {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.mtext.iline-over::before {
+  border-color: var(--warning);
+}
+.hl-gun {
+  background: color-mix(in srgb, var(--plot-gun) 30%, transparent);
+  box-shadow: inset 0 -2px 0 var(--plot-gun);
+}
+.hl-butterfly {
+  background: color-mix(in srgb, var(--plot-butterfly) 26%, transparent);
+  box-shadow: inset 0 -2px 0 var(--plot-butterfly);
+}
+.hl-effect {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.hl-show {
+  background: color-mix(in srgb, var(--text-muted) 18%, transparent);
+}
+
+/* --- Plot devices in the inspector --- */
+.imark {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--plot-gun);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+.imark-butterfly {
+  border-left-color: var(--plot-butterfly);
+}
+.imark-gun > .imark-head > svg {
+  color: var(--plot-gun);
+}
+.imark-butterfly > .imark-head > svg {
+  color: var(--plot-butterfly);
+}
+.imark-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.imark-title {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.imark-title .small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.imark-links,
+.imark-vars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.imark-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.imark-chips .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.chip-x {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.imark-add {
+  height: var(--control-h-sm);
+  max-width: 100%;
+}
+.imark-role {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* --- Plot devices on cards --- */
+.cmark {
+  border-radius: 3px;
+  cursor: grab;
+}
+.cmark-gun {
+  background: color-mix(in srgb, var(--plot-gun) 30%, transparent);
+  box-shadow: inset 0 -2px 0 var(--plot-gun);
+}
+.cmark-butterfly {
+  background: color-mix(in srgb, var(--plot-butterfly) 26%, transparent);
+  box-shadow: inset 0 -2px 0 var(--plot-butterfly);
+}
+.cmark-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  cursor: grab;
+}
+.cmark-icon.cmark-gun,
+.cmark-icon.cmark-butterfly {
+  background: none;
+  box-shadow: none;
+}
+.cmark-icon.cmark-gun {
+  color: var(--plot-gun);
+}
+.cmark-icon.cmark-butterfly {
+  color: var(--plot-butterfly);
+}
+.cland {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.cland-gun {
+  color: #1c1606;
+  background: var(--plot-gun);
+}
+.cland-butterfly {
+  color: #1f0a15;
+  background: var(--plot-butterfly);
+}
+.ceffect {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.play-plot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-sm);
+}
+.play-plot li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.play-plot .plot-gun svg {
+  color: var(--plot-gun);
+}
+.play-plot .plot-butterfly svg {
+  color: var(--plot-butterfly);
 }

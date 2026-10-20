@@ -28,18 +28,37 @@ import { settings } from '../../state/settings';
 import { checkProject, countBySeverity } from '../../story/checks';
 import { exportJson } from '../../story/export';
 import { graphPath, graphTitle, refKey } from '../../story/flow';
-import { allGraphs, asStory, findNode, graphOf, OFF_FLOW, storyRoot, type NodeRef } from '../../story/model';
+import { HEADER_H } from '../../canvas/model';
+import { CHOICE_PROMPT_H, FOLDED_LINES } from '../../story/kinds';
+import { addMark, linkMark, plotSources } from '../../story/marks';
 import {
+  allGraphs,
+  CHOICE_ROW_H,
+  DIALOGUE_LINE_H,
+  DIALOGUE_TOP,
+  findNode,
+  graphOf,
+  OFF_FLOW,
+  PLOT_DEVICES,
+  storyRoot,
+  type MarkAnchor,
+  type NodeRef,
+  type StoryNode,
+} from '../../story/model';
+import {
+  addLink,
   chapterGraphsOf,
   createChapterGraph,
   deleteChapterGraphs,
   newStoryGraph,
   pasteChapterGraphs,
+  storyNode,
 } from '../../story/ops';
 import { startPlay } from '../../story/play';
 import { Button, EmptyState, IconButton, MenuButton, toast } from '../components';
 import { errorText } from '../errors';
 import { CanvasView, type CanvasExtensions } from '../canvas/CanvasView';
+import { DeviceIcon } from '../canvas/kindIcons';
 import { StoryContext, storyIndex, type IncomingLink, type StoryActions } from './context';
 import { Inspector, type InspectFocus } from './Inspector';
 import { PlayPanel, type PlayHistory } from './PlayPanel';
@@ -57,6 +76,22 @@ interface Pending {
   field?: string;
 }
 
+/** The option or dialogue line at a height inside a card (see the card layout in story/kinds.ts). */
+function cardRow(node: StoryNode, y: number): { anchor: MarkAnchor; index: number } | null {
+  if (node.kind === 'choice') {
+    const i = Math.floor((y - HEADER_H - CHOICE_PROMPT_H) / CHOICE_ROW_H);
+    const o = node.options?.[i];
+    return o && i >= 0 ? { anchor: { kind: 'option', id: o.id }, index: i } : null;
+  }
+  if (node.kind === 'dialogue') {
+    const lines = node.lines ?? [];
+    const shown = node.expanded ? lines.length : Math.min(lines.length, FOLDED_LINES);
+    const i = Math.floor((y - HEADER_H - DIALOGUE_TOP) / DIALOGUE_LINE_H);
+    return i >= 0 && i < shown ? { anchor: { kind: 'line', id: lines[i].id }, index: i } : null;
+  }
+  return null;
+}
+
 /** Plot links and problems by node, rebuilt shortly after the project changes; no checks when they are off. */
 function useStoryIndex(project: OpenProject, checks: boolean): void {
   useEffect(() => {
@@ -66,15 +101,11 @@ function useStoryIndex(project: OpenProject, checks: boolean): void {
       const data = project.store.getState();
       const incoming = new Map<string, IncomingLink[]>();
       for (const g of allGraphs(data)) {
-        for (const raw of g.nodes) {
-          const n = asStory(raw);
-          if ((n.kind !== 'gun' && n.kind !== 'butterfly') || !n.links) continue;
-          for (const link of n.links) {
+        for (const src of plotSources(g)) {
+          for (const link of src.links) {
             const key = refKey(link);
-            incoming.set(key, [
-              ...(incoming.get(key) ?? []),
-              { kind: n.kind, from: { graph: g.id, node: n.id }, title: n.title },
-            ]);
+            const entry: IncomingLink = { kind: src.device, from: src.at, title: src.title, mark: src.mark?.id };
+            incoming.set(key, [...(incoming.get(key) ?? []), entry]);
           }
         }
       }
@@ -204,7 +235,10 @@ function StoryWorkspace({
     () => ({
       project,
       graphId: current,
-      show: (ref) => go({ graph: ref.graph, node: ref.node || undefined }),
+      show: (ref, field) => {
+        if (field) setSide('inspector');
+        go({ graph: ref.graph, node: ref.node || undefined, field });
+      },
       openChapter: (nodeId) => {
         const node = findNode(store.getState(), { graph: current, node: nodeId });
         if (node?.graph && store.getState().graphs[node.graph]) setGraphId(node.graph);
@@ -239,7 +273,8 @@ function StoryWorkspace({
       const r = revealRequest.get();
       if (!r) return;
       revealRequest.set(null);
-      goRef.current({ graph: r.graph, node: r.node, highlight: r.highlight });
+      if (r.field) setSide('inspector');
+      goRef.current({ graph: r.graph, node: r.node, highlight: r.highlight, field: r.field });
     };
     // A request made just before this editor opened (the workspace switched to it) is taken right away.
     const timer = setTimeout(take, 0);
@@ -297,7 +332,16 @@ function StoryWorkspace({
       }
       return false;
     },
-    menuEntries: (target: HitTarget) => {
+    onLink: (from, key, to) =>
+      actions.edit(t('story.step.link'), (g) => {
+        const ref = { graph: current, node: to };
+        const n = storyNode(g, from);
+        if (!n) return;
+        // An empty key: a gun or butterfly node of an older project, linked by itself.
+        if (key) linkMark(n, key, ref);
+        else addLink(g, from, ref);
+      }),
+    menuEntries: (target: HitTarget, world) => {
       const data = store.getState();
       if (target.kind === 'background') {
         return [
@@ -339,6 +383,29 @@ function StoryWorkspace({
           icon: <CornerDownRight size={16} />,
           onSelect: () => actions.show(to),
         });
+      }
+      if (!readOnly && !OFF_FLOW.has(node.kind) && !['start', 'gun', 'butterfly'].includes(node.kind)) {
+        // Over an option or a line of the card: the device goes there; elsewhere on the whole node.
+        const row = cardRow(node, world.y - node.y);
+        const where = row
+          ? t(row.anchor.kind === 'option' ? 'plot.onOption' : 'plot.onLine', { n: row.index + 1 })
+          : t('plot.onNode');
+        const anchor = row?.anchor ?? { kind: 'node' as const };
+        for (const device of PLOT_DEVICES) {
+          entries.push({
+            id: `plot-${device}`,
+            label: t('plot.menu', { device: t(device === 'gun' ? 'plot.gun' : 'plot.butterfly'), where }),
+            icon: <DeviceIcon device={device} />,
+            onSelect: () => {
+              let id: string | null = null;
+              actions.edit(t(device === 'gun' ? 'plot.step.gun' : 'plot.step.butterfly'), (g) => {
+                const n = storyNode(g, node.id);
+                if (n) id = addMark(n, device, anchor)?.id ?? null;
+              });
+              if (id) actions.inspect(node.id, `mark:${id}`);
+            },
+          });
+        }
       }
       if (!OFF_FLOW.has(node.kind)) {
         entries.push({
