@@ -38,3 +38,10 @@ export const entityRequest = atom<{ id: string; at: number } | null>(null);
 export function openEntity(id: string): void {
   entityRequest.set({ id, at: performance.now() });
 }
+
+/** "Open this document" from anywhere (a link in another document, the project map): the documents tab shows it. */
+export const documentRequest = atom<{ id: string; at: number } | null>(null);
+
+export function openDocument(id: string): void {
+  documentRequest.set({ id, at: performance.now() });
+}

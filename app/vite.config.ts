@@ -7,7 +7,7 @@ const { version } = JSON.parse(readFileSync(new URL('./package.json', import.met
 const build = process.env.HERPLAN_BUILD ?? '';
 
 // Tauri serves the build from disk, so assets use relative paths; the dev server port is fixed for `tauri dev`.
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
   define: { __APP_VERSION__: JSON.stringify(version), __APP_BUILD__: JSON.stringify(build) },
   base: './',
@@ -16,6 +16,9 @@ export default defineConfig({
   build: { target: 'es2022', outDir: 'dist', emptyOutDir: true },
   test: {
     environment: 'jsdom',
-    include: ['src/**/*.test.{ts,tsx}'],
+    // The Markdown fuzzer (F5-11) takes minutes: a step of its own in CI, `npm run test:fuzz`.
+    include: mode === 'fuzz' ? ['src/**/*.fuzz.test.ts'] : ['src/**/*.test.{ts,tsx}'],
+    exclude: mode === 'fuzz' ? [] : ['src/**/*.fuzz.test.ts', 'node_modules/**'],
+    testTimeout: mode === 'fuzz' ? 1_800_000 : 5000,
   },
-});
+}));

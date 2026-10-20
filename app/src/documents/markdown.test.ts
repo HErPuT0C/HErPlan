@@ -1,0 +1,66 @@
+import type { JSONContent } from '@tiptap/core';
+import { describe, expect, it } from 'vitest';
+import { canonicalBlocks, parseMarkdown, writeMarkdown } from './markdown';
+
+const p = (...content: JSONContent[]): JSONContent => ({ type: 'paragraph', content });
+const text = (t: string, ...marks: (string | { type: string; attrs: Record<string, unknown> })[]): JSONContent => ({
+  type: 'text',
+  text: t,
+  ...(marks.length ? { marks: marks.map((m) => (typeof m === 'string' ? { type: m } : m)) } : {}),
+});
+const link = (ref: string, ...marks: string[]): JSONContent => ({
+  type: 'objectLink',
+  attrs: { kind: 'ent', ref, label: 'Мира' },
+  ...(marks.length ? { marks: marks.map((type) => ({ type })) } : {}),
+});
+
+/** Written and read back: the same document (as compared, see canonicalBlocks). */
+function roundTrip(...blocks: JSONContent[]) {
+  const doc = { type: 'doc', content: blocks };
+  const written = writeMarkdown(doc);
+  expect(written.exact, written.text).toBe(true);
+  expect(canonicalBlocks(parseMarkdown(written.text).content ?? [])).toEqual(canonicalBlocks(blocks));
+  return written.text;
+}
+
+describe('the self-checking Markdown save (F5-10)', () => {
+  it('writes ordinary Markdown when it reads back the same', () => {
+    expect(roundTrip(p(text('Мира', 'bold'), text(' пришла к '), text('мельнице', 'italic')))).toBe(
+      '**Мира** пришла к *мельнице*\n',
+    );
+    expect(roundTrip(p(link('ent-mira', 'bold'), text(' пришла')))).toBe('**[[ent:ent-mira|Мира]]** пришла\n');
+    // Text that looks like an embed is not taken for one.
+    expect(roundTrip(p(link('ent-mira', 'bold'), text(' и {{ent:x.y}} как текст')))).toContain('&#123;&#123;');
+  });
+
+  it('falls back to tags where Markdown is ambiguous, and keeps the text exactly', () => {
+    // Class A of ADR-003: formatting at the edge of a word or a sign.
+    roundTrip(p(text('Ме'), text('льница: …—', 'bold'), text('*')));
+    roundTrip(p(text('*—*'), text('a', 'italic'), text('—*', 'bold', 'italic')));
+    // Spaces next to a link inside one tag, a backslash, characters that look like syntax.
+    roundTrip(p(text('см.'), text(' ', 'underline'), link('ent-mira', 'underline'), text('.', 'underline')));
+    roundTrip(p(text('a\\\\b [[ent:x|y]] {{ <b> &amp; 1) '), text('x', 'strike')));
+  });
+
+  it('keeps colours and fonts', () => {
+    const red = { type: 'textColor', attrs: { color: 'red' } };
+    const serif = { type: 'textFont', attrs: { font: 'serif' } };
+    const out = roundTrip(
+      p(text('красный ', red), text('жирный', red, 'bold'), text(' и '), text('с засечками', serif)),
+    );
+    expect(out).toContain('data-color="red"');
+    expect(out).toContain('data-font="serif"');
+  });
+
+  it('keeps empty paragraphs, empty headings and lists written one after another', () => {
+    roundTrip(p(text('a')), { type: 'paragraph' }, { type: 'paragraph' }, p(text('b')));
+    roundTrip({ type: 'heading', attrs: { level: 2 } }, p(text('после')));
+    const item = (t: string): JSONContent => ({ type: 'listItem', content: [p(text(t))] });
+    const out = roundTrip(
+      { type: 'bulletList', content: [item('a')] },
+      { type: 'bulletList', content: [item('b')] },
+      { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph' }] }] },
+    );
+    expect(out).toContain('* b');
+  });
+});

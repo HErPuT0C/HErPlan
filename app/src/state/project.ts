@@ -1,5 +1,6 @@
 // The open project: data store, autosave, automatic copies, and the recent-projects list.
 
+import { flushEdits } from './pendingEdits';
 import { atom } from '../core/atom';
 import { Autosaver } from '../core/project/autosave';
 import { BackupScheduler } from '../core/project/backups';
@@ -70,6 +71,8 @@ export async function openProject(dir: string): Promise<OpenResult> {
         write: (writes, deletes) => platform().writeProject(dir, writes, deletes),
         delayMs: () => settings.get().autosaveSeconds * 1000,
         existingFiles,
+        documentPaths: result.documentPaths,
+        beforeFlush: flushEdits,
       });
   const backups =
     saver &&

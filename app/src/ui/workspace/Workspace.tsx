@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAtom } from '../../core/useStore';
-import { closeVariables, entityRequest, revealRequest } from '../../state/navigation';
+import { closeVariables, documentRequest, entityRequest, revealRequest } from '../../state/navigation';
 import { t } from '../../i18n';
 import { platform } from '../../platform';
 import { closeProject, type OpenProject } from '../../state/project';
@@ -14,6 +14,7 @@ import {
   openTab,
   parseWorkspace,
   serializeWorkspace,
+  setTabDoc,
   setTabGraph,
   WORKSPACE_FILE,
   type WorkspaceState,
@@ -29,6 +30,7 @@ import { StoryEditor } from '../story/StoryEditor';
 import { VariablesPanel } from '../story/VariablesPanel';
 import { WorldEditor } from '../world/WorldEditor';
 import { AssetsEditor } from '../assets/AssetsEditor';
+import { DocumentsEditor } from '../documents/DocumentsEditor';
 import { ModulePlaceholder } from './ModulePlaceholder';
 import { ProjectHeader } from './ProjectHeader';
 import { TabStrip } from './TabStrip';
@@ -87,12 +89,25 @@ export function Workspace({ project }: { project: OpenProject }) {
       return db ? { ...s, active: db.id } : openTab(s, 'database');
     });
   }, [wanted, setTabs]);
+  // "Open this document" (a link in a document, the project map): bring a documents tab to the front.
+  const wantedDoc = useAtom(documentRequest);
+  useEffect(() => {
+    if (!wantedDoc) return;
+    setTabs((s) => {
+      const active = s.tabs.find((tab) => tab.id === s.active);
+      const docs = active?.kind === 'documents' ? active : s.tabs.find((tab) => tab.kind === 'documents');
+      const next = docs ? { ...s, active: docs.id } : openTab(s, 'documents');
+      return setTabDoc(next, next.active, wantedDoc.id);
+    });
+    documentRequest.set(null);
+  }, [wantedDoc, setTabs]);
   // The panel belongs to this project.
   useEffect(
     () => () => {
       closeVariables();
       revealRequest.set(null);
       entityRequest.set(null);
+      documentRequest.set(null);
     },
     [],
   );
@@ -124,6 +139,13 @@ export function Workspace({ project }: { project: OpenProject }) {
           />
         ) : activeTab?.kind === 'database' ? (
           <WorldEditor key={activeTab.id} project={project} />
+        ) : activeTab?.kind === 'documents' ? (
+          <DocumentsEditor
+            key={activeTab.id}
+            project={project}
+            doc={activeTab.doc ?? null}
+            onDoc={(doc) => setTabs((s) => setTabDoc(s, activeTab.id, doc))}
+          />
         ) : activeTab?.kind === 'assets' ? (
           <AssetsEditor key={activeTab.id} project={project} />
         ) : activeTab ? (

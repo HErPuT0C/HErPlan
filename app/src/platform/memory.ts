@@ -551,6 +551,28 @@ export class MemoryPlatform implements Platform {
     this.save();
   }
 
+  async exportBytes(target: string, data: Uint8Array): Promise<void> {
+    // Kept as a data URL: the web build's files are text.
+    let binary = '';
+    for (const b of data) binary += String.fromCharCode(b);
+    this.fs.files[join(target)] = `data:application/octet-stream;base64,${btoa(binary)}`;
+    this.save();
+  }
+
+  async exportFiles(targetDir: string, files: FileText[]): Promise<void> {
+    const status = this.status(targetDir);
+    if (status === 'non-empty-dir') fail('not-empty', 'folder is not empty', targetDir);
+    if (status === 'file') fail('exists', 'a file with this name exists', targetDir);
+    for (const f of files) {
+      if (!f.path || f.path.startsWith('/') || f.path.split('/').some((s) => !s || s === '.' || s === '..')) {
+        fail('invalid-path', 'path outside the export folder', f.path);
+      }
+    }
+    this.mkdir(join(targetDir));
+    for (const f of files) this.fs.files[join(targetDir, f.path)] = f.text;
+    this.save();
+  }
+
   async importZip(source: string, targetDir: string): Promise<void> {
     this.extractInto(targetDir, this.readArchive(source));
   }

@@ -24,7 +24,7 @@ mod snapshot;
 mod walk;
 mod write;
 
-pub use archive::{export_text, export_zip, import_folder, import_zip};
+pub use archive::{export_bytes, export_files, export_text, export_zip, import_folder, import_zip};
 pub use assets::{
     asset_delete, asset_mkdir, asset_move, asset_open_path, import_assets, list_assets, write_asset,
 };

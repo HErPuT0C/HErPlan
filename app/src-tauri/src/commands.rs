@@ -277,6 +277,22 @@ pub async fn export_text(target: String, text: String) -> CommandResult<()> {
     blocking(move || storage::export_text(&target, &text)).await
 }
 
+/// Markdown export (Obsidian): the files go into a new or empty folder picked by the person.
+#[tauri::command]
+pub async fn export_files(target_dir: String, files: Vec<storage::FileText>) -> CommandResult<()> {
+    let target_dir = absolute(&target_dir)?;
+    blocking(move || storage::export_files(&target_dir, &files)).await
+}
+
+/// PDF export: the bytes are the raw request body, the target path a percent-encoded header.
+#[tauri::command]
+pub async fn export_bytes(request: Request<'_>) -> CommandResult<()> {
+    let data = body_bytes(request.body())
+        .ok_or_else(|| StorageError::new(ErrorCode::Io, "the file content is not bytes", None))?;
+    let target = absolute(&header(&request, "x-herplan-target")?)?;
+    blocking(move || storage::export_bytes(&target, &data)).await
+}
+
 #[tauri::command]
 pub async fn project_import_zip(source: String, target_dir: String) -> CommandResult<()> {
     let source = absolute(&source)?;

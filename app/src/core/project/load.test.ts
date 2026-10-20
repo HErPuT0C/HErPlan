@@ -23,6 +23,7 @@ describe('project files', () => {
     const files = allFiles(data);
     expect(files.map((f) => f.path).sort()).toEqual([
       'data/assets.json',
+      'data/documents.json',
       'data/entities/e1.json',
       'data/types.json',
       'data/variables.json',

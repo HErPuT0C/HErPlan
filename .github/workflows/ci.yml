@@ -47,6 +47,8 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - name: Markdown fuzzer (F5-11; a lost mark, text or block makes CI red)
+        run: npm run test:fuzz
       - name: End-to-end tests (Chromium, web build)
         run: |
           npx playwright install --with-deps chromium

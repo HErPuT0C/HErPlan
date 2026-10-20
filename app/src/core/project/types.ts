@@ -41,6 +41,10 @@ export interface ProjectData {
   entities: Record<string, JsonObject>;
   graphs: Record<string, JsonObject>;
   boards: Record<string, JsonObject>;
+  /** data/documents.json: folders of documents kept even when empty, since 0.4. */
+  documentMeta: JsonObject;
+  /** The Markdown files under documents/, by document id (see documents/model.ts), since 0.4. */
+  documents: Record<string, JsonObject>;
 }
 
 export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {

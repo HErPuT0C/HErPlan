@@ -38,6 +38,8 @@ pub fn run() {
             commands::backup_restore,
             commands::project_export_zip,
             commands::export_text,
+            commands::export_files,
+            commands::export_bytes,
             commands::project_import_zip,
             commands::project_import_folder,
             commands::system_info,

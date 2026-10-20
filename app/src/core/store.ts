@@ -148,6 +148,33 @@ export class Store<S extends object> {
     }
   }
 
+  /**
+   * After a change made outside the history (`history: false`), steps recorded earlier that put back a whole
+   * object containing `path` carry the current value there, so undoing and redoing them does not bring old
+   * content back. Text typed in a document has its own undo in the editor; "undo creating the document, then
+   * redo" must not lose that text.
+   */
+  refreshHistory(path: readonly (string | number)[]): void {
+    let current: unknown = this.state;
+    for (const key of path) current = (current as Record<string | number, unknown> | undefined)?.[key];
+    const set = (target: unknown, rest: readonly (string | number)[]): unknown => {
+      if (rest.length === 0) return structuredClone(current);
+      if (!target || typeof target !== 'object') return target;
+      const [key, ...more] = rest;
+      return Array.isArray(target)
+        ? target.map((v, i) => (i === key ? set(v, more) : v))
+        : { ...target, [key]: set((target as Record<string | number, unknown>)[key], more) };
+    };
+    const refresh = (p: Patch): Patch => {
+      const inside = p.path.length < path.length && p.path.every((k, i) => k === path[i]);
+      return inside && 'value' in p ? { ...p, value: set(p.value, path.slice(p.path.length)) } : p;
+    };
+    for (const entry of [...this.undoStack, ...this.redoStack]) {
+      entry.patches = entry.patches.map(refresh);
+      entry.inverse = entry.inverse.map(refresh);
+    }
+  }
+
   /** Label of the step that undo would revert, for menus and tooltips. */
   get undoLabel(): string | undefined {
     return this.undoStack.at(-1)?.label;

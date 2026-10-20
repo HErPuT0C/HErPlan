@@ -87,6 +87,7 @@ export const worldEn = {
   'world.use.variable': 'Own variable “{name}”',
   'world.use.value': 'Value of the variable “{name}”',
   'world.use.field': '“{name}”, field “{field}”',
+  'world.use.doc': 'Document “{name}” ({count})',
   'world.step.add': 'Add card',
   'world.step.edit': 'Edit card',
   'world.step.delete': 'Delete card',

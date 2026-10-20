@@ -9,7 +9,7 @@ import { atom, type Atom } from '../atom';
 import type { Store } from '../store';
 import type { FileText, PlatformError } from '../../platform/types';
 import { isPlatformError } from '../../platform/types';
-import { COLLECTIONS, fileContent, fileForPath, SINGLE_FILES } from './files';
+import { COLLECTIONS, DOC_PREFIX, documentWrite, fileContent, fileForPath, SINGLE_FILES } from './files';
 import type { ProjectData } from './types';
 
 export type SaveStatus = 'saved' | 'pending' | 'saving' | 'error';
@@ -25,6 +25,10 @@ export interface AutosaverOptions {
   delayMs: () => number;
   /** Files of collections that exist on disk (loaded successfully); needed to delete removed objects. */
   existingFiles: Iterable<string>;
+  /** The file each document was read from, by document id; documents move when renamed. */
+  documentPaths?: Record<string, string>;
+  /** Called before every flush: editors that hold typed text put it into the store. */
+  beforeFlush?: () => void;
   now?: () => number;
 }
 
@@ -34,6 +38,8 @@ export class Autosaver {
   readonly state: Atom<SaveState> = atom<SaveState>({ status: 'saved', lastSavedAt: null, error: null });
   private dirty = new Set<string>();
   private onDisk: Set<string>;
+  /** Where each document is on disk now, by id. */
+  private docPaths: Map<string, string>;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running: Promise<void> | null = null;
   private retryMs = 0;
@@ -45,6 +51,7 @@ export class Autosaver {
     private readonly options: AutosaverOptions,
   ) {
     this.onDisk = new Set(options.existingFiles);
+    this.docPaths = new Map(Object.entries(options.documentPaths ?? {}));
     this.unsubscribe = store.onChange((e) => {
       for (const patch of e.patches) this.markPath(patch.path);
       this.schedule();
@@ -65,6 +72,9 @@ export class Autosaver {
     const roots = path.length === 0 ? Object.keys(COLLECTIONS) : [String(path[0])];
     if (path.length === 0) Object.values(SINGLE_FILES).forEach((f) => this.dirty.add(f));
     const data = this.store.getState();
+    if (path.length === 0 || path[0] === 'documents') {
+      for (const id of [...Object.keys(data.documents), ...this.docPaths.keys()]) this.dirty.add(`${DOC_PREFIX}${id}`);
+    }
     for (const root of roots) {
       if (!(root in COLLECTIONS)) continue;
       const dir = COLLECTIONS[root as keyof typeof COLLECTIONS];
@@ -85,6 +95,7 @@ export class Autosaver {
 
   /** Writes everything pending right now (closing the project, before a backup or export). */
   async flush(): Promise<void> {
+    this.options.beforeFlush?.();
     if (this.timer !== null) {
       clearTimeout(this.timer);
       this.timer = null;
@@ -109,11 +120,25 @@ export class Autosaver {
     const data = this.store.getState();
     const writes: FileText[] = [];
     const deletes: string[] = [];
+    const moves = new Map<string, string | null>();
     for (const path of files) {
+      if (path.startsWith(DOC_PREFIX)) {
+        // A document: written where its name and folder say; the old file goes when it moved or was deleted.
+        const id = path.slice(DOC_PREFIX.length);
+        const file = documentWrite(data, id);
+        const old = this.docPaths.get(id);
+        if (file) writes.push(file);
+        if (old && old !== file?.path) deletes.push(old);
+        moves.set(id, file?.path ?? null);
+        continue;
+      }
       const text = fileContent(data, path);
       if (text !== null) writes.push({ path, text });
       else if (this.onDisk.has(path)) deletes.push(path);
     }
+    // A file written for one document may be the old place of another (two documents swapped names).
+    const written = new Set(writes.map((w) => w.path));
+    for (let i = deletes.length - 1; i >= 0; i--) if (written.has(deletes[i])) deletes.splice(i, 1);
     if (writes.length === 0 && deletes.length === 0) {
       this.state.set((s) => ({ ...s, status: 'saved' }));
       return;
@@ -123,6 +148,10 @@ export class Autosaver {
       await this.options.write(writes, deletes);
       for (const w of writes) if (isCollectionFile(w.path)) this.onDisk.add(w.path);
       for (const d of deletes) this.onDisk.delete(d);
+      for (const [id, at] of moves) {
+        if (at) this.docPaths.set(id, at);
+        else this.docPaths.delete(id);
+      }
       this.retryMs = 0;
       const now = this.options.now?.() ?? Date.now();
       this.state.set({ status: this.dirty.size > 0 ? 'pending' : 'saved', lastSavedAt: now, error: null });

@@ -88,6 +88,7 @@ export const worldRu = {
   'world.use.variable': 'Своя переменная «{name}»',
   'world.use.value': 'Значение переменной «{name}»',
   'world.use.field': '«{name}», поле «{field}»',
+  'world.use.doc': 'Документ «{name}» ({count})',
   'world.step.add': 'Добавить карточку',
   'world.step.edit': 'Изменить карточку',
   'world.step.delete': 'Удалить карточку',

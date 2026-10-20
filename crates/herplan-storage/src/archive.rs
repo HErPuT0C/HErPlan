@@ -18,6 +18,7 @@ use crate::atomic::{is_temp_name, rename_with_retry, temp_path, write_atomic_wit
 use crate::clock::Utc;
 use crate::error::{code_for, AtPath, ErrorCode, Result, StorageError};
 use crate::layout::{check_new_project_dir, ensure_layout, require_project};
+use crate::model::FileText;
 use crate::paths::{segments, PROJECT_FILE};
 use crate::walk::{project_content, Found};
 use crate::write::copy_file;
@@ -48,6 +49,44 @@ pub fn export_text(target: &Path, text: &str) -> Result<()> {
         }
     }
     crate::atomic::write_atomic(target, text.as_bytes()).at(target)
+}
+
+/// Writes exported bytes (a PDF) at `target`, atomically. The folder must exist.
+pub fn export_bytes(target: &Path, data: &[u8]) -> Result<()> {
+    match target.parent() {
+        Some(parent) if parent.is_dir() => {}
+        _ => {
+            return Err(StorageError::new(
+                ErrorCode::NotFound,
+                "the folder of the exported file does not exist",
+                Some(target),
+            ))
+        }
+    }
+    crate::atomic::write_atomic(target, data).at(target)
+}
+
+/// Writes exported files (Markdown for Obsidian) into `target_dir`, which must be missing or
+/// empty. Their paths are relative, with forward slashes, and are checked like the entries of an
+/// archive: nothing can land outside `target_dir`.
+pub fn export_files(target_dir: &Path, files: &[FileText]) -> Result<()> {
+    check_new_project_dir(target_dir)?;
+    let mut targets = Vec::with_capacity(files.len());
+    for file in files {
+        let parts = segments(&file.path).ok_or_else(|| StorageError::invalid_path(&file.path))?;
+        targets.push(
+            parts
+                .iter()
+                .fold(target_dir.to_path_buf(), |p, s| p.join(s)),
+        );
+    }
+    for (file, target) in files.iter().zip(&targets) {
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).at(parent)?;
+        }
+        crate::atomic::write_atomic(target, file.text.as_bytes()).at(target)?;
+    }
+    Ok(())
 }
 
 /// Unpacks a project archive into `target_dir`, which must be missing or empty.
@@ -303,7 +342,6 @@ fn install_new_project(target: &Path, fill: impl FnOnce(&Path) -> Result<()>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::FileText;
     use std::collections::BTreeMap;
 
     fn project() -> tempfile::TempDir {
@@ -533,5 +571,36 @@ mod tests {
         let out = tempfile::tempdir().unwrap();
         let err = export_zip(out.path(), &out.path().join("x.zip")).unwrap_err();
         assert_eq!(err.code, ErrorCode::NotAProject);
+    }
+
+    #[test]
+    fn exported_files_land_inside_the_folder_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("Экспорт");
+        let file = |path: &str| FileText {
+            path: path.into(),
+            text: "# x\n".into(),
+        };
+        export_files(
+            &target,
+            &[file("Документы/Мир/Диздок.md"), file("Мир/Мира.md")],
+        )
+        .unwrap();
+        assert!(target.join("Документы/Мир/Диздок.md").is_file());
+        assert!(target.join("Мир/Мира.md").is_file());
+        // The folder must be new or empty, and no path may climb out of it.
+        assert_eq!(
+            export_files(&target, &[file("a.md")]).unwrap_err().code,
+            ErrorCode::NotEmpty
+        );
+        let other = tmp.path().join("Другой");
+        for bad in ["../x.md", "/x.md", "a/../../x.md", "CON.md"] {
+            assert_eq!(
+                export_files(&other, &[file(bad)]).unwrap_err().code,
+                ErrorCode::InvalidPath,
+                "{bad}"
+            );
+        }
+        assert!(!tmp.path().join("x.md").exists());
     }
 }

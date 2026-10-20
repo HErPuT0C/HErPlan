@@ -30,6 +30,8 @@ export function newProject({ name, description = '', appVersion, now = new Date(
     entities: {},
     graphs: {},
     boards: {},
+    documentMeta: { folders: [] },
+    documents: {},
   };
 }
 

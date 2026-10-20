@@ -34,7 +34,7 @@ export const MODULES: Record<ModuleKind, ModuleInfo> = {
     icon: FileText,
     title: 'module.documents',
     description: 'module.documents.description',
-    release: '0.4',
+    release: null,
   },
   tasks: {
     kind: 'tasks',

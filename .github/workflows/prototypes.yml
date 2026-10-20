@@ -50,7 +50,7 @@ jobs:
           npx vite preview --port 4173 --strictPort &
           sleep 3
           node scripts/smoke.mjs http://localhost:4173/ bench-results | tee bench-results/summary.txt
-      - name: Markdown round-trip fuzz (informational until the save guard lands in F5)
+      - name: Markdown round-trip fuzz of the prototype (informational; the app's own fuzzer is required in ci.yml)
         continue-on-error: true
         run: node scripts/fuzz-markdown.mjs http://localhost:4173/ 40 60 | tee bench-results/fuzz-markdown.txt
       - uses: actions/upload-artifact@v4

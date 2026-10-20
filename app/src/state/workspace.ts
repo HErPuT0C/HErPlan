@@ -14,6 +14,8 @@ export interface WorkspaceTab {
   kind: ModuleKind;
   /** Story tabs: the graph on the canvas (each tab is a place of its own). */
   graph?: string;
+  /** Documents tabs: the open document. */
+  doc?: string;
 }
 
 export interface WorkspaceState {
@@ -34,7 +36,12 @@ export function parseWorkspace(text: string | null): WorkspaceState {
       : [];
     const active = tabs.some((tab) => tab.id === raw.active) ? (raw.active as string) : HOME;
     return {
-      tabs: tabs.map(({ id, kind, graph }) => ({ id, kind, ...(typeof graph === 'string' ? { graph } : {}) })),
+      tabs: tabs.map(({ id, kind, graph, doc }) => ({
+        id,
+        kind,
+        ...(typeof graph === 'string' ? { graph } : {}),
+        ...(typeof doc === 'string' ? { doc } : {}),
+      })),
       active,
     };
   } catch {
@@ -82,4 +89,19 @@ export function setTabGraph(state: WorkspaceState, id: string, graph: string): W
   const tab = state.tabs.find((t) => t.id === id);
   if (!tab || tab.graph === graph) return state;
   return { ...state, tabs: state.tabs.map((t) => (t.id === id ? { ...t, graph } : t)) };
+}
+
+/** Remembers the open document of a documents tab (null: none). */
+export function setTabDoc(state: WorkspaceState, id: string, doc: string | null): WorkspaceState {
+  const tab = state.tabs.find((t) => t.id === id);
+  if (!tab || (tab.doc ?? null) === doc) return state;
+  return {
+    ...state,
+    tabs: state.tabs.map((t) => {
+      if (t.id !== id) return t;
+      const rest = { ...t };
+      delete rest.doc;
+      return doc ? { ...rest, doc } : rest;
+    }),
+  };
 }

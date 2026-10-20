@@ -93,4 +93,15 @@ describe('Store', () => {
     store.dispatch('noop', () => {});
     expect(store.canUndo).toBe(false);
   });
+
+  it('a change outside the history is kept when an earlier step is undone and redone', () => {
+    const store = new Store<{ docs: Record<string, { name: string; body: string }> }>({ docs: {} });
+    store.dispatch('create', (d) => void (d.docs.a = { name: 'A', body: '' }));
+    store.dispatch('type', (d) => void (d.docs.a.body = 'текст'), { history: false });
+    store.refreshHistory(['docs', 'a', 'body']);
+    store.undo();
+    expect(store.getState().docs.a).toBeUndefined();
+    store.redo();
+    expect(store.getState().docs.a).toEqual({ name: 'A', body: 'текст' });
+  });
 });

@@ -1,5 +1,6 @@
 import type { MessageKey } from './ru';
 import { storyEn } from './story.en';
+import { docsEn } from './docs.en';
 import { worldEn } from './world.en';
 
 // English interface strings; the type makes the compiler reject a missing key.
@@ -427,4 +428,5 @@ export const en: Record<MessageKey, string> = {
   'dev.sampleName': 'Mira',
   ...storyEn,
   ...worldEn,
+  ...docsEn,
 };

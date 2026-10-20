@@ -6,6 +6,8 @@ import { newId } from '../core/ids';
 import type { JsonObject, ProjectData } from '../core/project/types';
 import { asEntity, type Relation, type WorldEntity } from '../story/entities';
 import { allGraphs, asStory } from '../story/model';
+import { documentsLinkingTo } from '../documents/links';
+import { docName } from '../documents/model';
 import { listVariables } from '../story/variables';
 import { effectiveFields, typesFile } from './schema';
 
@@ -153,9 +155,10 @@ export type EntityUse =
   | { kind: 'speaker'; graph: string; node: string; title: string; count: number }
   | { kind: 'variable'; variable: string; name: string }
   | { kind: 'value'; variable: string; name: string }
-  | { kind: 'field'; entity: string; name: string; field: string };
+  | { kind: 'field'; entity: string; name: string; field: string }
+  | { kind: 'doc'; doc: string; name: string; count: number };
 
-/** Every place that refers to an entity: story nodes, dialogue speakers, variables and other entities' fields. */
+/** Every place that refers to an entity: story nodes, dialogue speakers, variables, other entities' fields, documents. */
 export function entityUses(data: ProjectData, id: string): EntityUse[] {
   const out: EntityUse[] = [];
   for (const g of allGraphs(data)) {
@@ -180,6 +183,9 @@ export function entityUses(data: ProjectData, id: string): EntityUse[] {
         (field.type === 'ref' && v === id) || (field.type === 'refList' && Array.isArray(v) && v.includes(id));
       if (hit) out.push({ kind: 'field', entity: e.id, name: e.name, field: field.label });
     }
+  }
+  for (const { doc, count } of documentsLinkingTo(data, 'ent', id)) {
+    out.push({ kind: 'doc', doc: doc.id, name: docName(doc.path), count });
   }
   return out;
 }

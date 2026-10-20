@@ -1,6 +1,7 @@
 // Turns the files read from disk into project data and lists every problem found on the way.
 // A damaged file is reported, never "fixed" silently: the interface offers a copy from backups/ (FR-SAV-03).
 
+import { readDocumentFile } from '../../documents/model';
 import type { DamageReason, ProjectSnapshot } from '../../platform/types';
 import { COLLECTIONS, SINGLE_FILES } from './files';
 import {
@@ -30,6 +31,8 @@ export type LoadResult =
       readOnly: boolean;
       /** formatVersion found on disk; lower than FORMAT_VERSION means a migration is needed (F1-14). */
       formatVersion: number;
+      /** The file each document was read from, by document id (the autosaver moves files from there). */
+      documentPaths: Record<string, string>;
     }
   | { ok: false; reason: 'project-json-damaged' | 'not-herplan'; issues: LoadIssue[] };
 
@@ -134,9 +137,29 @@ export function normalizeGraph(raw: JsonObject): JsonObject {
   return { ...raw, nodes, edges, groups };
 }
 
+const isDocumentFile = (path: string) => path.startsWith('documents/') && path.endsWith('.md');
+
+/** Every Markdown file under documents/; a second file with the same id (a copy) gets an id from its path. */
+function readDocuments(texts: Map<string, string>, paths: Record<string, string>): Record<string, JsonObject> {
+  const out: Record<string, JsonObject> = {};
+  for (const [path, text] of texts) {
+    if (!isDocumentFile(path)) continue;
+    const doc = readDocumentFile(path, text);
+    if (out[doc.id]) doc.id = `path:${path.slice('documents/'.length, -'.md'.length)}`;
+    out[doc.id] = doc as unknown as JsonObject;
+    paths[doc.id] = path;
+  }
+  return out;
+}
+
 export function loadProject(snapshot: ProjectSnapshot): LoadResult {
-  const issues: LoadIssue[] = snapshot.damaged.map((d) => ({ path: d.path, kind: d.reason, detail: d.detail }));
+  // An empty Markdown file is an empty document, not a damaged one.
+  const emptyDocs = snapshot.damaged.filter((d) => d.reason === 'empty' && isDocumentFile(d.path));
+  const issues: LoadIssue[] = snapshot.damaged
+    .filter((d) => !emptyDocs.includes(d))
+    .map((d) => ({ path: d.path, kind: d.reason, detail: d.detail }));
   const texts = new Map(snapshot.files.map((f) => [f.path, f.text]));
+  for (const d of emptyDocs) texts.set(d.path, '');
 
   const metaText = texts.get(SINGLE_FILES.meta);
   const rawMeta = metaText === undefined ? null : parse(SINGLE_FILES.meta, metaText, issues);
@@ -162,6 +185,7 @@ export function loadProject(snapshot: ProjectSnapshot): LoadResult {
     return out;
   };
 
+  const documentPaths: Record<string, string> = {};
   const data: ProjectData = {
     meta,
     types: single(SINGLE_FILES.types, { types: [], propertySets: [] }),
@@ -170,6 +194,8 @@ export function loadProject(snapshot: ProjectSnapshot): LoadResult {
     entities: collection(COLLECTIONS.entities),
     graphs: collection(COLLECTIONS.graphs, normalizeGraph),
     boards: collection(COLLECTIONS.boards),
+    documentMeta: single(SINGLE_FILES.documentMeta, { folders: [] }),
+    documents: readDocuments(texts, documentPaths),
   };
   return {
     ok: true,
@@ -177,5 +203,6 @@ export function loadProject(snapshot: ProjectSnapshot): LoadResult {
     issues,
     readOnly: meta.formatVersion > FORMAT_VERSION,
     formatVersion: meta.formatVersion,
+    documentPaths,
   };
 }

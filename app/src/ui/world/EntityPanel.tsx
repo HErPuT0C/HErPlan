@@ -7,7 +7,7 @@ import { useState, type ReactNode } from 'react';
 import type { JsonObject, ProjectData } from '../../core/project/types';
 import { useStore } from '../../core/useStore';
 import { t } from '../../i18n';
-import { openEntity, openVariables, revealInStory } from '../../state/navigation';
+import { openDocument, openEntity, openVariables, revealInStory } from '../../state/navigation';
 import type { OpenProject } from '../../state/project';
 import { asEntity, listEntities, type WorldEntity } from '../../story/entities';
 import { renameEverywhere } from '../../story/usage';
@@ -500,6 +500,8 @@ function usageText(u: EntityUse): string {
       return t('world.use.value', { name: u.name });
     case 'field':
       return t('world.use.field', { name: u.name || t('story.untitled'), field: u.field });
+    case 'doc':
+      return t('world.use.doc', { name: u.name, count: u.count });
   }
 }
 
@@ -509,6 +511,7 @@ function Uses({ project, id }: { project: OpenProject; id: string }) {
   const go = (u: EntityUse) => {
     if (u.kind === 'node' || u.kind === 'speaker') revealInStory({ graph: u.graph, node: u.node, highlight: [u.node] });
     else if (u.kind === 'variable' || u.kind === 'value') openVariables(u.variable);
+    else if (u.kind === 'doc') openDocument(u.doc);
     else openEntity(u.entity);
   };
   return (

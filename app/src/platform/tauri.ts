@@ -135,6 +135,15 @@ export class TauriPlatform implements Platform {
     return invoke('export_text', { target, text });
   }
 
+  exportBytes(target: string, data: Uint8Array): Promise<void> {
+    // Raw bytes as the request body, like writeAsset.
+    return invoke('export_bytes', data, { headers: { 'x-herplan-target': encodeURIComponent(target) } });
+  }
+
+  exportFiles(targetDir: string, files: FileText[]): Promise<void> {
+    return invoke('export_files', { targetDir, files });
+  }
+
   importZip(source: string, targetDir: string): Promise<void> {
     return invoke('project_import_zip', { source, targetDir });
   }

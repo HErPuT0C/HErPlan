@@ -139,6 +139,13 @@ export interface Platform {
   exportZip(dir: string, target: string): Promise<void>;
   /** Writes an exported file (JSON for game engines) at a path picked in a save dialog. */
   exportText(target: string, text: string): Promise<void>;
+  /** Writes an exported binary file (a PDF) at a path picked in a save dialog. */
+  exportBytes(target: string, data: Uint8Array): Promise<void>;
+  /**
+   * Writes exported files (Markdown for Obsidian) into `targetDir`, which must be missing or empty ('not-empty'
+   * otherwise); paths are relative with forward slashes and cannot leave the folder ('invalid-path').
+   */
+  exportFiles(targetDir: string, files: FileText[]): Promise<void>;
   importZip(source: string, targetDir: string): Promise<void>;
   importFolder(source: string, targetDir: string): Promise<void>;
 
