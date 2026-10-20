@@ -28,6 +28,7 @@ import { Dashboard } from './Dashboard';
 import { StoryEditor } from '../story/StoryEditor';
 import { VariablesPanel } from '../story/VariablesPanel';
 import { WorldEditor } from '../world/WorldEditor';
+import { AssetsEditor } from '../assets/AssetsEditor';
 import { ModulePlaceholder } from './ModulePlaceholder';
 import { ProjectHeader } from './ProjectHeader';
 import { TabStrip } from './TabStrip';
@@ -123,6 +124,8 @@ export function Workspace({ project }: { project: OpenProject }) {
           />
         ) : activeTab?.kind === 'database' ? (
           <WorldEditor key={activeTab.id} project={project} />
+        ) : activeTab?.kind === 'assets' ? (
+          <AssetsEditor key={activeTab.id} project={project} />
         ) : activeTab ? (
           <ModulePlaceholder key={activeTab.id} kind={activeTab.kind} />
         ) : (

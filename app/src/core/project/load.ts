@@ -166,6 +166,7 @@ export function loadProject(snapshot: ProjectSnapshot): LoadResult {
     meta,
     types: single(SINGLE_FILES.types, { types: [], propertySets: [] }),
     variables: single(SINGLE_FILES.variables, { variables: [], labels: [] }),
+    assetMeta: single(SINGLE_FILES.assetMeta, { folders: {} }),
     entities: collection(COLLECTIONS.entities),
     graphs: collection(COLLECTIONS.graphs, normalizeGraph),
     boards: collection(COLLECTIONS.boards),

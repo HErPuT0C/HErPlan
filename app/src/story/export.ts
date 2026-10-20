@@ -1,4 +1,5 @@
-// JSON export for game engines (FR-EXP-01), schema v1: docs/format/export-v1.md and export-v1.schema.json.
+// JSON export for game engines (FR-EXP-01), schema v1 (0.3 adds the world database without changing the
+// version: new fields only): docs/format/export-v1.md and export-v1.schema.json.
 // Expressions go out both as source text and as a parse tree, so a player in Unity or GameMaker only has to
 // walk a small tree (ADR-005). Everything else is plain data with ids.
 
@@ -12,6 +13,8 @@ import { allGraphs, asStory, storyRoot, type NodeRef } from './model';
 import { joinedEffects, textPieces } from './textEffects';
 import { knownNames } from './usage';
 import { fullName, listVariables } from './variables';
+import { effectiveFields, isBuiltIn, typesFile, type FieldDef } from '../world/schema';
+import { coerceValue } from '../world/values';
 
 export const EXPORT_FORMAT = 'herplan-export';
 export const EXPORT_VERSION = 1;
@@ -54,6 +57,15 @@ export interface ExportEdge {
   condition: ExportCondition | null;
 }
 
+export interface ExportField {
+  id: string;
+  label: string;
+  type: string;
+  options?: string[];
+  target?: string | null;
+  columns?: string[];
+}
+
 export interface ExportGraph {
   id: string;
   kind: 'story' | 'chapter';
@@ -83,7 +95,28 @@ export interface StoryExport {
     values: string[] | null;
     description: string;
   }[];
-  entities: { id: string; type: string; name: string; description: string; image: string | null }[];
+  entities: {
+    id: string;
+    type: string;
+    name: string;
+    description: string;
+    image: string | null;
+    /** Since 0.3: values by field id (the fields of the entity's type, see `schema`). */
+    values: Record<string, unknown>;
+    /** Since 0.3: relations kept at this entity; the other side sees them with `inverseLabel`. */
+    relations: { id: string; to: string; label: string; inverseLabel: string; description: string }[];
+  }[];
+  /** Since 0.3: entity types (with every field an entity of the type has) and property sets. */
+  schema: {
+    types: {
+      id: string;
+      name: string;
+      builtIn: boolean;
+      parent: string | null;
+      fields: ExportField[];
+    }[];
+    propertySets: { id: string; name: string; fields: ExportField[] }[];
+  };
   story: { root: string | null; graphs: ExportGraph[] };
 }
 
@@ -185,8 +218,20 @@ function exportNode(raw: GraphDoc['nodes'][number], known: (name: string) => boo
 }
 
 /** The story, its variables and the world entities, ready for JSON.stringify. */
+function exportField(f: FieldDef): ExportField {
+  return {
+    id: f.id,
+    label: f.label,
+    type: f.type,
+    ...(f.type === 'enum' ? { options: f.options ?? [] } : {}),
+    ...(f.type === 'ref' || f.type === 'refList' ? { target: f.target ?? null } : {}),
+    ...(f.type === 'table' ? { columns: f.columns ?? [] } : {}),
+  };
+}
+
 export function exportStory(data: ProjectData, appVersion: string, now = new Date()): StoryExport {
   const graphs = allGraphs(data).filter((g) => g.kind === 'story' || g.kind === 'chapter');
+  const schema = typesFile(data);
   return {
     format: EXPORT_FORMAT,
     version: EXPORT_VERSION,
@@ -210,7 +255,27 @@ export function exportStory(data: ProjectData, appVersion: string, now = new Dat
       name: e.name,
       description: e.description,
       image: e.image,
+      values: Object.fromEntries(
+        effectiveFields(schema, e.type).map(({ field }) => [field.id, coerceValue(field, e.values[field.id])]),
+      ),
+      relations: e.relations.map((r) => ({
+        id: r.id,
+        to: r.to.id,
+        label: r.label,
+        inverseLabel: r.inverseLabel,
+        description: r.description,
+      })),
     })),
+    schema: {
+      types: schema.types.map((x) => ({
+        id: x.id,
+        name: x.name,
+        builtIn: isBuiltIn(x.id),
+        parent: x.parent,
+        fields: effectiveFields(schema, x.id).map(({ field }) => exportField(field)),
+      })),
+      propertySets: schema.propertySets.map((x) => ({ id: x.id, name: x.name, fields: x.fields.map(exportField) })),
+    },
     story: {
       root: storyRoot(data)?.id ?? null,
       graphs: graphs.map((g) => {

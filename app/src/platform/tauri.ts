@@ -4,7 +4,7 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { getCurrentWebview, type DragDropEvent } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { openPath, openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
+import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 import type { AssetEntry, BackupInfo, BackupKind, FileText, PathStatus, Platform, ProjectSnapshot } from './types';
 
 type Filters = { name: string; extensions: string[] }[];
@@ -151,6 +151,10 @@ export class TauriPlatform implements Platform {
     return open({ title, filters, directory: false, multiple: false });
   }
 
+  async pickFiles(title: string): Promise<string[]> {
+    return (await open({ title, directory: false, multiple: true })) ?? [];
+  }
+
   async pickSaveFile(title: string, defaultPath: string, filters: Filters): Promise<string | null> {
     return save({ title, defaultPath, filters });
   }
@@ -159,9 +163,8 @@ export class TauriPlatform implements Platform {
     return revealItemInDir(path);
   }
 
-  openPath(path: string): Promise<void> {
-    // The capability allows only paths inside an "assets" folder (capabilities/default.json).
-    return openPath(path);
+  openAsset(dir: string, path: string): Promise<void> {
+    return invoke('asset_open', { dir, path });
   }
 
   openUrl(url: string): Promise<void> {

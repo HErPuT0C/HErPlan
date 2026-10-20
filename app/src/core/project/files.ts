@@ -7,6 +7,7 @@ export const SINGLE_FILES = {
   meta: 'project.json',
   types: 'data/types.json',
   variables: 'data/variables.json',
+  assetMeta: 'data/assets.json',
 } as const;
 
 export const COLLECTIONS = {

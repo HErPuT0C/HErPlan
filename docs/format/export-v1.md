@@ -55,6 +55,20 @@
 
 `type`: `character`, `location`, `item`. `image` — путь внутри папки проекта или `null`.
 
+### База данных (с 0.3)
+
+У карточек мира появились `values` (значения по ID поля) и `relations` (`{ id, to, label, inverseLabel, description }`, хранятся у одной стороны: вторая видит связь с подписью `inverseLabel`). Верхнее поле `schema` описывает типы и наборы свойств:
+
+```json
+"schema": {
+  "types": [ { "id": "character", "name": "", "builtIn": true, "parent": null,
+    "fields": [ { "id": "f-age…", "label": "Возраст", "type": "number" } ] } ],
+  "propertySets": [ { "id": "ps-…", "name": "Бой", "fields": [ … ] } ]
+}
+```
+
+`fields` у типа — все поля его сущностей (с наследованными и из наборов), в порядке показа. Виды значений — как в [формате проекта](project-v1.md#dataentitiesidjson).
+
 ## Графы сценария
 
 `story.root` — ID обзора глав (граф `kind: "story"`). Каждая глава — отдельный граф (`kind: "chapter"`) с `parent` — узлом-главой, которому он принадлежит:

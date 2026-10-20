@@ -15,6 +15,7 @@ use herplan_storage::{
 use percent_encoding::percent_decode_str;
 use tauri::ipc::{InvokeBody, Request};
 use tauri::{AppHandle, Manager};
+use tauri_plugin_opener::OpenerExt;
 
 type CommandResult<T> = Result<T, StorageError>;
 
@@ -149,6 +150,18 @@ pub async fn asset_import(
         .map(|s| absolute(s))
         .collect::<CommandResult<Vec<_>>>()?;
     blocking(move || storage::import_assets(&dir, &sources, &dest_dir)).await
+}
+
+/// Opens an asset file with its default program. Only files inside `assets/` of a project, and
+/// not the kinds Windows would run (see `storage::asset_open_path`): the window cannot open
+/// anything else, whatever path it sends.
+#[tauri::command]
+pub async fn asset_open(app: AppHandle, dir: String, path: String) -> CommandResult<()> {
+    let dir = absolute(&dir)?;
+    let target = blocking(move || storage::asset_open_path(&dir, &path)).await?;
+    app.opener()
+        .open_path(target.to_string_lossy(), None::<&str>)
+        .map_err(|e| StorageError::new(ErrorCode::Io, e.to_string(), Some(&target)))
 }
 
 /// Saves bytes as a new asset. The bytes are the raw request body, so a pasted image does not

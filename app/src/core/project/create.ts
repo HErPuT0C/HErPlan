@@ -26,6 +26,7 @@ export function newProject({ name, description = '', appVersion, now = new Date(
     },
     types: { types: [], propertySets: [] },
     variables: { variables: [], labels: [] },
+    assetMeta: { folders: {} },
     entities: {},
     graphs: {},
     boards: {},

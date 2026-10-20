@@ -195,6 +195,75 @@ fn rename_via_temp(source: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Extensions Windows runs rather than shows: "open in Windows" refuses them, so a file that
+/// came into the asset library from elsewhere cannot start a program. Lower case.
+const RUNNABLE: &[&str] = &[
+    "exe",
+    "com",
+    "bat",
+    "cmd",
+    "msi",
+    "msp",
+    "mst",
+    "ps1",
+    "psm1",
+    "psd1",
+    "vbs",
+    "vbe",
+    "js",
+    "jse",
+    "wsf",
+    "wsh",
+    "wsc",
+    "scr",
+    "pif",
+    "lnk",
+    "url",
+    "reg",
+    "hta",
+    "cpl",
+    "jar",
+    "msc",
+    "application",
+    "appref-ms",
+    "gadget",
+    "inf",
+    "sct",
+    "dll",
+    "sys",
+    "scf",
+    "library-ms",
+    "settingcontent-ms",
+    "diagcab",
+    "xll",
+    "chm",
+];
+
+/// The absolute path of an asset file to open with its default program: a file (not a folder)
+/// inside `assets/` of a project, whose kind Windows shows rather than runs.
+pub fn asset_open_path(dir: &Path, rel: &str) -> Result<PathBuf> {
+    let rel = validate_asset_path(rel, false)?;
+    require_project(dir)?;
+    let target = dir.join(&rel);
+    let meta = fs::metadata(&target).map_err(|e| StorageError::io(&e, &target))?;
+    if !meta.is_file() {
+        return Err(StorageError::invalid_path(&to_slash(&rel)));
+    }
+    let ext = target
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if RUNNABLE.contains(&ext.as_str()) {
+        return Err(StorageError::new(
+            ErrorCode::InvalidPath,
+            format!("files of type .{ext} are not opened from HErPlan"),
+            Some(&target),
+        ));
+    }
+    Ok(target)
+}
+
 /// Moves a file, or a folder with its contents, to the Recycle Bin. When the bin refuses (a
 /// network drive, a Linux machine without a trash folder), the item is deleted for good only with
 /// `force`; otherwise nothing changes and the error is `io`. A missing path is not an error.
@@ -429,6 +498,37 @@ mod tests {
         let path = root.join(rel);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn opens_only_viewable_files_inside_assets() {
+        let tmp = project();
+        put(tmp.path(), "assets/world/mira.png", b"png");
+        put(tmp.path(), "assets/tools/setup.EXE", b"MZ");
+        put(tmp.path(), "assets/tools/run.bat", b"echo");
+        assert_eq!(
+            asset_open_path(tmp.path(), "assets/world/mira.png").unwrap(),
+            tmp.path().join("assets").join("world").join("mira.png")
+        );
+        for rel in [
+            "assets/tools/setup.EXE",
+            "assets/tools/run.bat",
+            "assets/world",
+            "project.json",
+        ] {
+            let err = asset_open_path(tmp.path(), rel).expect_err(rel);
+            assert_eq!(err.code, ErrorCode::InvalidPath, "{rel}");
+        }
+        assert_eq!(
+            asset_open_path(tmp.path(), "assets/none.png")
+                .unwrap_err()
+                .code,
+            ErrorCode::NotFound
+        );
+        // Not a project: nothing is opened.
+        let plain = tempfile::tempdir().unwrap();
+        put(plain.path(), "assets/a.png", b"png");
+        assert!(asset_open_path(plain.path(), "assets/a.png").is_err());
     }
 
     /// The library as (path, kind) pairs, in listing order.

@@ -33,6 +33,9 @@ import {
   updateType,
 } from './schema';
 import { coerceValue, compareValues, valueText } from './values';
+import { assetUseCounts, assetUses, folderColors, movedPath, moveAssetRefs, setFolderColor } from './assets';
+import { Store } from '../core/store';
+import { exportStory } from '../story/export';
 
 const put = (d: ProjectData, type: string, name: string): string => {
   const e = newEntity(d, type, name);
@@ -223,5 +226,66 @@ describe('field values (F4-02)', () => {
     expect(valueText(list, ['e', 'gone'], ctx)).toBe('Мира');
     const num = newField('number', 'Возраст');
     expect([3, null, 1].sort((a, b) => compareValues(num, a, b, ctx))).toEqual([1, 3, null]);
+  });
+});
+
+describe('asset library (F4-11, F4-12) and export of the database (F4-13)', () => {
+  const withPictures = () =>
+    produce(sampleProject(), (d) => {
+      d.meta.cover = 'assets/cover.png';
+      d.entities['ent-mira'].image = 'assets/world/mira.png';
+      addField(d, { kind: 'type', id: 'location' }, { ...newField('image', 'Карта'), id: 'f-map' });
+      (d.entities['ent-mill'].values as JsonObject) = { 'f-map': 'assets/world/maps/mill.png' };
+      const chapter = d.graphs['g-root'] as unknown as { nodes: { id: string; image?: string }[] };
+      chapter.nodes.find((n) => n.id === 'r-ch1')!.image = 'assets/chapters/one.png';
+      setFolderColor(d, 'assets/world', '#e8b931');
+      setFolderColor(d, 'assets/world/maps', '#3fb97a');
+    });
+
+  it('finds every use of a file or of anything inside a folder', () => {
+    const data = withPictures();
+    expect(assetUses(data, 'assets/world').map((u) => u.kind)).toEqual(['entity', 'field']);
+    expect(assetUses(data, 'assets/world/mira.png')).toEqual([
+      { kind: 'entity', path: 'assets/world/mira.png', entity: 'ent-mira', name: 'Мира' },
+    ]);
+    expect(assetUses(data, 'assets/chapters/one.png')[0]).toMatchObject({ kind: 'chapter', node: 'r-ch1' });
+    expect(assetUseCounts(data).get('assets/cover.png')).toBe(1);
+    // "assets/world2" is not inside "assets/world".
+    expect(assetUses(data, 'assets/wor')).toEqual([]);
+  });
+
+  it('references and folder colours follow a renamed folder', () => {
+    const data = produce(withPictures(), (d) => moveAssetRefs(d, 'assets/world', 'assets/мир'));
+    expect(asEntity(data.entities['ent-mira'])?.image).toBe('assets/мир/mira.png');
+    expect(asEntity(data.entities['ent-mill'])?.values['f-map']).toBe('assets/мир/maps/mill.png');
+    expect(data.meta.cover).toBe('assets/cover.png');
+    expect(folderColors(data)).toEqual({ 'assets/мир': '#e8b931', 'assets/мир/maps': '#3fb97a' });
+    expect(movedPath('assets/worldly.png', 'assets/world', 'assets/мир')).toBe('assets/worldly.png');
+  });
+
+  it('a change outside the undo history is not undone', () => {
+    const store = new Store(withPictures());
+    store.dispatch('edit', (d) => void (d.meta.name = 'Новое'));
+    store.dispatch('refs', (d) => moveAssetRefs(d, 'assets/world', 'assets/мир'), { history: false });
+    expect(store.undoLabel).toBe('edit');
+    store.undo();
+    expect(store.getState().meta.name).not.toBe('Новое');
+    expect(asEntity(store.getState().entities['ent-mira'])?.image).toBe('assets/мир/mira.png');
+  });
+
+  it('the export carries types with their fields, values and relations', () => {
+    const data = produce(withPictures(), (d) => {
+      addRelation(d, 'ent-boris', 'ent-mira', 'жена', 'муж');
+    });
+    const out = exportStory(data, '0.3.0');
+    const mill = out.entities.find((e) => e.id === 'ent-mill')!;
+    expect(mill.values).toEqual({ 'f-map': 'assets/world/maps/mill.png' });
+    expect(out.entities.find((e) => e.id === 'ent-boris')!.relations).toMatchObject([
+      { to: 'ent-mira', label: 'жена', inverseLabel: 'муж' },
+    ]);
+    expect(out.schema.types.find((x) => x.id === 'location')).toMatchObject({
+      builtIn: true,
+      fields: [{ id: 'f-map', label: 'Карта', type: 'image' }],
+    });
   });
 });

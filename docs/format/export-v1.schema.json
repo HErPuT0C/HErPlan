@@ -29,6 +29,45 @@
     },
     "variables": { "type": "array", "items": { "$ref": "#/$defs/variable" } },
     "entities": { "type": "array", "items": { "$ref": "#/$defs/entity" } },
+    "schema": {
+      "type": "object",
+      "description": "Since 0.3: entity types (each with every field its entities have) and property sets.",
+      "required": ["types", "propertySets"],
+      "properties": {
+        "types": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "builtIn", "parent", "fields"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "builtIn": { "type": "boolean" },
+              "parent": { "type": ["string", "null"] },
+              "fields": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/field" }
+              }
+            }
+          }
+        },
+        "propertySets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "fields"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "fields": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/field" }
+              }
+            }
+          }
+        }
+      }
+    },
     "story": {
       "type": "object",
       "required": ["root", "graphs"],
@@ -42,6 +81,32 @@
     }
   },
   "$defs": {
+    "field": {
+      "type": "object",
+      "required": ["id", "label", "type"],
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "type": {
+          "enum": [
+            "text",
+            "richtext",
+            "number",
+            "percent",
+            "bool",
+            "enum",
+            "ref",
+            "refList",
+            "image",
+            "color",
+            "table"
+          ]
+        },
+        "options": { "type": "array", "items": { "type": "string" } },
+        "target": { "type": ["string", "null"] },
+        "columns": { "type": "array", "items": { "type": "string" } }
+      }
+    },
     "nodeRef": {
       "type": "object",
       "required": ["graph", "node"],
@@ -184,12 +249,34 @@
       "required": ["id", "type", "name", "description", "image"],
       "properties": {
         "id": { "type": "string" },
-        "type": { "enum": ["character", "location", "item"] },
+        "type": {
+          "type": "string",
+          "description": "A built-in type (character, location, item) or, since 0.3, the id of a type of the project's own: see schema.types; follow `parent` up to find the built-in it belongs to."
+        },
         "name": { "type": "string" },
         "description": { "type": "string" },
         "image": {
           "type": ["string", "null"],
           "description": "Path inside the project folder."
+        },
+        "values": {
+          "type": "object",
+          "description": "Since 0.3: field values by field id (see schema.types[].fields)."
+        },
+        "relations": {
+          "type": "array",
+          "description": "Since 0.3: relations kept at this entity; the other side sees them with inverseLabel.",
+          "items": {
+            "type": "object",
+            "required": ["id", "to", "label", "inverseLabel", "description"],
+            "properties": {
+              "id": { "type": "string" },
+              "to": { "type": "string" },
+              "label": { "type": "string" },
+              "inverseLabel": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          }
         }
       }
     },
@@ -260,7 +347,10 @@
               "text": { "type": "string" },
               "condition": { "$ref": "#/$defs/condition" },
               "effects": { "$ref": "#/$defs/effects" },
-              "note": { "type": "string", "description": "Since 0.3: the designer's comment on the option." },
+              "note": {
+                "type": "string",
+                "description": "Since 0.3: the designer's comment on the option."
+              },
               "noteEffects": {
                 "$ref": "#/$defs/effects",
                 "description": "Since 0.3: effects written in the comment, applied after `effects` when the option is chosen."
@@ -277,10 +367,21 @@
           "description": "Since 0.3: plot devices laid over the node, an option or a line, or words of their text.",
           "items": {
             "type": "object",
-            "required": ["id", "device", "anchor", "range", "links", "note", "variables"],
+            "required": [
+              "id",
+              "device",
+              "anchor",
+              "range",
+              "links",
+              "note",
+              "variables"
+            ],
             "properties": {
               "id": { "type": "string" },
-              "device": { "type": "string", "description": "gun or butterfly; more devices may follow." },
+              "device": {
+                "type": "string",
+                "description": "gun or butterfly; more devices may follow."
+              },
               "anchor": {
                 "type": "object",
                 "required": ["kind"],
@@ -303,7 +404,10 @@
                   { "type": "null" }
                 ]
               },
-              "links": { "type": "array", "items": { "$ref": "#/$defs/nodeRef" } },
+              "links": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/nodeRef" }
+              },
               "note": { "type": "string" },
               "variables": { "type": "array", "items": { "type": "string" } }
             }

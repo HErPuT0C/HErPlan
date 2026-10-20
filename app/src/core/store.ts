@@ -28,6 +28,11 @@ export interface DispatchOptions {
   // Consecutive changes with the same key within `mergeWindowMs` become one undo step.
   mergeKey?: string;
   mergeWindowMs?: number;
+  /**
+   * False: not an undo step. For changes that follow something done outside the store which undo cannot
+   * take back (a file renamed on disk: the references to it must stay with the file).
+   */
+  history?: boolean;
 }
 
 export class Store<S extends object> {
@@ -64,7 +69,9 @@ export class Store<S extends object> {
     if (patches.length === 0) return;
     this.state = next as S;
 
-    if (this.transaction) {
+    if (options.history === false) {
+      // Nothing to undo; steps recorded before stay valid only for paths this change did not touch.
+    } else if (this.transaction) {
       this.transaction.patches.push(...patches);
       this.transaction.inverse.unshift(...inverse);
     } else {

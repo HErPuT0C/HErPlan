@@ -144,14 +144,19 @@ export interface Platform {
 
   pickFolder(title: string, defaultPath?: string): Promise<string | null>;
   pickFile(title: string, filters: { name: string; extensions: string[] }[]): Promise<string | null>;
+  /** Several files at once (bulk upload into the asset library); an empty list when cancelled. */
+  pickFiles(title: string): Promise<string[]>;
   pickSaveFile(
     title: string,
     defaultPath: string,
     filters: { name: string; extensions: string[] }[],
   ): Promise<string | null>;
   revealInExplorer(path: string): Promise<void>;
-  /** Opens a file with its default program. The desktop build opens only files inside an "assets" folder. */
-  openPath(path: string): Promise<void>;
+  /**
+   * Opens an asset ("assets/…" in project `dir`) with its default program. Kinds of files Windows would run
+   * (.exe, .bat, .lnk…) are refused with 'invalid-path'; nothing outside the asset library can be opened.
+   */
+  openAsset(dir: string, path: string): Promise<void>;
   openUrl(url: string): Promise<void>;
   /**
    * Files dropped on the window from the file explorer: their absolute paths and the drop point in CSS pixels.

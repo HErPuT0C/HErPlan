@@ -124,8 +124,7 @@ test('manual order survives a restart; "where used" leads into the story', async
 });
 
 /** A 1×1 PNG, as the bytes of a dropped or pasted picture. */
-const PNG =
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
 
 test('a portrait: pasted from the clipboard, dropped as a file, picked from the assets', async ({ page }) => {
   const { errors } = await openSample(page);
@@ -159,7 +158,10 @@ test('a portrait: pasted from the clipboard, dropped as a file, picked from the 
   await card(page, 'Мельница').click();
   await image.locator('button').click();
   await page.getByRole('menuitem', { name: 'Из ресурсов проекта…' }).click();
-  await page.getByRole('dialog', { name: 'Картинка' }).getByRole('button', { name: /boris\.png/ }).click();
+  await page
+    .getByRole('dialog', { name: 'Картинка' })
+    .getByRole('button', { name: /boris\.png/ })
+    .click();
   await expect(image.locator('img')).toBeVisible();
   await shot(page, 'w5-pictures');
   expect(errors).toEqual([]);

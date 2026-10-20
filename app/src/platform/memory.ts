@@ -593,6 +593,31 @@ export class MemoryPlatform implements Platform {
     return path;
   }
 
+  async pickFiles(): Promise<string[]> {
+    const files = await new Promise<File[]>((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.multiple = true;
+      input.onchange = () => resolve([...(input.files ?? [])]);
+      input.oncancel = () => resolve([]);
+      input.click();
+    });
+    const paths: string[] = [];
+    for (const file of files) {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      const path = join('/Picked', file.name);
+      this.fs.files[path] = dataUrl;
+      paths.push(path);
+    }
+    this.save();
+    return paths;
+  }
+
   async pickSaveFile(title: string, defaultPath: string): Promise<string | null> {
     const answer = window.prompt(title, defaultPath);
     return answer ? join(answer) : null;
@@ -602,7 +627,7 @@ export class MemoryPlatform implements Platform {
     // Nothing to reveal in a browser.
   }
 
-  async openPath(): Promise<void> {
+  async openAsset(): Promise<void> {
     // No programs to open files with in a browser.
   }
 

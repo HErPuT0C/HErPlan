@@ -137,7 +137,7 @@ describe('memory platform: asset library', () => {
 
   it('opens nothing and hears no native drops in a browser', async () => {
     const platform = await project();
-    await expect(platform.openPath(`${DIR}/assets/a.png`)).resolves.toBeUndefined();
+    await expect(platform.openAsset(DIR, 'assets/a.png')).resolves.toBeUndefined();
     const stop = platform.onFileDrop(() => {
       throw new Error('a browser has no native file drops');
     });

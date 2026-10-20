@@ -27,8 +27,7 @@ export const MODULES: Record<ModuleKind, ModuleInfo> = {
     icon: Database,
     title: 'module.database',
     description: 'module.database.description',
-    release: '0.3',
-    partial: true,
+    release: null,
   },
   documents: {
     kind: 'documents',
@@ -49,6 +48,6 @@ export const MODULES: Record<ModuleKind, ModuleInfo> = {
     icon: Image,
     title: 'module.assets',
     description: 'module.assets.description',
-    release: '0.3',
+    release: null,
   },
 };

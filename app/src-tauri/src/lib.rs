@@ -31,6 +31,7 @@ pub fn run() {
             commands::asset_delete,
             commands::asset_import,
             commands::asset_write,
+            commands::asset_open,
             commands::backup_create,
             commands::backup_list,
             commands::backup_prune,

@@ -36,6 +36,8 @@ export interface ProjectData {
   types: JsonObject;
   /** data/variables.json; typed with the logic editor in phase F3. */
   variables: JsonObject;
+  /** data/assets.json: the asset library's own settings (folder colours), since 0.3. */
+  assetMeta: JsonObject;
   entities: Record<string, JsonObject>;
   graphs: Record<string, JsonObject>;
   boards: Record<string, JsonObject>;

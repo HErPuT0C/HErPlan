@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: core APIs, closing the window after the close handler, interface zoom, native file dialogs, opening web links, revealing files in the explorer and opening asset files with their default program (only files inside an `assets` folder, wherever the project is). Project files go through our own Rust commands.",
+  "description": "Main window: core APIs, closing the window after the close handler, interface zoom, native file dialogs, opening web links and revealing files in the explorer. Opening asset files goes through our own command, which checks the path. Project files go through our own Rust commands.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -9,10 +9,6 @@
     "core:webview:allow-set-webview-zoom",
     "dialog:default",
     "opener:default",
-    "opener:allow-reveal-item-in-dir",
-    {
-      "identifier": "opener:allow-open-path",
-      "allow": [{ "path": "**/assets/**" }]
-    }
+    "opener:allow-reveal-item-in-dir"
   ]
 }

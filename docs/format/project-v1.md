@@ -66,41 +66,59 @@
 ```json
 {
   "id": "m1r4a0000000000a",
-  "type": "t-character00000a",
+  "type": "character",
   "name": "Мира",
-  "subtitle": "Травница",
-  "image": { "kind": "asset", "id": "a0000000000000p1" },
-  "values": { "f-trust0000000001": 3, "f-lore00000000001": "Живёт у мельницы…" },
-  "tags": [],
+  "description": "Травница",
+  "image": "assets/world/mira.png",
   "order": 10,
+  "values": { "f-trust0000000001": 3, "f-lore00000000001": "Живёт у мельницы…" },
   "relations": [
     { "id": "r00000000000001x", "to": { "kind": "entity", "id": "b0r1s00000000000" }, "label": "наставница", "inverseLabel": "ученик", "description": "" }
   ]
 }
 ```
 
-- `values` — значения по ID поля (поля описаны в типе), поэтому переименование поля не трогает файлы сущностей.
-- **С версии 0.2** карточки мира для сценария хранятся в упрощённом виде: `{ "id", "type", "name", "description", "image", "order" }`, где `type` — встроенный тип `character`, `location` или `item`, а `image` — путь внутри проекта (`"assets/world/mira.png"`) или `null`. Полная база данных (версия 0.3) дополнит эти же файлы полями `values`, `relations` и своими типами; существующие поля не меняются.
-- Связь хранится у одной стороны, а вторая сторона видит её через индекс; у каждой стороны своя подпись (`label`, `inverseLabel`).
+- `type` — ID типа: встроенные `character`, `location`, `item` или свой тип из `data/types.json`.
+- `image` — путь к картинке внутри проекта (`assets/…`) или `null`; `order` — ручной порядок (сортировка «вручную» в базе данных).
+- `values` — значения по ID поля (поля описаны в типе и его наборах свойств), поэтому переименование и перенос поля не трогают файлы сущностей. Значение поля, удалённого из схемы, остаётся в файле.
+  Значения по видам полей: `text`, `richtext` — строка; `number` — число или `null`; `percent` — число 0…100 или `null`; `bool` — `true`/`false`; `enum` — один из вариантов поля или `null`; `ref` — ID сущности или `null`; `refList` — массив ID; `image` — путь `assets/…` или `null`; `color` — `"#rrggbb"` или `null`; `table` — `{ "rows": [["ячейка", …], …] }` по столбцам поля.
+- `relations` — связи хранятся у одной стороны; вторая сторона видит их через индекс. У каждой стороны своя подпись: `label` — как эта сущность называет другую («жена»), `inverseLabel` — как другая называет эту («муж»). При удалении сущности связи, указывающие на неё, удаляются.
+- Файлы версии 0.2 (`{ "id", "type", "name", "description", "image", "order" }`) читаются без изменений: `values` и `relations` считаются пустыми.
 
 ## `data/types.json`
 
 ```json
 {
   "types": [
-    { "id": "t-character00000a", "name": "Персонаж", "parent": null, "icon": null, "propertySets": ["ps-combat0000000a"], "fields": [
-      { "id": "f-trust0000000001", "key": "trust", "label": "Доверие", "type": "number" }
-    ] }
+    { "id": "character", "name": "", "parent": null, "icon": null, "color": null, "propertySets": ["ps-combat0000000a"], "fields": [
+      { "id": "f-trust0000000001", "label": "Доверие", "type": "number" }
+    ] },
+    { "id": "t-knight00000000a", "name": "Рыцарь", "parent": "character", "icon": null, "color": null, "propertySets": [], "fields": [] }
   ],
   "propertySets": [
-    { "id": "ps-combat0000000a", "name": "Боевые параметры", "fields": [
-      { "id": "f-health000000001", "key": "health", "label": "Здоровье", "type": "number" }
+    { "id": "ps-combat0000000a", "name": "Бой", "fields": [
+      { "id": "f-health000000001", "label": "Здоровье", "type": "number" },
+      { "id": "f-class0000000001", "label": "Класс", "type": "enum", "options": ["воин", "маг"] }
     ] }
-  ]
+  ],
+  "relationLabels": [ { "label": "сюзерен", "inverse": "вассал" } ]
 }
 ```
 
-Типы полей: `text`, `richtext`, `number`, `percent`, `bool`, `enum`, `ref`, `refList`, `image`, `color`, `table`.
+- Встроенные типы `character`, `location`, `item` есть всегда (если их нет в файле, HErPlan считает их пустыми); у них пустое `name` — интерфейс показывает название на своём языке. Их можно дополнять полями и наборами, но не удалять.
+- `parent` — подтип наследует поля и наборы свойств всех типов выше. Порядок полей у сущности: сначала поля верхнего типа (сначала его наборов, потом свои), затем каждого подтипа ниже.
+- Виды полей: `text`, `richtext` (длинный текст), `number`, `percent`, `bool`, `enum` (`options`), `ref` и `refList` (`target` — ID типа или `null`, любая сущность), `image`, `color`, `table` (`columns`).
+- Набор свойств подключается к типам через `propertySets`; поле, добавленное в набор, появляется у всех типов с этим набором.
+- При удалении своего типа его подтипы и сущности переходят к типу выше (верхнего уровня — в `item`).
+- `relationLabels` — пары подписей связей, которые проект запомнил; HErPlan дополняет их встроенными парами на языке интерфейса.
+
+## `data/assets.json` (с версии 0.3)
+
+```json
+{ "folders": { "assets/world": "#e8b931" } }
+```
+
+Цвета папок библиотеки ресурсов. Файла может не быть.
 
 ## `data/variables.json`
 

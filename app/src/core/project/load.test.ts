@@ -22,6 +22,7 @@ describe('project files', () => {
     data.entities.e1 = { id: 'e1', name: 'Мира' };
     const files = allFiles(data);
     expect(files.map((f) => f.path).sort()).toEqual([
+      'data/assets.json',
       'data/entities/e1.json',
       'data/types.json',
       'data/variables.json',
