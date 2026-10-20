@@ -56,7 +56,7 @@ const file = (d: ProjectData) => d.variables as FileShape;
 const NO_LABELS: Label[] = [];
 
 /** Changes one variable in a store recipe; a new name or owner is carried into every expression first. */
-function changeVariable(d: ProjectData, id: string, patch: Partial<Variable>): void {
+export function changeVariable(d: ProjectData, id: string, patch: Partial<Variable>): void {
   const list = (file(d).variables ??= []);
   const v = list.find((x) => x.id === id);
   if (!v) return;

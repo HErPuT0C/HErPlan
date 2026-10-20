@@ -1,4 +1,15 @@
-import { ArrowDown, ArrowRight, ArrowUp, BookOpen, ImagePlus, Plus, Sparkles, Trash, X } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  ArrowUpRight,
+  BookOpen,
+  ImagePlus,
+  Plus,
+  Sparkles,
+  Trash,
+  X,
+} from 'lucide-react';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { CanvasEngine } from '../../canvas/engine';
 import { kindOf } from '../../canvas/kinds';
@@ -8,6 +19,7 @@ import type { ProjectData } from '../../core/project/types';
 import { useAtom, useStore } from '../../core/useStore';
 import { t } from '../../i18n';
 import { platform } from '../../platform';
+import { openEntity } from '../../state/navigation';
 import { listEntities, newEntity, type WorldEntity } from '../../story/entities';
 import { graphTitle, refKey } from '../../story/flow';
 import { addMark, linkMark, markLabel, removeMark, unlinkMark, updateMark } from '../../story/marks';
@@ -198,7 +210,8 @@ function DialogueSection({ node }: { node: StoryNode }) {
   const readOnly = project.readOnly;
   const limits = useStore(project.store, (s) => s.meta.settings.dialogueLimits);
   const entities = useStore(project.store, (s) => s.entities);
-  const characters = listEntities({ entities }, 'character');
+  const types = useStore(project.store, (s) => s.types);
+  const characters = listEntities({ entities, types }, 'character');
   const lines = node.lines ?? [];
   const over = lines.length > limits.maxLines;
   const add = () => {
@@ -878,7 +891,8 @@ function RefSection({ node, kind }: { node: StoryNode; kind: WorldKind }) {
   const { project, edit } = useStory();
   const [prompt, setPrompt] = useState<PromptRequest | null>(null);
   const entities = useStore(project.store, (s) => s.entities);
-  const list = listEntities({ entities }, kind);
+  const types = useStore(project.store, (s) => s.types);
+  const list = listEntities({ entities, types }, kind);
   const label = t(kindOf(kind).label);
   const create = () =>
     setPrompt({
@@ -920,6 +934,11 @@ function RefSection({ node, kind }: { node: StoryNode; kind: WorldKind }) {
         }}
         hint={t('story.ref.hint')}
       />
+      {node.ref && entities[node.ref] && (
+        <Button size="sm" variant="ghost" icon={<ArrowUpRight size={14} />} onClick={() => openEntity(node.ref!)}>
+          {t('story.ref.open')}
+        </Button>
+      )}
       <PromptDialog request={prompt} onClose={() => setPrompt(null)} />
     </div>
   );

@@ -40,9 +40,9 @@ test('start screen: empty state, then a new project opens in the workspace', asy
 
   // The world cards live on the Database tab already; editors still to come explain when they arrive.
   await page.getByRole('button', { name: /База данных/ }).click();
-  await expect(page.getByRole('heading', { name: 'Персонажи' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Типы' })).toBeVisible();
   await page.getByRole('button', { name: 'Персонаж', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: 'Имя' })).toHaveValue('Без имени');
+  await expect(page.getByRole('textbox', { name: 'Имя', exact: true })).toHaveValue('Без имени');
   // Two tabs of the same editor, then back to the start screen.
   await page.getByRole('button', { name: 'Открыть редактор' }).click();
   await page.getByRole('menuitem', { name: 'Задачи' }).click();

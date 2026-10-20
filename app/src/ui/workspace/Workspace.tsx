@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAtom } from '../../core/useStore';
-import { closeVariables, revealRequest } from '../../state/navigation';
+import { closeVariables, entityRequest, revealRequest } from '../../state/navigation';
 import { t } from '../../i18n';
 import { platform } from '../../platform';
 import { closeProject, type OpenProject } from '../../state/project';
@@ -76,11 +76,22 @@ export function Workspace({ project }: { project: OpenProject }) {
       return story ? { ...s, active: story.id } : openTab(s, 'story');
     });
   }, [request, setTabs]);
+  // "Open this card" (Ctrl+click on a link to an entity): bring the database tab to the front.
+  const wanted = useAtom(entityRequest);
+  useEffect(() => {
+    if (!wanted) return;
+    setTabs((s) => {
+      if (s.tabs.find((tab) => tab.id === s.active)?.kind === 'database') return s;
+      const db = s.tabs.find((tab) => tab.kind === 'database');
+      return db ? { ...s, active: db.id } : openTab(s, 'database');
+    });
+  }, [wanted, setTabs]);
   // The panel belongs to this project.
   useEffect(
     () => () => {
       closeVariables();
       revealRequest.set(null);
+      entityRequest.set(null);
     },
     [],
   );

@@ -31,3 +31,10 @@ export function openVariables(focus: string | null = null): void {
 export function closeVariables(): void {
   variablesPanel.set({ open: false, focus: null });
 }
+
+/** "Open this card" from anywhere (Ctrl+click on a link to an entity): the database tab shows it. */
+export const entityRequest = atom<{ id: string; at: number } | null>(null);
+
+export function openEntity(id: string): void {
+  entityRequest.set({ id, at: performance.now() });
+}

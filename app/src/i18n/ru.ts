@@ -1,6 +1,7 @@
 // Russian interface strings. Keys are grouped by screen; EN must define exactly the same keys.
 
 import { storyRu } from './story.ru';
+import { worldRu } from './world.ru';
 
 export const ru = {
   'app.versionLine': 'HErPlan {version}',
@@ -427,6 +428,7 @@ export const ru = {
   'dev.sectionMore': 'Дополнительно',
   'dev.sampleName': 'Мира',
   ...storyRu,
+  ...worldRu,
 } as const;
 
 export type MessageKey = keyof typeof ru;

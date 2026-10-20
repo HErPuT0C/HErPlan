@@ -11,6 +11,7 @@ import type { GraphNode } from '../../canvas/model';
 import { useAtomSelect, useStore } from '../../core/useStore';
 import { t } from '../../i18n';
 import { platform } from '../../platform';
+import { openEntity } from '../../state/navigation';
 import { asEntity } from '../../story/entities';
 import { graphTitle, refKey } from '../../story/flow';
 import { marksOn, resolveRange } from '../../story/marks';
@@ -36,16 +37,29 @@ function Inspectable({
   node,
   field,
   className,
+  title,
+  onCtrlClick,
   children,
 }: {
   node: GraphNode;
   field: string;
   className: string;
+  title?: string;
+  /** Ctrl+click on a link to an entity opens its card in the database. */
+  onCtrlClick?: () => void;
   children: ReactNode;
 }) {
   const { inspect } = useStory();
   return (
-    <div className={className} data-canvas-text="" onDoubleClick={() => inspect(node.id, field)}>
+    <div
+      className={className}
+      data-canvas-text=""
+      title={title}
+      onDoubleClick={() => inspect(node.id, field)}
+      onClick={(e) => {
+        if (onCtrlClick && (e.ctrlKey || e.metaKey)) onCtrlClick();
+      }}
+    >
       {children}
     </div>
   );
@@ -164,7 +178,13 @@ function DialogueBody({ node }: CardBodyProps) {
             key={line.id}
             className={['cline', [...line.text].length > limit && 'cline-long'].filter(Boolean).join(' ')}
           >
-            <span className={speaker ? 'cline-speaker' : 'cline-speaker cline-narrator'}>
+            <span
+              className={speaker ? 'cline-speaker' : 'cline-speaker cline-narrator'}
+              title={speaker ? t('story.ref.ctrlClick') : undefined}
+              onClick={(e) => {
+                if (speaker && line.speaker && (e.ctrlKey || e.metaKey)) openEntity(line.speaker);
+              }}
+            >
               {speaker ?? t('story.narrator')}
             </span>
             <MarkIcons node={n} anchor={{ kind: 'line', id: line.id }} text={line.text} />
@@ -387,7 +407,13 @@ function RefBody(props: CardBodyProps) {
   const entity = asEntity(raw);
   return (
     <div className="cref">
-      <Inspectable node={props.node} field="ref" className="cref-entity">
+      <Inspectable
+        node={props.node}
+        field="ref"
+        className="cref-entity"
+        title={entity ? t('story.ref.ctrlClick') : undefined}
+        onCtrlClick={entity ? () => openEntity(entity.id) : undefined}
+      >
         {entity?.image ? (
           <AssetImage path={entity.image} className="cref-image" />
         ) : (
