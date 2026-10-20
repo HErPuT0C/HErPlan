@@ -91,6 +91,7 @@ fn list_folder(folder: &Path, rel: &str, out: &mut Vec<AssetEntry>) -> Result<()
 pub fn asset_mkdir(dir: &Path, rel: &str) -> Result<()> {
     let rel = validate_asset_path(rel, false)?;
     require_project(dir)?;
+    require_within_assets(dir, &rel, true)?;
     create_folder(dir, &rel)
 }
 
@@ -123,6 +124,8 @@ pub fn asset_move(dir: &Path, from: &str, to: &str) -> Result<()> {
     let from_rel = validate_asset_path(from, false)?;
     let to_rel = validate_asset_path(to, false)?;
     require_project(dir)?;
+    require_within_assets(dir, &from_rel, false)?;
+    require_within_assets(dir, &to_rel, true)?;
     let source = dir.join(&from_rel);
     fs::symlink_metadata(&source).at(&source)?;
     if from_rel == to_rel {
@@ -208,6 +211,9 @@ const RUNNABLE: &[&str] = &[
     "ps1",
     "psm1",
     "psd1",
+    "ps1xml",
+    "psc1",
+    "vb",
     "vbs",
     "vbe",
     "js",
@@ -215,10 +221,12 @@ const RUNNABLE: &[&str] = &[
     "wsf",
     "wsh",
     "wsc",
+    "ws",
     "scr",
     "pif",
     "lnk",
     "url",
+    "website",
     "reg",
     "hta",
     "cpl",
@@ -230,20 +238,89 @@ const RUNNABLE: &[&str] = &[
     "inf",
     "sct",
     "dll",
+    "ocx",
     "sys",
+    "drv",
     "scf",
     "library-ms",
+    "searchconnector-ms",
+    "search-ms",
     "settingcontent-ms",
     "diagcab",
     "xll",
+    "xbap",
     "chm",
+    "hlp",
+    "rdp",
+    "iso",
+    "img",
+    "vhd",
+    "vhdx",
+    "appx",
+    "appxbundle",
+    "msix",
+    "msixbundle",
+    "appinstaller",
+    "wsb",
+    "mde",
+    "ade",
+    "adp",
+    "ins",
+    "isp",
+    "job",
+    "mda",
+    "mdb",
+    "mdt",
+    "mdw",
+    "mdz",
+    "mcf",
+    "shb",
+    "shs",
+    "vsmacros",
+    "vsw",
+    "cer",
+    "crt",
+    "der",
+    "theme",
+    "themepack",
+    "desktopthemepackfile",
 ];
+
+/// Refuses a path that leads out of `assets/` through a link: a symbolic link or a junction inside the
+/// library pointing elsewhere. The path is resolved as far as it exists (`follow_last`: including its
+/// last part, for files read or opened; without it, for links that are themselves moved or deleted).
+fn require_within_assets(dir: &Path, rel: &Path, follow_last: bool) -> Result<()> {
+    // No library folder yet: nothing in it can lead anywhere.
+    let Ok(root) = fs::canonicalize(dir.join(ASSETS_DIR)) else {
+        return Ok(());
+    };
+    let full = dir.join(rel);
+    let mut probe = if follow_last {
+        full.as_path()
+    } else {
+        full.parent().unwrap_or(&full)
+    };
+    loop {
+        if let Ok(real) = fs::canonicalize(probe) {
+            return if real.starts_with(&root) {
+                Ok(())
+            } else {
+                Err(StorageError::invalid_path(&to_slash(rel)))
+            };
+        }
+        match probe.parent() {
+            Some(parent) => probe = parent,
+            None => return Ok(()),
+        }
+    }
+}
 
 /// The absolute path of an asset file to open with its default program: a file (not a folder)
 /// inside `assets/` of a project, whose kind Windows shows rather than runs.
 pub fn asset_open_path(dir: &Path, rel: &str) -> Result<PathBuf> {
     let rel = validate_asset_path(rel, false)?;
     require_project(dir)?;
+    require_within_assets(dir, &rel, true)?;
     let target = dir.join(&rel);
     let meta = fs::metadata(&target).map_err(|e| StorageError::io(&e, &target))?;
     if !meta.is_file() {
@@ -288,6 +365,7 @@ fn delete_with(
 ) -> Result<()> {
     let rel = validate_asset_path(rel, false)?;
     require_project(dir)?;
+    require_within_assets(dir, &rel, false)?;
     let target = dir.join(&rel);
     match fs::symlink_metadata(&target) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
@@ -327,6 +405,7 @@ fn delete_with(
 pub fn import_assets(dir: &Path, sources: &[PathBuf], dest_dir: &str) -> Result<Vec<String>> {
     let dest_rel = validate_asset_path(dest_dir, true)?;
     require_project(dir)?;
+    require_within_assets(dir, &dest_rel, true)?;
     let mut items = Vec::new();
     for source in sources {
         items.extend(read_source(source)?);
@@ -465,6 +544,7 @@ pub fn write_asset(dir: &Path, dest_dir: &str, name: &str, data: &[u8]) -> Resul
         return Err(StorageError::invalid_path(name));
     }
     require_project(dir)?;
+    require_within_assets(dir, &dest_rel, true)?;
     create_folder(dir, &dest_rel)?;
     let target = free_name(&dir.join(&dest_rel), name);
     write_atomic(&target, data).at(&target)?;
@@ -529,6 +609,33 @@ mod tests {
         let plain = tempfile::tempdir().unwrap();
         put(plain.path(), "assets/a.png", b"png");
         assert!(asset_open_path(plain.path(), "assets/a.png").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn links_out_of_the_library_are_refused() {
+        let tmp = project();
+        let outside = tempfile::tempdir().unwrap();
+        put(outside.path(), "art/a.png", b"png");
+        put(tmp.path(), "assets/own.png", b"png");
+        std::os::unix::fs::symlink(outside.path().join("art"), tmp.path().join("assets/shared"))
+            .unwrap();
+        let dir = tmp.path();
+        assert_eq!(
+            asset_open_path(dir, "assets/shared/a.png")
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidPath
+        );
+        assert!(delete_with(dir, "assets/shared/a.png", true, |_| Ok(())).is_err());
+        assert!(asset_move(dir, "assets/own.png", "assets/shared/own.png").is_err());
+        assert!(asset_mkdir(dir, "assets/shared/new").is_err());
+        assert!(write_asset(dir, "assets/shared", "x.png", b"x").is_err());
+        assert!(outside.path().join("art/a.png").exists());
+        assert!(!outside.path().join("art/own.png").exists());
+        // The link itself lies inside the library and can be deleted; what it points at stays.
+        delete_with(dir, "assets/shared", true, |_| Err("no bin".into())).unwrap();
+        assert!(outside.path().join("art/a.png").exists());
     }
 
     /// The library as (path, kind) pairs, in listing order.

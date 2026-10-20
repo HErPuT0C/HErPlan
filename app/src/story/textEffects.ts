@@ -10,8 +10,10 @@ export interface TextEffect {
   /** Offsets of the whole piece in the text, braces included. */
   start: number;
   end: number;
-  /** Effects source, in the language of ADR-005. */
+  /** The effects as written (renames rewrite this). */
   source: string;
+  /** What runs, in the language of ADR-005 ("1,5" written without braces runs as 1.5). */
+  code: string;
   /** Offset of `source` in the text (for underlining errors). */
   at: number;
   braced: boolean;
@@ -30,12 +32,15 @@ export interface TextPieces {
 
 const BRACED = /\{([^{}\n]*)\}/g;
 const NAME = '[A-Za-zА-Яа-яЁё_][A-Za-zА-Яа-яЁё_0-9]*(?:\\.[A-Za-zА-Яа-яЁё_][A-Za-zА-Яа-яЁё_0-9]*)?';
-const LITERAL = `-?[0-9]+(?:\\.[0-9]+)?|"[^"\\n]*"|«[^»\\n]*»|${NAME}`;
-/** "name = value", "name += 3": a single value only; anything longer goes in braces. */
+const NUMBER = '-?[0-9]+(?:[.,][0-9]+)?';
+const LITERAL = `${NUMBER}|"[^"\\n]*"|«[^»\\n]*»|${NAME}`;
+/** "name = value", "name += 3" on one line: a single value only; anything longer goes in braces. */
 const BARE = new RegExp(
-  `(?<![A-Za-zА-Яа-яЁё_0-9.])(${NAME})\\s*(\\+=|-=|=(?!=))\\s*(${LITERAL})(?![A-Za-zА-Яа-яЁё_0-9])`,
+  `(?<![A-Za-zА-Яа-яЁё_0-9.])(${NAME})[ \\t]*(\\+=|-=|=(?!=))[ \\t]*(${LITERAL})(?![A-Za-zА-Яа-яЁё_0-9]|[.,][0-9])`,
   'g',
 );
+/** Braces hold effects only when they assign something; "{машет рукой}" stays ordinary text. */
+const ASSIGNS = /(\+=|-=|(?<![=!<>])=(?!=))/;
 
 const EMPTY: TextPieces = { effects: [], shows: [] };
 
@@ -54,7 +59,9 @@ export function textPieces(text: string | undefined, known?: (name: string) => b
     const start = m.index;
     const end = start + m[0].length;
     if (isName(source)) shows.push({ start, end, name: source });
-    else effects.push({ start, end, source, at: start + 1 + inner.indexOf(source), braced: true });
+    else if (ASSIGNS.test(source)) {
+      effects.push({ start, end, source, code: source, at: start + 1 + inner.indexOf(source), braced: true });
+    }
   }
   if (known) {
     const braced = effects.map((e): [number, number] => [e.start, e.end]).concat(shows.map((s) => [s.start, s.end]));
@@ -62,7 +69,8 @@ export function textPieces(text: string | undefined, known?: (name: string) => b
       const start = m.index;
       const end = start + m[0].length;
       if (braced.some(([a, b]) => start < b && end > a) || !known(m[1])) continue;
-      effects.push({ start, end, source: m[0], at: start, braced: false });
+      const value = new RegExp(`^${NUMBER}$`).test(m[3]) ? m[3].replace(',', '.') : m[3];
+      effects.push({ start, end, source: m[0], code: `${m[1]} ${m[2]} ${value}`, at: start, braced: false });
     }
     effects.sort((a, b) => a.start - b.start);
   }
@@ -71,9 +79,9 @@ export function textPieces(text: string | undefined, known?: (name: string) => b
 
 const isName = (s: string) => s.split('.').every((part) => isIdentifier(part)) && s.split('.').length <= 2;
 
-/** All effects of a text as one source ("a = 1; b += 2"), for the playthrough. */
+/** All effects of a text as one source ("a = 1; b += 2"), for the export. */
 export function joinedEffects(pieces: TextPieces): string {
-  return pieces.effects.map((e) => e.source).join('; ');
+  return pieces.effects.map((e) => e.code).join('; ');
 }
 
 /**

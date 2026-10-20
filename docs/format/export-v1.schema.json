@@ -351,9 +351,9 @@
                 "type": "string",
                 "description": "Since 0.3: the designer's comment on the option."
               },
-              "noteEffects": {
+              "textEffects": {
                 "$ref": "#/$defs/effects",
-                "description": "Since 0.3: effects written in the comment, applied after `effects` when the option is chosen."
+                "description": "Since 0.3: effects written in the option's text (in braces) and its comment, applied after `effects` when the option is chosen."
               }
             }
           }

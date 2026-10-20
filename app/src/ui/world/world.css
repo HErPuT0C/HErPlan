@@ -137,8 +137,14 @@
 .world-row-over {
   box-shadow: inset 0 3px 0 var(--accent);
 }
-.world-card[draggable='true'] {
+.world-card[data-reorder],
+.world-table tr[data-reorder] {
   cursor: grab;
+}
+html[data-dragging],
+html[data-dragging] * {
+  cursor: grabbing !important;
+  user-select: none;
 }
 .world-pic {
   display: grid;

@@ -1,6 +1,7 @@
 // Changes of world entities inside Store recipes (F4-04, F4-06, F4-08): relations seen from both sides,
 // duplicating, copying values, deleting without leaving relations behind; and "where used" (F4-09).
 
+import { current, isDraft } from 'immer';
 import { newId } from '../core/ids';
 import type { JsonObject, ProjectData } from '../core/project/types';
 import { asEntity, type Relation, type WorldEntity } from '../story/entities';
@@ -41,6 +42,9 @@ export function relationsOf(data: Pick<ProjectData, 'entities'>, id: string): Re
 }
 
 const entityFile = (d: ProjectData, id: string): JsonObject | undefined => d.entities[id];
+
+/** An entity file as plain data: inside a recipe the file is a draft, which cannot be cloned. */
+const plain = (raw: JsonObject | undefined): JsonObject | undefined => (raw && isDraft(raw) ? current(raw) : raw);
 
 export function addRelation(
   d: ProjectData,
@@ -97,7 +101,7 @@ export function deleteEntity(d: ProjectData, id: string): void {
 
 /** A copy right after the original: values and own relations copied, a new name. */
 export function duplicateEntity(d: ProjectData, id: string, name: string): string | null {
-  const e = asEntity(d.entities[id]);
+  const e = asEntity(plain(d.entities[id]));
   if (!e) return null;
   const copy: WorldEntity = {
     ...structuredClone(e),
@@ -116,13 +120,13 @@ export function duplicateEntity(d: ProjectData, id: string, name: string): strin
 
 /** Copies the values of the fields both entities have (by field id) from one entity to another. */
 export function copyValues(d: ProjectData, from: string, to: string): number {
-  const source = asEntity(d.entities[from]);
+  const source = asEntity(plain(d.entities[from]));
   const target = d.entities[to];
   if (!source || !target) return 0;
   const schema = typesFile(d);
   const mine = new Set(effectiveFields(schema, String(target.type)).map((f) => f.field.id));
   const shared = effectiveFields(schema, source.type).filter((f) => mine.has(f.field.id));
-  const values = { ...(asEntity(target)?.values ?? {}) };
+  const values = { ...(asEntity(plain(target))?.values ?? {}) };
   let copied = 0;
   for (const { field } of shared) {
     if (!(field.id in source.values)) continue;

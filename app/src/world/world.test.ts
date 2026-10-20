@@ -106,6 +106,7 @@ describe('world schema (F4-01…F4-03)', () => {
       const sword = addType(d, 'Меч', weapon);
       put(d, weapon, 'Лук');
       put(d, sword, 'Экскалибур');
+      addField(d, { kind: 'type', id: 'character' }, { ...newField('ref', 'Оружие'), id: 'f-weapon', target: weapon });
       deleteType(d, weapon);
       updateType(d, 'character', { parent: sword });
     });
@@ -114,6 +115,8 @@ describe('world schema (F4-01…F4-03)', () => {
     expect(sword.parent).toBe('item');
     expect(listEntities(data, 'item').map((e) => e.name)).toEqual(['Ключ', 'Лук', 'Экскалибур']);
     expect(schema.types[0].parent).toBeNull();
+    // A link field aimed at the deleted type now picks from the type that took its entities in.
+    expect(schema.types[0].fields.find((f) => f.id === 'f-weapon')?.target).toBe('item');
   });
 
   it('dialogue speakers include characters of subtypes', () => {
@@ -186,6 +189,23 @@ describe('entity cards (F4-04, F4-08, F4-09)', () => {
     expect(asEntity(data.entities['ent-boris'])?.values).toEqual({ 'f-str': 7 });
     const reordered = produce(data, (d) => reorderEntities(d, ['ent-boris', 'ent-mira', copy]));
     expect(listEntities(reordered, 'character').map((e) => e.name)).toEqual(['Борис', 'Мира', 'Мира (копия)']);
+  });
+
+  it('duplicates and copies values of entities saved in an earlier step (drafted values)', () => {
+    const base = produce(sampleProject(), (d) => {
+      addField(d, { kind: 'type', id: 'character' }, { ...newField('refList', 'Друзья'), id: 'f-friends' });
+      addField(d, { kind: 'type', id: 'character' }, { ...newField('table', 'Статы'), id: 'f-stats', columns: ['A'] });
+      (d.entities['ent-mira'].values as JsonObject) = { 'f-friends': ['ent-boris'], 'f-stats': { rows: [['1']] } };
+    });
+    const store = new Store(base);
+    let copy: string | null = null;
+    store.dispatch('dup', (d) => {
+      copy = duplicateEntity(d, 'ent-mira', 'Мира 2');
+    });
+    store.dispatch('copy', (d) => void copyValues(d, 'ent-mira', 'ent-boris'));
+    const data = store.getState();
+    expect(asEntity(data.entities[copy!])?.values['f-friends']).toEqual(['ent-boris']);
+    expect(asEntity(data.entities['ent-boris'])?.values['f-stats']).toEqual({ rows: [['1']] });
   });
 
   it('knows where an entity is used: nodes, speakers, variables, fields of others', () => {
@@ -271,6 +291,17 @@ describe('asset library (F4-11, F4-12) and export of the database (F4-13)', () =
     store.undo();
     expect(store.getState().meta.name).not.toBe('Новое');
     expect(asEntity(store.getState().entities['ent-mira'])?.image).toBe('assets/мир/mira.png');
+  });
+
+  it('after a rename on disk, undo and redo do not bring the old path back', () => {
+    const store = new Store(sampleProject());
+    store.dispatch('picture', (d) => void (d.entities['ent-mira'].image = 'assets/a.png'));
+    store.undo();
+    // The file is renamed a.png → b.png on disk.
+    store.dispatch('refs', (d) => moveAssetRefs(d, 'assets/a.png', 'assets/b.png'), { history: false });
+    store.rewriteHistory((text) => movedPath(text, 'assets/a.png', 'assets/b.png'));
+    store.redo();
+    expect(asEntity(store.getState().entities['ent-mira'])?.image).toBe('assets/b.png');
   });
 
   it('the export carries types with their fields, values and relations', () => {

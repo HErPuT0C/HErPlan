@@ -246,3 +246,52 @@ describe('variables changed from the text (0.3)', () => {
     expect(node(renamed, 'g-ch1', 'a-arrive').comment).toBe('Отметка на будущее: мельница = истина');
   });
 });
+
+describe('fixes from the review of 0.3', () => {
+  const known = (name: string) => ['деньги', 'hp', 'x', 'strength'].includes(name);
+
+  it('braces without an assignment are ordinary text; bare effects stay on one line; decimal commas work', () => {
+    expect(textPieces('Ты пришёл. {машет рукой}', undefined).effects).toEqual([]);
+    expect(textPieces('{x == 1}', known).effects).toEqual([]);
+    expect(textPieces('hp =\nstrength', known).effects).toEqual([]);
+    expect(textPieces('Итого x=1,5 монеты', known).effects.map((e) => [e.source, e.code])).toEqual([
+      ['x=1,5', 'x = 1.5'],
+    ]);
+    expect(textPieces('x = 1, y', known).effects.map((e) => e.code)).toEqual(['x = 1']);
+  });
+
+  it('a broken effect in text is skipped, not a stop; option text effects run; stickers do not count', () => {
+    const data = produce(sampleProject(), (d) => {
+      node(d, 'g-ch1', 'a-arrive').text = 'Жернова. {золото += "много"} {золото += 1}';
+      node(d, 'g-ch1', 'a-choice').options![0].text = 'Помочь с мешками {золото += 100}';
+      g(d, 'g-ch1').nodes.push({ ...node(d, 'g-ch1', 'a-note'), id: 'a-note2', text: 'TODO {переписать = сцену}' });
+    });
+    const gold = listVariables(data).find((v) => v.name === 'золото')!;
+    let s = startPlay(data, { graph: 'g-ch1', node: 'a-start' });
+    while (s.pos?.node !== 'a-choice') s = playAct(data, s, playActions(data, s)[0]);
+    expect(s.status).toBe('running');
+    expect(s.vars[gold.id]).toBe(6);
+    s = playAct(
+      data,
+      s,
+      playActions(data, s).find((a) => a.label.startsWith('Помочь'))!,
+    );
+    expect(s.vars[gold.id]).toBe(106);
+    const problems = checkProject(data);
+    expect(problems.some((p) => p.node === 'a-arrive' && p.code === 'exprError')).toBe(true);
+    expect(problems.some((p) => p.node === 'a-note2')).toBe(false);
+  });
+
+  it('a rename keeps marked words on their words', () => {
+    const data = produce(sampleProject(), (d) => {
+      const meet = node(d, 'g-ch1', 'a-meet');
+      meet.lines![1].text = 'Над дверью висит {золото += 1} старое ружьё.';
+      meet.marks![0].range = { start: 31, end: 43, quote: 'старое ружьё' };
+    });
+    const gold = listVariables(data).find((v) => v.name === 'золото')!;
+    const renamed = produce(data, (d) => renameEverywhere(d, 'золото', 'деньги', gold));
+    const meet = node(renamed, 'g-ch1', 'a-meet');
+    expect(meet.lines![1].text).toBe('Над дверью висит {деньги += 1} старое ружьё.');
+    expect(meet.marks![0].range).toEqual({ start: 31, end: 43, quote: 'старое ружьё' });
+  });
+});

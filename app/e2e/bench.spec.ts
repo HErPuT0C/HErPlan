@@ -20,6 +20,9 @@ test('canvas benchmark runs on 5 000 nodes', async ({ page }) => {
   mkdirSync('test-results', { recursive: true });
   writeFileSync('test-results/canvas-bench.json', JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));
+  // Leave the 5 000-node canvas before the test ends: closing a page that still renders it in software
+  // takes long enough for the next test's browser context to fail to start.
+  await page.goto('about:blank');
   expect(errors).toEqual([]);
   expect(report.nodes).toBe(5000);
   expect(report.phases).toHaveLength(4);

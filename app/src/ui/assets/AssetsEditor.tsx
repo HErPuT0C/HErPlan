@@ -17,7 +17,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { searchKey } from '../../canvas/ops';
 import { useStore } from '../../core/useStore';
 import { formatBytes, formatDate, t, type MessageKey } from '../../i18n';
@@ -32,6 +32,7 @@ import {
   folderColors,
   forgetFolder,
   moveAssetRefs,
+  movedPath,
   parentOf,
   setFolderColor,
   type AssetUse,
@@ -41,6 +42,7 @@ import { PromptDialog, type PromptRequest } from '../canvas/PromptDialog';
 import { errorText } from '../errors';
 import { useAsync } from '../useAsync';
 import { useFileDrop } from '../useFileDrop';
+import { usePointerDrag } from '../usePointerDrag';
 import { IMAGE_EXT } from '../world/ImageField';
 import './assets.css';
 
@@ -54,7 +56,6 @@ const COLORS: [string, MessageKey][] = [
   ['#7b86ff', 'assets.color.violet'],
   ['#e0609f', 'assets.color.pink'],
 ];
-const DRAG_TYPE = 'text/x-herplan-asset';
 
 function Thumb({ project, path, size }: { project: OpenProject; path: string; size: number }) {
   const image = IMAGE_EXT.test(path);
@@ -134,10 +135,16 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
       await platform().assetMove(dir, from, to);
       // Undo cannot move the file back, so the references follow it outside the undo history.
       store.dispatch(t('assets.step.move'), (d) => moveAssetRefs(d, from, to), { history: false });
+      store.rewriteHistory((text) => movedPath(text, from, to));
       if (selected && (selected === from || selected.startsWith(`${from}/`)))
         setSelected(to + selected.slice(from.length));
       if (current === from || current.startsWith(`${from}/`)) setFolder(to + current.slice(from.length));
     });
+
+  // A file dragged onto a folder in the tree moves there.
+  const moving = usePointerDrag('data-drop-folder', (from, folder) => {
+    if (parentOf(from) !== folder) void move(from, `${folder}/${baseName(from)}`);
+  });
 
   const remove = (path: string, isFolder: boolean) => {
     const uses = assetUses(store.getState(), path).length;
@@ -167,12 +174,13 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
       value: baseName(path),
       onSubmit: (name) => void move(path, `${parentOf(path)}/${name}`),
     });
-  const newFolder = () =>
+  /** A new folder in `parent` (the open folder, or the one whose menu was used). */
+  const newFolder = (parent: string = current) =>
     setPrompt({
       title: t('assets.newFolder'),
       label: t('assets.name'),
       value: '',
-      onSubmit: (name) => void run(() => platform().assetMkdir(dir, `${current}/${name}`)),
+      onSubmit: (name) => void run(() => platform().assetMkdir(dir, `${parent}/${name}`)),
     });
   const upload = () =>
     void run(async () => {
@@ -201,7 +209,7 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
           label: t('assets.newFolder'),
           icon: <FolderPlus size={16} />,
           disabled: readOnly,
-          onSelect: () => (setFolder(path), newFolder()),
+          onSelect: () => newFolder(path),
         },
         ...(path === ROOT
           ? []
@@ -275,7 +283,7 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
           readOnly={readOnly}
           onOpen={setFolder}
           onMenu={folderMenu}
-          onMoveInto={(from) => void move(from, `${ROOT}/${baseName(from)}`)}
+          movingOver={moving.dragged !== null && moving.over === ROOT}
           onDropPaths={(paths) => void importPaths(paths, ROOT)}
           onDropFiles={(files) => void importFiles(files, ROOT)}
         />
@@ -290,7 +298,7 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
             readOnly={readOnly}
             onOpen={setFolder}
             onMenu={folderMenu}
-            onMoveInto={(from) => void move(from, `${path}/${baseName(from)}`)}
+            movingOver={moving.dragged !== null && moving.over === path}
             onDropPaths={(paths) => void importPaths(paths, path)}
             onDropFiles={(files) => void importFiles(files, path)}
           />
@@ -319,7 +327,12 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
           />
           {!readOnly && (
             <>
-              <IconButton size="sm" label={t('assets.newFolder')} icon={<FolderPlus size={16} />} onClick={newFolder} />
+              <IconButton
+                size="sm"
+                label={t('assets.newFolder')}
+                icon={<FolderPlus size={16} />}
+                onClick={() => newFolder()}
+              />
               <Button size="sm" variant="ghost" icon={<FolderUp size={14} />} onClick={uploadFolder}>
                 {t('assets.uploadFolder')}
               </Button>
@@ -367,12 +380,8 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
                     key={e.path}
                     type="button"
                     className={['asset-item', selected === e.path && 'asset-item-selected'].filter(Boolean).join(' ')}
-                    draggable={!readOnly}
                     title={e.path}
-                    onDragStart={(d: DragEvent) => {
-                      d.dataTransfer.setData(DRAG_TYPE, e.path);
-                      d.dataTransfer.effectAllowed = 'move';
-                    }}
+                    {...(readOnly ? {} : moving.handle(e.path))}
                     onClick={() => setSelected(e.path)}
                     onDoubleClick={() =>
                       void platform()
@@ -423,7 +432,7 @@ function FolderRow({
   readOnly,
   onOpen,
   onMenu,
-  onMoveInto,
+  movingOver,
   onDropPaths,
   onDropFiles,
 }: {
@@ -435,18 +444,19 @@ function FolderRow({
   readOnly: boolean;
   onOpen: (path: string) => void;
   onMenu: (path: string, x: number, y: number) => void;
-  onMoveInto: (from: string) => void;
+  /** A file of the library is being dragged over this folder. */
+  movingOver: boolean;
   onDropPaths: (paths: string[]) => void;
   onDropFiles: (files: File[]) => void;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
-  const [over, setOver] = useState(false);
   const drop = useFileDrop(ref, { disabled: readOnly, onPaths: onDropPaths, onFiles: onDropFiles });
   return (
     <button
       ref={ref}
       type="button"
-      className={['schema-item', (over || drop.over) && 'assets-tree-over'].filter(Boolean).join(' ')}
+      className={['schema-item', (movingOver || drop.over) && 'assets-tree-over'].filter(Boolean).join(' ')}
+      data-drop-folder={path}
       aria-current={current === path ? 'true' : undefined}
       style={{ paddingLeft: 8 + depth * 16 }}
       onClick={() => onOpen(path)}
@@ -454,24 +464,7 @@ function FolderRow({
         e.preventDefault();
         onMenu(path, e.clientX, e.clientY);
       }}
-      onDragOver={(e) => {
-        if ([...e.dataTransfer.types].includes(DRAG_TYPE)) {
-          e.preventDefault();
-          setOver(true);
-        } else drop.dropProps.onDragOver(e);
-      }}
-      onDragLeave={() => {
-        setOver(false);
-        drop.dropProps.onDragLeave();
-      }}
-      onDrop={(e) => {
-        const from = e.dataTransfer.getData(DRAG_TYPE);
-        setOver(false);
-        if (from) {
-          e.preventDefault();
-          if (!readOnly && parentOf(from) !== path) onMoveInto(from);
-        } else drop.dropProps.onDrop(e);
-      }}
+      {...drop.dropProps}
     >
       {current === path ? (
         <FolderOpen size={14} aria-hidden="true" style={{ color: color ?? undefined }} />

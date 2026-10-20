@@ -6,6 +6,7 @@ import type { GraphEdge } from '../canvas/model';
 import type { ProjectData } from '../core/project/types';
 import {
   applyEffects,
+  checkEffects,
   evaluate,
   isBlank,
   parseCondition,
@@ -16,8 +17,8 @@ import {
 } from './expr';
 import { chapterStack, edgesFrom, startOf } from './flow';
 import { asStory, findNode, graphOf, PASS_THROUGH, type NodeRef, type StoryNode } from './model';
-import { joinedEffects, playerText, textPieces } from './textEffects';
-import { entityName, listVariables, registryFor, type Variable } from './variables';
+import { playerText, textPieces } from './textEffects';
+import { asRegistry, entityName, listVariables, registryFor, type Variable } from './variables';
 
 export type PlayStatus = 'running' | 'ended' | 'stuck' | 'error';
 
@@ -146,18 +147,38 @@ function runEffects(
   }
 }
 
+/**
+ * Effects written in text run one by one; one that is broken is skipped (the checks report it) rather
+ * than stopping the playthrough, as a broken condition counts as false.
+ */
+function runTextEffects(data: ProjectData, s: PlayState, graph: string, codes: string[], at: NodeRef): PlayState {
+  if (!codes.length) return s;
+  const registry = asRegistry(registryFor(data, graph));
+  for (const code of codes) {
+    // Checked first: an effect of the wrong type would otherwise spoil the value instead of failing.
+    if (checkEffects(code, registry)) continue;
+    const next = runEffects(data, s, graph, code, at);
+    if (next.status === 'running') s = next;
+  }
+  return s;
+}
+
 /** Effects written in a node's description, comment and lines ("{x = 1}", see textEffects.ts). */
-function nodeTextEffects(data: ProjectData, graph: string, node: StoryNode): string {
-  if (!node.text && !node.comment && !node.lines?.length) return '';
+function nodeTextEffects(data: ProjectData, graph: string, node: StoryNode): string[] {
+  if (!node.text && !node.comment && !node.lines?.length) return [];
   const reg = registryFor(data, graph);
   const known = (name: string) => reg.has(name);
   return [
-    joinedEffects(textPieces(node.text, known)),
-    joinedEffects(textPieces(node.comment, known)),
-    ...(node.lines ?? []).map((l) => joinedEffects(textPieces(l.text))),
-  ]
-    .filter(Boolean)
-    .join('; ');
+    ...textPieces(node.text, known).effects,
+    ...textPieces(node.comment, known).effects,
+    ...(node.lines ?? []).flatMap((l) => textPieces(l.text).effects),
+  ].map((e) => e.code);
+}
+
+/** Effects written in an option's text (braced only: the player reads it) and in its comment. */
+function optionTextEffects(data: ProjectData, graph: string, option: { text: string; note?: string }): string[] {
+  const reg = registryFor(data, graph);
+  return [...textPieces(option.text).effects, ...textPieces(option.note, (n) => reg.has(n)).effects].map((e) => e.code);
 }
 
 /** A text as the player sees it now: braced effects left out, "{name}" replaced by the value. */
@@ -220,8 +241,7 @@ function arrive(data: ProjectData, s0: PlayState, to: NodeRef): PlayState {
     if (!node) return fail(s, 'missingNode');
     if (!s.leaving) {
       s = { ...s, log: [...s.log, { kind: 'arrive', at, title: node.title, nodeKind: node.kind }] };
-      s = runEffects(data, s, at.graph, nodeTextEffects(data, at.graph, node), at);
-      if (s.status !== 'running') return s;
+      s = runTextEffects(data, s, at.graph, nodeTextEffects(data, at.graph, node), at);
     }
     const r = step(data, s, at, node);
     if (r.stop || r.s.status !== 'running') return r.s;
@@ -368,9 +388,7 @@ export function playAct(data: ProjectData, s: PlayState, action: PlayAction): Pl
     let next: PlayState = { ...s, log: [...s.log, { kind: 'option', at, text: option.text }] };
     next = runEffects(data, next, at.graph, option.effects, at);
     if (next.status !== 'running') return next;
-    const reg = registryFor(data, at.graph);
-    next = runEffects(data, next, at.graph, joinedEffects(textPieces(option.note, (n) => reg.has(n))), at);
-    if (next.status !== 'running') return next;
+    next = runTextEffects(data, next, at.graph, optionTextEffects(data, at.graph, option), at);
     const exit = openExits(data, next, at, option.id)[0];
     if (!exit) return fail(next, 'deadEnd', { node: option.text || node?.title || '' });
     return arrive(data, next, { graph: at.graph, node: exit.to.node });

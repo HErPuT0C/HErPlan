@@ -130,6 +130,24 @@ export class Store<S extends object> {
     return this.redoStack.length > 0;
   }
 
+  /**
+   * Rewrites text values in every recorded step, both ways. After a file was renamed on disk, steps recorded
+   * earlier must not bring the old path back on undo or redo.
+   */
+  rewriteHistory(map: (text: string) => string): void {
+    const deep = (v: unknown): unknown => {
+      if (typeof v === 'string') return map(v);
+      if (Array.isArray(v)) return v.map(deep);
+      if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deep(x)]));
+      return v;
+    };
+    const patch = (p: Patch): Patch => ('value' in p ? { ...p, value: deep(p.value) } : p);
+    for (const entry of [...this.undoStack, ...this.redoStack]) {
+      entry.patches = entry.patches.map(patch);
+      entry.inverse = entry.inverse.map(patch);
+    }
+  }
+
   /** Label of the step that undo would revert, for menus and tooltips. */
   get undoLabel(): string | undefined {
     return this.undoStack.at(-1)?.label;

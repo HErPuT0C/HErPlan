@@ -25,7 +25,7 @@ import {
   type PlotMark,
   type StoryNode,
 } from '../../story/model';
-import { setExpanded } from '../../story/ops';
+import { setExpanded, setNodeText } from '../../story/ops';
 import { CHOICE_PROMPT_H, FOLDED_LINES, PLOT_COLORS } from '../../story/kinds';
 import { knownNames } from '../../story/usage';
 import { useAsync } from '../useAsync';
@@ -65,8 +65,16 @@ function Inspectable({
   );
 }
 
+/** Saves a node's own text edited on the card; marked words in it follow the edit (story/marks.ts). */
+function useTextCommit(node: GraphNode, onText: CardBodyProps['onText']) {
+  const story = useContext(StoryContext);
+  return (v: string) =>
+    story ? story.edit(t('canvas.step.text'), (g) => setNodeText(g, node.id, v)) : onText(node.id, v);
+}
+
 function TextBody({ node, readOnly, onText }: CardBodyProps) {
   const text = node.text ?? '';
+  const commit = useTextCommit(node, onText);
   return (
     <Editable
       className="cnode-body"
@@ -74,7 +82,7 @@ function TextBody({ node, readOnly, onText }: CardBodyProps) {
       placeholder={t('canvas.textPlaceholder')}
       multiline
       readOnly={readOnly}
-      onCommit={(v) => onText(node.id, v)}
+      onCommit={commit}
       display={<CardText node={asStory(node)} anchor={NODE} text={text} bare />}
     />
   );
@@ -234,6 +242,7 @@ function DialogueExtra({ node, readOnly }: { node: GraphNode; readOnly: boolean 
 }
 
 function ChoiceBody({ node, readOnly, onText }: CardBodyProps) {
+  const commit = useTextCommit(node, onText);
   const n = asStory(node);
   const options = n.options ?? [];
   return (
@@ -244,7 +253,7 @@ function ChoiceBody({ node, readOnly, onText }: CardBodyProps) {
           value={node.text ?? ''}
           placeholder={t('story.card.prompt')}
           readOnly={readOnly}
-          onCommit={(v) => onText(node.id, v)}
+          onCommit={commit}
         />
       </div>
       {options.length === 0 && (

@@ -2,7 +2,7 @@
 // sorting by any field or by hand (drag), filters, search, and the card of the selected entity on the right.
 
 import { ArrowDownAZ, ArrowUpAZ, Filter, LayoutGrid, Plus, Settings2, Shapes, Table2, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { JsonObject } from '../../core/project/types';
 import { useAtom, useStore } from '../../core/useStore';
 import { t } from '../../i18n';
@@ -15,6 +15,7 @@ import { effectiveFields, typesFile, typeTree, type FieldDef, type TypesFile } f
 import { coerceValue, compareValues, isEmptyValue, valueText, type ValueTextContext } from '../../world/values';
 import { Button, EmptyState, IconButton } from '../components';
 import { useAsync } from '../useAsync';
+import { usePointerDrag } from '../usePointerDrag';
 import { EntityPanel } from './EntityPanel';
 import { SchemaDialog } from './SchemaDialog';
 import { typeName } from './typeNames';
@@ -106,7 +107,9 @@ export function WorldEditor({ project }: { project: OpenProject }) {
   const entities = useStore(store, (s) => s.entities);
   const types = useStore(store, (s) => s.types);
   const schema = useMemo(() => typesFile({ types }), [types]);
-  const [typeId, setTypeId] = useState<string>('all');
+  const [chosenType, setTypeId] = useState<string>('all');
+  // A type deleted in "Types and fields" while it was open: show everything instead.
+  const typeId = chosenType === 'all' || schema.types.some((x) => x.id === chosenType) ? chosenType : 'all';
   const [query, setQuery] = useState('');
   const [view, setViewState] = useState<View>(savedView);
   const [sort, setSort] = useState<Sort>({ by: 'manual', dir: 1 });
@@ -193,6 +196,8 @@ export function WorldEditor({ project }: { project: OpenProject }) {
 
   /** Manual order: `ids` moved so that `moved` sits before `before` (or at the end of its group). */
   const move = (moved: string, before: string | null, group: string[]) => {
+    // Order is kept within a type's group; a card dropped on another group stays where it was.
+    if (!group.includes(moved)) return;
     const inGroup = group.filter((id) => id !== moved);
     const at = before ? inGroup.indexOf(before) : inGroup.length;
     inGroup.splice(at < 0 ? inGroup.length : at, 0, moved);
@@ -490,36 +495,12 @@ function Picture({ project, path, size }: { project: OpenProject; path: string |
   );
 }
 
-/** Drag and drop to reorder by hand; `over` marks where the dragged card would go. */
+/** Reordering by hand: drag an item onto another to put it there (pointer events, see usePointerDrag). */
 function useReorder(onMove: (moved: string, before: string | null) => void) {
-  const dragged = useRef<string | null>(null);
-  const [over, setOver] = useState<string | null>(null);
+  const drag = usePointerDrag('data-reorder', (moved, target) => onMove(moved, target));
   return {
-    over,
-    props: (id: string) => ({
-      draggable: true,
-      onDragStart: (e: DragEvent) => {
-        dragged.current = id;
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/x-herplan-entity', id);
-      },
-      onDragOver: (e: DragEvent) => {
-        if (!dragged.current) return;
-        e.preventDefault();
-        setOver(id);
-      },
-      onDragEnd: () => {
-        dragged.current = null;
-        setOver(null);
-      },
-      onDrop: (e: DragEvent) => {
-        e.preventDefault();
-        const moved = dragged.current;
-        dragged.current = null;
-        setOver(null);
-        if (moved && moved !== id) onMove(moved, id);
-      },
-    }),
+    over: drag.dragged ? drag.over : null,
+    props: (id: string) => ({ 'data-reorder': id, ...drag.handle(id) }),
   };
 }
 

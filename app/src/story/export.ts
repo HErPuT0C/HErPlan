@@ -185,7 +185,9 @@ function exportNode(raw: GraphDoc['nodes'][number], known: (name: string) => boo
         condition: condition(o.condition),
         effects: effects(o.effects),
         note: o.note ?? '',
-        noteEffects: effects(joinedEffects(textPieces(o.note, known))),
+        textEffects: effects(
+          [joinedEffects(textPieces(o.text)), joinedEffects(textPieces(o.note, known))].filter(Boolean).join('; '),
+        ),
       }));
       break;
     case 'condition':

@@ -282,7 +282,8 @@ export function updateType(
 
 /**
  * Deletes a type of the user's own: its subtypes and entities move up to its parent (or, for a top-level
- * type, to "Item"), so nothing is lost; values of fields that no longer apply stay in the files.
+ * type, to "Item"), and so do link fields aimed at it, so nothing is lost; values of fields that no longer
+ * apply stay in the files.
  */
 export function deleteType(d: ProjectData, id: string): void {
   if (isBuiltIn(id)) return;
@@ -292,6 +293,10 @@ export function deleteType(d: ProjectData, id: string): void {
   const heir = x.parent ?? 'item';
   for (const y of t.types) if (y.parent === id) y.parent = x.parent;
   for (const e of Object.values(d.entities)) if (e.type === id) e.type = heir;
+  // Links that pointed at entities of this type now point at the type that took them in.
+  for (const f of [...t.types.flatMap((y) => y.fields), ...t.propertySets.flatMap((p) => p.fields)]) {
+    if ((f.type === 'ref' || f.type === 'refList') && f.target === id) f.target = heir;
+  }
   t.types = t.types.filter((y) => y.id !== id);
 }
 

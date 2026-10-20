@@ -4,7 +4,8 @@
 import type { GraphDoc } from '../canvas/model';
 import type { ProjectData } from '../core/project/types';
 import { namesInCondition, namesInEffects, renameVariable } from './expr';
-import { allGraphs, asStory } from './model';
+import { followText } from './marks';
+import { allGraphs, asStory, OFF_FLOW } from './model';
 import { renameInText, textPieces } from './textEffects';
 import { listVariables, registryFor, type Variable } from './variables';
 
@@ -17,8 +18,8 @@ export interface ExprSite {
   edge?: string;
   option?: string;
   line?: string;
-  /** text, comment, note, line: effects written in that text ("{x = 1}", see textEffects.ts). */
-  field: 'condition' | 'expr' | 'effects' | 'text' | 'comment' | 'note' | 'line';
+  /** text, comment, note, line, optionText: effects written in that text ("{x = 1}", see textEffects.ts). */
+  field: 'condition' | 'expr' | 'effects' | 'text' | 'comment' | 'note' | 'line' | 'optionText';
   kind: ExprKind;
   source: string;
 }
@@ -34,11 +35,13 @@ export function graphExpressions(g: GraphDoc, known?: (name: string) => boolean)
   };
   const inText = (text: string | undefined, site: Omit<ExprSite, 'graph' | 'kind' | 'source'>, bare: boolean) => {
     for (const e of textPieces(text, bare ? known : undefined).effects)
-      add({ ...site, kind: 'effects', source: e.source });
+      add({ ...site, kind: 'effects', source: e.code });
   };
   for (const e of g.edges) add({ edge: e.id, field: 'condition', kind: 'condition', source: e.condition ?? '' });
   for (const raw of g.nodes) {
     const n = asStory(raw);
+    // Stickers are the designer's notes beside the story: nothing in them runs.
+    if (OFF_FLOW.has(n.kind)) continue;
     if (n.kind === 'condition') add({ node: n.id, field: 'expr', kind: 'condition', source: n.expr ?? '' });
     if (n.kind === 'effect' || n.kind === 'butterfly') {
       add({ node: n.id, field: 'effects', kind: 'effects', source: n.effects ?? '' });
@@ -47,6 +50,7 @@ export function graphExpressions(g: GraphDoc, known?: (name: string) => boolean)
       for (const o of n.options ?? []) {
         add({ node: n.id, option: o.id, field: 'condition', kind: 'condition', source: o.condition ?? '' });
         add({ node: n.id, option: o.id, field: 'effects', kind: 'effects', source: o.effects ?? '' });
+        inText(o.text, { node: n.id, option: o.id, field: 'optionText' }, false);
         inText(o.note, { node: n.id, option: o.id, field: 'note' }, true);
       }
     }
@@ -141,14 +145,29 @@ export function renameEverywhere(draft: ProjectData, oldName: string, newName: s
       const n = asStory(raw);
       if (n.expr) n.expr = fix(n.expr);
       if (n.effects) n.effects = fix(n.effects);
-      if (n.text) n.text = fixText(n.text, true);
+      // Texts that carry marked words keep the marks on them (followText).
+      if (n.text) {
+        const text = fixText(n.text, true)!;
+        followText(n, { kind: 'node' }, n.text, text);
+        n.text = text;
+      }
       if (n.comment) n.comment = fixText(n.comment, true);
       for (const o of n.options ?? []) {
         if (o.condition) o.condition = fix(o.condition)!;
         if (o.effects) o.effects = fix(o.effects)!;
         if (o.note) o.note = fixText(o.note, true);
+        if (o.text) {
+          const text = fixText(o.text, false)!;
+          followText(n, { kind: 'option', id: o.id }, o.text, text);
+          o.text = text;
+        }
       }
-      for (const l of n.lines ?? []) if (l.text) l.text = fixText(l.text, false)!;
+      for (const l of n.lines ?? []) {
+        if (!l.text) continue;
+        const text = fixText(l.text, false)!;
+        followText(n, { kind: 'line', id: l.id }, l.text, text);
+        l.text = text;
+      }
     }
   }
 }
