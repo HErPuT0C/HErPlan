@@ -4,7 +4,7 @@
 
 HErPlan — бесплатный офлайн-редактор для геймдизайна под Windows. Сценарий, база игрового мира и документы живут в одном проекте и связаны ссылками.
 
-> **Статус: в разработке (пре-альфа, веха v0.2 «Сценарий»).** Работают проекты (автосохранение, копии и история версий, восстановление после сбоя, экспорт и импорт .zip) и редактор сценария: обзор глав и главы на холсте, диалоги, выборы, условия и эффекты, единый реестр переменных, эффект бабочки и чеховское ружьё, проверки проекта, тестовое прохождение и экспорт в JSON. Карточки персонажей, локаций и предметов — пока в упрощённом виде. Ход работ — в [`PIPELINE.md`](PIPELINE.md).
+> **Статус: в разработке (пре-альфа, веха v0.3 «Мир»).** Работают проекты (автосохранение, копии и история версий, восстановление после сбоя, экспорт и импорт .zip), редактор сценария (обзор глав и главы на холсте, диалоги, выборы, условия и эффекты, единый реестр переменных, переменные прямо в тексте, чеховское ружьё и эффект бабочки как надстройки над репликами, вариантами и словами, проверки проекта, тестовое прохождение, экспорт в JSON), база данных (свои типы и подтипы, 11 видов полей, общие наборы свойств, связи с подписью для каждой стороны, карточки и таблица) и библиотека ресурсов с папками. Ход работ — в [`PIPELINE.md`](PIPELINE.md).
 
 ## Как попробовать
 
@@ -42,7 +42,7 @@ cargo test --workspace   # из корня репозитория: Rust
 
 HErPlan is a free, offline game design editor for Windows. Story, game-world database and design documents live in one project and link to each other.
 
-> **Status: in development (pre-alpha, milestone v0.2 "Story").** Projects work (autosave, backups and version history, crash recovery, .zip export and import), and so does the story editor: chapter overview and chapters on the canvas, dialogue, choices, conditions and effects, a single variable registry, butterfly effects and Chekhov's guns, project checks, a test playthrough and JSON export ([schema](docs/format/export-v1.md)). Characters, locations and items exist in a simple form for now. Progress is tracked in [`PIPELINE.md`](PIPELINE.md) (in Russian).
+> **Status: in development (pre-alpha, milestone v0.3 "World").** Projects work (autosave, backups and version history, crash recovery, .zip export and import), and so do the story editor (chapter overview and chapters on the canvas, dialogue, choices, conditions and effects, a single variable registry, variables changed right in the text, Chekhov's guns and butterfly effects laid over lines, options and words, project checks, a test playthrough, JSON export — [schema](docs/format/export-v1.md)), the world database (your own types and subtypes, 11 kinds of fields, shared property sets, relations labelled for each side, cards and a table) and the asset library with folders. Progress is tracked in [`PIPELINE.md`](PIPELINE.md) (in Russian).
 
 To try it: GitHub → **Releases** → `HErPlan-<version>-setup.exe`; builds between releases are artifacts of the latest green **ci** run on `main`.
 
