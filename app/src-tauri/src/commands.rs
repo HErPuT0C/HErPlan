@@ -9,9 +9,11 @@ use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 
 use herplan_storage::{
-    self as storage, BackupInfo, BackupKind, ErrorCode, FileText, PathStatus, ProjectSnapshot,
-    StorageError,
+    self as storage, AssetEntry, BackupInfo, BackupKind, ErrorCode, FileText, PathStatus,
+    ProjectSnapshot, StorageError,
 };
+use percent_encoding::percent_decode_str;
+use tauri::ipc::{InvokeBody, Request};
 use tauri::{AppHandle, Manager};
 
 type CommandResult<T> = Result<T, StorageError>;
@@ -108,6 +110,93 @@ pub async fn project_import_file(
     let dir = absolute(&dir)?;
     let source = absolute(&source)?;
     blocking(move || storage::import_file(&dir, &source, &dest_dir)).await
+}
+
+#[tauri::command]
+pub async fn asset_list(dir: String) -> CommandResult<Vec<AssetEntry>> {
+    let dir = absolute(&dir)?;
+    blocking(move || storage::list_assets(&dir)).await
+}
+
+#[tauri::command]
+pub async fn asset_mkdir(dir: String, path: String) -> CommandResult<()> {
+    let dir = absolute(&dir)?;
+    blocking(move || storage::asset_mkdir(&dir, &path)).await
+}
+
+#[tauri::command]
+pub async fn asset_move(dir: String, from: String, to: String) -> CommandResult<()> {
+    let dir = absolute(&dir)?;
+    blocking(move || storage::asset_move(&dir, &from, &to)).await
+}
+
+/// Moves an asset to the Recycle Bin; with `force`, deletes it for good when the bin refuses.
+#[tauri::command]
+pub async fn asset_delete(dir: String, path: String, force: bool) -> CommandResult<()> {
+    let dir = absolute(&dir)?;
+    blocking(move || storage::asset_delete(&dir, &path, force)).await
+}
+
+#[tauri::command]
+pub async fn asset_import(
+    dir: String,
+    sources: Vec<String>,
+    dest_dir: String,
+) -> CommandResult<Vec<String>> {
+    let dir = absolute(&dir)?;
+    let sources = sources
+        .iter()
+        .map(|s| absolute(s))
+        .collect::<CommandResult<Vec<_>>>()?;
+    blocking(move || storage::import_assets(&dir, &sources, &dest_dir)).await
+}
+
+/// Saves bytes as a new asset. The bytes are the raw request body, so a pasted image does not
+/// travel as a JSON array of numbers; the other arguments are percent-encoded headers.
+#[tauri::command]
+pub async fn asset_write(request: Request<'_>) -> CommandResult<String> {
+    let data = body_bytes(request.body())
+        .ok_or_else(|| StorageError::new(ErrorCode::Io, "the file content is not bytes", None))?;
+    let dir = absolute(&header(&request, "x-herplan-dir")?)?;
+    let dest_dir = header(&request, "x-herplan-dest-dir")?;
+    let name = header(&request, "x-herplan-name")?;
+    blocking(move || storage::write_asset(&dir, &dest_dir, &name, &data)).await
+}
+
+/// The bytes of a request body. The postMessage fallback of the IPC (used when the webview blocks
+/// its custom protocol) delivers them as a JSON array instead of a raw body.
+fn body_bytes(body: &InvokeBody) -> Option<Vec<u8>> {
+    match body {
+        InvokeBody::Raw(bytes) => Some(bytes.clone()),
+        InvokeBody::Json(value) => value
+            .as_array()?
+            .iter()
+            .map(|n| n.as_u64().and_then(|n| u8::try_from(n).ok()))
+            .collect(),
+    }
+}
+
+/// A percent-encoded request header (`encodeURIComponent` in the interface).
+fn header(request: &Request<'_>, name: &str) -> CommandResult<String> {
+    request
+        .headers()
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .and_then(decode_header)
+        .ok_or_else(|| {
+            StorageError::new(
+                ErrorCode::InvalidPath,
+                format!("missing or malformed header {name}"),
+                None,
+            )
+        })
+}
+
+fn decode_header(value: &str) -> Option<String> {
+    percent_decode_str(value)
+        .decode_utf8()
+        .ok()
+        .map(|value| value.into_owned())
 }
 
 /// Lets `<img>` show files of the open project through the asset protocol. The scope starts empty
@@ -211,4 +300,32 @@ pub async fn report_save(app: AppHandle, text: String) -> CommandResult<String> 
         .map_err(shell_error)?
         .join("reports");
     blocking(move || storage::save_report(&dir, &text).map(|p| p.display().to_string())).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decodes_headers_written_with_encode_uri_component() {
+        // encodeURIComponent("C:\\Users\\Мира\\Мельница (2)") in the interface.
+        let encoded = "C%3A%5CUsers%5C%D0%9C%D0%B8%D1%80%D0%B0%5C%D0%9C%D0%B5%D0%BB%D1%8C%D0%BD%D0%B8%D1%86%D0%B0%20(2)";
+        assert_eq!(
+            decode_header(encoded).as_deref(),
+            Some("C:\\Users\\Мира\\Мельница (2)")
+        );
+        assert_eq!(decode_header("%FF"), None, "not UTF-8");
+    }
+
+    #[test]
+    fn reads_bytes_from_raw_and_json_bodies() {
+        let raw = InvokeBody::Raw(vec![0, 137, 255]);
+        assert_eq!(body_bytes(&raw), Some(vec![0, 137, 255]));
+        let json = InvokeBody::Json("[0, 137, 255]".parse().unwrap());
+        assert_eq!(body_bytes(&json), Some(vec![0, 137, 255]));
+        for bad in ["[256]", "[-1]", "[1.5]", "{\"data\":[1]}", "\"AAEC\""] {
+            let body = InvokeBody::Json(bad.parse().unwrap());
+            assert_eq!(body_bytes(&body), None, "{bad}");
+        }
+    }
 }

@@ -21,6 +21,14 @@ export interface AssetInfo {
   modifiedMs: number;
 }
 
+/** A file or folder of the asset library ("assets/…"); a folder's size is 0. */
+export interface AssetEntry {
+  path: string;
+  kind: 'file' | 'folder';
+  size: number;
+  modifiedMs: number;
+}
+
 /** Everything the interface needs to open a project: JSON and Markdown as text, assets as a listing. */
 export interface ProjectSnapshot {
   files: FileText[];
@@ -91,6 +99,36 @@ export interface Platform {
   /** URL for an outside file the user just picked (cover preview before the project exists). */
   fileUrl(path: string): Promise<string>;
 
+  // Asset library. Every path lies inside "assets/" (anything else fails with 'invalid-path'); temporary files of
+  // interrupted writes are never listed or touched.
+  /** Every file and folder under "assets/", folders even when empty, sorted by path; "assets" itself is not listed. */
+  listAssets(dir: string): Promise<AssetEntry[]>;
+  /** Creates a folder with any missing parents; an existing folder is fine, a file with that path fails with 'exists'. */
+  assetMkdir(dir: string, path: string): Promise<void>;
+  /**
+   * Renames or moves a file, or a folder with its contents, creating missing parents of `to`. Fails with 'exists'
+   * when `to` is taken and 'invalid-path' when a folder would move into itself. A change of letter case only
+   * ("a.png" → "A.png") works on Windows too.
+   */
+  assetMove(dir: string, from: string, to: string): Promise<void>;
+  /**
+   * Moves a file, or a folder with its contents, to the Recycle Bin. When the bin refuses (no bin on that drive),
+   * fails with 'io' and changes nothing, unless `force` (default false) deletes it for good instead.
+   * A path that does not exist is not an error.
+   */
+  assetDelete(dir: string, path: string, force?: boolean): Promise<void>;
+  /**
+   * Copies outside files and folders (with everything inside, structure kept) into `destDir`, a folder under
+   * "assets/" created if missing. Clashing names get " (2)", " (3)"… like importFile. Symlinks and system files
+   * (Thumbs.db, desktop.ini) are skipped. Returns the relative paths of all copied files.
+   */
+  importAssets(dir: string, sources: string[], destDir: string): Promise<string[]>;
+  /**
+   * Saves bytes (an image pasted from the clipboard or dropped in the web build) as a new file `name` in
+   * `destDir`, renamed like importAssets on a clash; returns its relative path. `name` must be a valid file name.
+   */
+  writeAsset(dir: string, destDir: string, name: string, data: Uint8Array): Promise<string>;
+
   createBackup(dir: string, kind: BackupKind, label: string | null): Promise<BackupInfo>;
   listBackups(dir: string): Promise<BackupInfo[]>;
   /** Deletes the oldest automatic copies beyond `keep`; null keeps all. Manual versions are never deleted. */
@@ -112,7 +150,16 @@ export interface Platform {
     filters: { name: string; extensions: string[] }[],
   ): Promise<string | null>;
   revealInExplorer(path: string): Promise<void>;
+  /** Opens a file with its default program. The desktop build opens only files inside an "assets" folder. */
+  openPath(path: string): Promise<void>;
   openUrl(url: string): Promise<void>;
+  /**
+   * Files dropped on the window from the file explorer: their absolute paths and the drop point in CSS pixels.
+   * Returns a function that stops listening. The web build never calls it: there drops arrive as HTML5 events.
+   */
+  onFileDrop(handler: (paths: string[], x: number, y: number) => void): () => void;
+  /** Files dragged over the window: the point in CSS pixels, then null when they leave or are dropped. */
+  onFileDragOver?(handler: (point: { x: number; y: number } | null) => void): () => void;
   /** Interface scale in percent (80–200), like browser zoom. */
   setUiScale(percent: number): Promise<void>;
   /** Versions and environment for bug reports: application, Tauri, WebView2, Windows, architecture. */

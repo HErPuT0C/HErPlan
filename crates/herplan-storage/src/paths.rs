@@ -6,9 +6,13 @@
 
 use std::path::{Component, Path, PathBuf};
 
+use crate::atomic::is_temp_name;
 use crate::error::{Result, StorageError};
 
 pub const PROJECT_FILE: &str = "project.json";
+
+/// The folder of the asset library: the user's own files, in folders of their own.
+pub(crate) const ASSETS_DIR: &str = "assets";
 
 /// Top-level folders the interface may write into.
 const WRITABLE_ROOTS: &[&str] = &["data", "documents", "assets", ".herplan"];
@@ -41,6 +45,28 @@ pub(crate) fn validate_file_path(rel: &str) -> Result<PathBuf> {
         return Err(StorageError::invalid_path(rel));
     }
     Ok(native)
+}
+
+/// Like [`validate_rel_path`], but only for what lies inside `assets/`: the asset library cannot
+/// reach project data. Temporary files of interrupted writes cannot be addressed either. The bare
+/// `assets` folder is accepted only with `root_ok`, as a destination folder.
+pub(crate) fn validate_asset_path(rel: &str, root_ok: bool) -> Result<PathBuf> {
+    let segments = segments(rel).ok_or_else(|| StorageError::invalid_path(rel))?;
+    let allowed = match segments.split_first() {
+        Some((root, rest)) if *root == ASSETS_DIR => {
+            (root_ok || !rest.is_empty()) && !rest.iter().any(|s| is_temp_name(s))
+        }
+        _ => false,
+    };
+    if !allowed {
+        return Err(StorageError::invalid_path(rel));
+    }
+    Ok(segments.iter().collect())
+}
+
+/// A name for a new file or folder: a single valid segment, not a temporary file's name.
+pub(crate) fn is_valid_name(name: &str) -> bool {
+    !name.contains(['/', '\\']) && is_valid_segment(name) && !is_temp_name(name)
 }
 
 fn is_root_folder(rel: &Path) -> bool {
@@ -193,6 +219,75 @@ mod tests {
         }
         assert!(validate_file_path("project.json").is_ok());
         assert!(validate_file_path("assets/a.png").is_ok());
+    }
+
+    #[test]
+    fn asset_paths_stay_inside_assets() {
+        for path in [
+            "assets/a.png",
+            "assets/Мир/Персонажи/Мира.png",
+            "assets\\a\\b.png",
+        ] {
+            assert!(validate_asset_path(path, false).is_ok(), "{path}");
+        }
+        assert_eq!(
+            validate_asset_path("assets\\a/b.png", false).unwrap(),
+            Path::new("assets").join("a").join("b.png")
+        );
+        assert_eq!(
+            validate_asset_path("assets", true).unwrap(),
+            Path::new("assets")
+        );
+        let bad = [
+            "assets",
+            "",
+            "Assets/a.png",
+            "assets/../project.json",
+            "assets/a/../../data/x.json",
+            "assets/./a.png",
+            "assets//a.png",
+            "assets/",
+            "/assets/a.png",
+            "C:\\p\\assets\\a.png",
+            "data/entities/a.json",
+            "documents/a.md",
+            ".herplan/workspace.json",
+            "backups/auto/x.zip",
+            "project.json",
+            "assets/.a.png.tmp-12",
+            "assets/.folder.tmp-3/a.png",
+            "assets/con.png",
+            "assets/a?.png",
+        ];
+        for path in bad {
+            let err = validate_asset_path(path, false).expect_err(path);
+            assert_eq!(err.code, ErrorCode::InvalidPath, "{path}");
+        }
+        for path in ["data", "../assets", "assets/..", "backups", ""] {
+            assert!(validate_asset_path(path, true).is_err(), "{path}");
+        }
+    }
+
+    #[test]
+    fn checks_new_names() {
+        for name in ["a.png", "Скриншот 2026-10-20.png", ".hidden", "a (2).png"] {
+            assert!(is_valid_name(name), "{name}");
+        }
+        let bad = [
+            "",
+            ".",
+            "..",
+            "a/b.png",
+            "a\\b.png",
+            "a:b.png",
+            "con",
+            "name.",
+            "name ",
+            ".a.png.tmp-1",
+        ];
+        for name in bad {
+            assert!(!is_valid_name(name), "{name}");
+        }
     }
 
     #[test]

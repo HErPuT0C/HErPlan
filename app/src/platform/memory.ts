@@ -3,7 +3,16 @@
 // Binary files (covers) are stored as data URLs. Archives and backups are JSON, not real zip files.
 
 import { baseName, normalizeProjectPath } from './paths';
-import type { BackupInfo, BackupKind, FileText, Platform, PlatformError, PathStatus, ProjectSnapshot } from './types';
+import type {
+  AssetEntry,
+  BackupInfo,
+  BackupKind,
+  FileText,
+  Platform,
+  PlatformError,
+  PathStatus,
+  ProjectSnapshot,
+} from './types';
 
 const FS_KEY = 'herplan.web.fs.v1';
 const SETTINGS_KEY = 'herplan.web.settings.v1';
@@ -18,6 +27,18 @@ const LAYOUT = [
   '.herplan',
 ];
 const EXCLUDED_FROM_ARCHIVE = ['backups/', '.herplan/'];
+/** Files that Windows and macOS put into folders by themselves; an import skips them, like the desktop build. */
+const SYSTEM_FILES = new Set(['thumbs.db', 'ehthumbs.db', 'ehthumbs_vista.db', 'desktop.ini', '.ds_store']);
+const MIME_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  bmp: 'image/bmp',
+  svg: 'image/svg+xml',
+};
 
 interface FsState {
   files: Record<string, string>;
@@ -52,6 +73,52 @@ function timestampName(date: Date): string {
     .replace(/\.\d+Z$/, 'Z')
     .replace(/:/g, '-');
 }
+
+function parentOf(path: string): string {
+  return path.slice(0, path.lastIndexOf('/'));
+}
+
+/** Names of temporary files of interrupted atomic writes (".name.tmp-<pid>"), never shown as assets. */
+function isTempName(name: string): boolean {
+  return name.startsWith('.') && name.includes('.tmp-');
+}
+
+function isSkippedOnImport(name: string): boolean {
+  return isTempName(name) || SYSTEM_FILES.has(name.toLowerCase());
+}
+
+/** A single file or folder name that Windows accepts. */
+function isValidName(name: string): boolean {
+  return !/[\\/]/.test(name) && !isTempName(name) && normalizeProjectPath(`assets/${name}`) !== null;
+}
+
+/** Size in bytes of a stored file: binary files are base64 data URLs, the rest is text. */
+function byteSize(content: string): number {
+  const header = /^data:[^,]*;base64,/.exec(content);
+  if (!header) return new TextEncoder().encode(content).length;
+  const base64 = content.slice(header[0].length);
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.floor((base64.length * 3) / 4) - padding;
+}
+
+function toDataUrl(name: string, data: Uint8Array): string {
+  const dot = name.lastIndexOf('.');
+  const type = (dot > 0 && MIME_TYPES[name.slice(dot + 1).toLowerCase()]) || 'application/octet-stream';
+  let binary = '';
+  // In chunks: one call with millions of arguments would overflow the stack.
+  for (let i = 0; i < data.length; i += 0x8000) binary += String.fromCharCode(...data.subarray(i, i + 0x8000));
+  return `data:${type};base64,${btoa(binary)}`;
+}
+
+function byPath(a: { path: string }, b: { path: string }): number {
+  // Code unit order, like the desktop build's byte order, not the locale's.
+  return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+}
+
+/** What an import copies, read in full before the first copy (as on disk). */
+type ImportItem =
+  | { kind: 'file'; name: string; content: string }
+  | { kind: 'folder'; name: string; files: [rel: string, content: string][]; folders: string[] };
 
 export class MemoryPlatform implements Platform {
   readonly kind = 'web';
@@ -109,6 +176,66 @@ export class MemoryPlatform implements Platform {
     const normalized = normalizeProjectPath(path);
     if (!normalized) fail('invalid-path', 'path is not allowed', path);
     return join(dir, normalized);
+  }
+
+  /** A path inside "assets/" as a full path; with `rootOk`, "assets" itself too (a destination folder). */
+  private assetPath(dir: string, path: string, rootOk = false): string {
+    const normalized = rootOk && path === 'assets' ? path : normalizeProjectPath(path);
+    const inside = normalized === 'assets' || normalized?.startsWith('assets/');
+    if (!normalized || !inside || normalized.split('/').some(isTempName)) {
+      fail('invalid-path', 'path is not allowed', path);
+    }
+    return join(dir, normalized);
+  }
+
+  /** Fails with 'exists' where a file has the name of `full` or of a folder on the way to it. */
+  private requireFolderPath(dir: string, full: string): void {
+    const base = join(dir);
+    const parts = full.slice(base.length + 1).split('/');
+    for (let i = 1; i <= parts.length; i++) {
+      const prefix = join(base, ...parts.slice(0, i));
+      if (prefix in this.fs.files) fail('exists', 'the name is taken', prefix);
+    }
+  }
+
+  /** The first of `name`, `stem (2).ext`, `stem (3).ext`… (for a folder `name (2)`) that is free in `folder`. */
+  private freeName(folder: string, name: string, isFolder: boolean): string {
+    const dot = isFolder ? -1 : name.lastIndexOf('.');
+    const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
+    let candidate = join(folder, name);
+    for (let n = 2; this.status(candidate) !== 'missing'; n++) candidate = join(folder, `${stem} (${n})${ext}`);
+    return candidate;
+  }
+
+  /**
+   * Reads an import source: a file, or a folder (a path other files lie under) with everything inside it.
+   * Null when the source is skipped.
+   */
+  private readImportItem(source: string): ImportItem | null {
+    const full = join(source);
+    const status = this.status(full);
+    if (status === 'missing') fail('not-found', 'file not found', source);
+    const name = baseName(full);
+    if (isSkippedOnImport(name)) return null;
+    if (!isValidName(name)) fail('invalid-path', 'the name is not allowed', source);
+    if (status === 'file') return { kind: 'file', name, content: this.fs.files[full] };
+    const prefix = `${full}/`;
+    const kept = (rel: string) => {
+      const parts = rel.split('/');
+      if (parts.some(isSkippedOnImport)) return false;
+      if (!parts.every(isValidName)) fail('invalid-path', 'the name is not allowed', join(full, rel));
+      return true;
+    };
+    const files = Object.entries(this.fs.files)
+      .filter(([path]) => path.startsWith(prefix))
+      .map(([path, content]): [string, string] => [path.slice(prefix.length), content])
+      .filter(([rel]) => kept(rel))
+      .sort(([a], [b]) => byPath({ path: a }, { path: b }));
+    const folders = this.fs.dirs
+      .filter((d) => d.startsWith(prefix))
+      .map((d) => d.slice(prefix.length))
+      .filter(kept);
+    return { kind: 'folder', name, files, folders };
   }
 
   /** Files of a project that go into archives and backups, relative to the project folder. */
@@ -239,6 +366,124 @@ export class MemoryPlatform implements Platform {
     return this.fs.files[join(path)] ?? '';
   }
 
+  async listAssets(dir: string): Promise<AssetEntry[]> {
+    this.requireProject(dir);
+    const base = `${join(dir)}/`;
+    const entries = new Map<string, AssetEntry>();
+    // Folders exist explicitly (dirs) or because files lie in them.
+    const addFolders = (rel: string) => {
+      const parts = rel.split('/');
+      for (let i = 2; i <= parts.length; i++) {
+        const path = parts.slice(0, i).join('/');
+        if (!entries.has(path)) entries.set(path, { path, kind: 'folder', size: 0, modifiedMs: 0 });
+      }
+    };
+    for (const [full, content] of Object.entries(this.fs.files)) {
+      const rel = full.slice(base.length);
+      if (!full.startsWith(`${base}assets/`) || rel.split('/').some(isTempName)) continue;
+      addFolders(parentOf(rel));
+      entries.set(rel, { path: rel, kind: 'file', size: byteSize(content), modifiedMs: 0 });
+    }
+    for (const full of this.fs.dirs) {
+      const rel = full.slice(base.length);
+      if (full.startsWith(`${base}assets/`) && !rel.split('/').some(isTempName)) addFolders(rel);
+    }
+    return [...entries.values()].sort(byPath);
+  }
+
+  async assetMkdir(dir: string, path: string): Promise<void> {
+    const full = this.assetPath(dir, path);
+    this.requireProject(dir);
+    this.requireFolderPath(dir, full);
+    this.mkdir(full);
+    this.save();
+  }
+
+  async assetMove(dir: string, from: string, to: string): Promise<void> {
+    const source = this.assetPath(dir, from);
+    const target = this.assetPath(dir, to);
+    this.requireProject(dir);
+    const status = this.status(source);
+    if (status === 'missing') fail('not-found', 'nothing to move', source);
+    if (source === target) return;
+    if (target.startsWith(`${source}/`)) fail('invalid-path', 'a folder cannot move into itself', to);
+    if (this.status(target) !== 'missing') fail('exists', 'the name is taken', target);
+    this.requireFolderPath(dir, parentOf(target));
+    // The folder the item leaves stays, as on disk.
+    this.mkdir(parentOf(source));
+    this.mkdir(parentOf(target));
+    if (status === 'file') {
+      this.fs.files[target] = this.fs.files[source];
+      delete this.fs.files[source];
+    } else {
+      const prefix = `${source}/`;
+      for (const [path, content] of Object.entries(this.fs.files)) {
+        if (!path.startsWith(prefix)) continue;
+        this.fs.files[target + path.slice(source.length)] = content;
+        delete this.fs.files[path];
+      }
+      this.fs.dirs = this.fs.dirs.map((d) =>
+        d === source || d.startsWith(prefix) ? target + d.slice(source.length) : d,
+      );
+      this.mkdir(target);
+    }
+    this.save();
+  }
+
+  // `force` does not matter here: there is no Recycle Bin to refuse, the item is simply removed.
+  async assetDelete(dir: string, path: string): Promise<void> {
+    const full = this.assetPath(dir, path);
+    this.requireProject(dir);
+    if (this.status(full) === 'missing') return;
+    this.mkdir(parentOf(full));
+    const prefix = `${full}/`;
+    for (const file of Object.keys(this.fs.files)) {
+      if (file === full || file.startsWith(prefix)) delete this.fs.files[file];
+    }
+    this.fs.dirs = this.fs.dirs.filter((d) => d !== full && !d.startsWith(prefix));
+    this.save();
+  }
+
+  async importAssets(dir: string, sources: string[], destDir: string): Promise<string[]> {
+    const dest = this.assetPath(dir, destDir, true);
+    this.requireProject(dir);
+    // Every source is read before the first copy: nothing is copied if one is missing, and a folder imported
+    // into itself does not pick up its own copies.
+    const items = sources.map((s) => this.readImportItem(s)).filter((item) => item !== null);
+    this.requireFolderPath(dir, dest);
+    this.mkdir(dest);
+    const base = join(dir).length + 1;
+    const copied: string[] = [];
+    for (const item of items) {
+      const target = this.freeName(dest, item.name, item.kind === 'folder');
+      if (item.kind === 'file') {
+        this.fs.files[target] = item.content;
+        copied.push(target.slice(base));
+        continue;
+      }
+      this.mkdir(target);
+      for (const folder of item.folders) this.mkdir(join(target, folder));
+      for (const [rel, content] of item.files) {
+        this.fs.files[join(target, rel)] = content;
+        copied.push(join(target, rel).slice(base));
+      }
+    }
+    this.save();
+    return copied;
+  }
+
+  async writeAsset(dir: string, destDir: string, name: string, data: Uint8Array): Promise<string> {
+    const dest = this.assetPath(dir, destDir, true);
+    if (!isValidName(name)) fail('invalid-path', 'the name is not allowed', name);
+    this.requireProject(dir);
+    this.requireFolderPath(dir, dest);
+    this.mkdir(dest);
+    const target = this.freeName(dest, name, false);
+    this.fs.files[target] = toDataUrl(name, data);
+    this.save();
+    return target.slice(join(dir).length + 1);
+  }
+
   async createBackup(dir: string, kind: BackupKind, label: string | null): Promise<BackupInfo> {
     this.requireProject(dir);
     const now = new Date();
@@ -357,8 +602,21 @@ export class MemoryPlatform implements Platform {
     // Nothing to reveal in a browser.
   }
 
+  async openPath(): Promise<void> {
+    // No programs to open files with in a browser.
+  }
+
   async openUrl(url: string): Promise<void> {
     window.open(url, '_blank', 'noopener');
+  }
+
+  onFileDrop(): () => void {
+    // Files dropped on a web page arrive as HTML5 drop events, without paths.
+    return () => {};
+  }
+
+  onFileDragOver(): () => void {
+    return () => {};
   }
 
   async setUiScale(percent: number): Promise<void> {

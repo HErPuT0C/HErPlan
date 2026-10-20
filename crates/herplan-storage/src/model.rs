@@ -35,6 +35,23 @@ pub struct AssetInfo {
     pub modified_ms: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AssetKind {
+    File,
+    Folder,
+}
+
+/// A file or folder of the asset library; a folder's `size` is 0.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetEntry {
+    pub path: String,
+    pub kind: AssetKind,
+    pub size: u64,
+    pub modified_ms: u64,
+}
+
 /// Everything the interface needs to open a project: JSON and Markdown as text, assets as a listing.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -141,6 +158,28 @@ mod tests {
         assert_eq!(
             serde_json::to_value([DamageReason::Empty, DamageReason::Unreadable]).unwrap(),
             json!(["empty", "unreadable"])
+        );
+
+        let entries = [
+            AssetEntry {
+                path: "assets/Мир".into(),
+                kind: AssetKind::Folder,
+                size: 0,
+                modified_ms: 1,
+            },
+            AssetEntry {
+                path: "assets/Мир/a.png".into(),
+                kind: AssetKind::File,
+                size: 3,
+                modified_ms: 2,
+            },
+        ];
+        assert_eq!(
+            serde_json::to_value(entries).unwrap(),
+            json!([
+                { "path": "assets/Мир", "kind": "folder", "size": 0, "modifiedMs": 1 },
+                { "path": "assets/Мир/a.png", "kind": "file", "size": 3, "modifiedMs": 2 }
+            ])
         );
     }
 
