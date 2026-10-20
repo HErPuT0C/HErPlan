@@ -283,6 +283,8 @@ export const worldEn = {
   'assets.use.entity': 'Picture of the card “{name}”',
   'assets.use.field': '“{name}”, field “{field}”',
   'assets.use.chapter': 'Picture of the chapter “{title}”',
+  'assets.use.document': 'Document “{name}”',
+  'assets.use.map': 'Project map',
   'assets.step.move': 'Move asset',
   'assets.step.color': 'Folder colour',
 } as const;

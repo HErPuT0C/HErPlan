@@ -1,8 +1,9 @@
 // The asset library's side of project data (F4-11, F4-12): where a file is used (entity pictures, image
-// fields, chapter pictures, the project cover), keeping those references when a file or folder is renamed
-// or moved, and folder colours in data/assets.json.
+// fields, chapter pictures, the project cover, pictures in documents, cards of the project map), keeping those
+// references when a file or folder is renamed or moved, and folder colours in data/assets.json.
 
 import type { JsonObject, ProjectData } from '../core/project/types';
+import { asDocument, docName, listDocuments } from '../documents/model';
 import { asEntity } from '../story/entities';
 import { allGraphs, asStory } from '../story/model';
 import { effectiveFields, typesFile } from './schema';
@@ -11,7 +12,29 @@ export type AssetUse =
   | { kind: 'cover'; path: string }
   | { kind: 'entity'; path: string; entity: string; name: string }
   | { kind: 'field'; path: string; entity: string; name: string; field: string }
-  | { kind: 'chapter'; path: string; graph: string; node: string; title: string };
+  | { kind: 'chapter'; path: string; graph: string; node: string; title: string }
+  | { kind: 'document'; path: string; doc: string; name: string }
+  | { kind: 'map'; path: string; graph: string; node: string };
+
+/** Pictures in Markdown: ![alt](path) or ![alt](<path with spaces>). */
+const IMAGE = /(!\[[^\]\n]*\]\()(<[^>\n]+>|[^)\s]+)((?:\s+"[^"\n]*")?\))/g;
+
+/** Paths of the pictures a document shows. */
+export function imagesIn(body: string): string[] {
+  return [...body.matchAll(IMAGE)].map((m) => m[2].replace(/^<|>$/g, ''));
+}
+
+/** A text with the paths of its pictures changed; whole strings that are a path are changed too. */
+export function moveInText(text: string, from: string, to: string): string {
+  if (text === from || text.startsWith(`${from}/`)) return movedPath(text, from, to);
+  if (!text.includes('![')) return text;
+  return text.replace(IMAGE, (all, start: string, path: string, end: string) => {
+    const bare = path.replace(/^<|>$/g, '');
+    if (!covers(from, bare)) return all;
+    const moved = movedPath(bare, from, to);
+    return `${start}${/[\s()<>]/.test(moved) ? `<${moved}>` : moved}${end}`;
+  });
+}
 
 /** Is `path` the asset itself, or inside the folder `target`. */
 const covers = (target: string, path: string | null | undefined): path is string =>
@@ -39,6 +62,15 @@ export function assetUses(data: ProjectData, target: string): AssetUse[] {
       if (n.kind === 'chapter' && covers(target, n.image)) {
         out.push({ kind: 'chapter', path: n.image, graph: g.id, node: n.id, title: n.title });
       }
+      const ref = raw.ref as { kind?: string; id?: string } | undefined;
+      if (g.kind === 'projectMap' && ref?.kind === 'asset' && covers(target, ref.id)) {
+        out.push({ kind: 'map', path: ref.id, graph: g.id, node: raw.id });
+      }
+    }
+  }
+  for (const doc of listDocuments(data)) {
+    for (const path of new Set(imagesIn(doc.body))) {
+      if (covers(target, path)) out.push({ kind: 'document', path, doc: doc.id, name: docName(doc.path) });
     }
   }
   return out;
@@ -75,7 +107,13 @@ export function moveAssetRefs(d: ProjectData, from: string, to: string): void {
     for (const raw of g.nodes) {
       const n = asStory(raw);
       if (n.kind === 'chapter' && covers(from, n.image)) n.image = movedPath(n.image, from, to);
+      const ref = raw.ref as { kind?: string; id?: string } | undefined;
+      if (ref?.kind === 'asset' && covers(from, ref.id)) ref.id = movedPath(ref.id, from, to);
     }
+  }
+  for (const raw of Object.values(d.documents)) {
+    const doc = asDocument(raw);
+    if (doc && imagesIn(doc.body).some((p) => covers(from, p))) raw.body = moveInText(doc.body, from, to);
   }
   const folders = editableColors(d);
   for (const key of Object.keys(folders)) {

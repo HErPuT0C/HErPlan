@@ -287,6 +287,8 @@ export const worldRu = {
   'assets.use.entity': 'Картинка карточки «{name}»',
   'assets.use.field': '«{name}», поле «{field}»',
   'assets.use.chapter': 'Картинка главы «{title}»',
+  'assets.use.document': 'Документ «{name}»',
+  'assets.use.map': 'Карта проекта',
   'assets.step.move': 'Переместить ресурс',
   'assets.step.color': 'Цвет папки',
 } as const;

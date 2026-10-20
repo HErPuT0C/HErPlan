@@ -48,8 +48,8 @@ describe('the self-checking Markdown save (F5-10)', () => {
     const out = roundTrip(
       p(text('красный ', red), text('жирный', red, 'bold'), text(' и '), text('с засечками', serif)),
     );
-    expect(out).toContain('data-color="red"');
-    expect(out).toContain('data-font="serif"');
+    expect(out).toContain('<font color="red">');
+    expect(out).toContain('<font face="serif">');
   });
 
   it('keeps empty paragraphs, empty headings and lists written one after another', () => {
@@ -62,5 +62,13 @@ describe('the self-checking Markdown save (F5-10)', () => {
       { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph' }] }] },
     );
     expect(out).toContain('* b');
+  });
+
+  it('keeps pictures with spaces in their paths', () => {
+    const out = roundTrip(p(text('карта:')), {
+      type: 'image',
+      attrs: { src: 'assets/карты/лес и река.png', alt: 'лес [1]' },
+    });
+    expect(out).toContain('(<assets/карты/лес и река.png>)');
   });
 });

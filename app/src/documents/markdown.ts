@@ -143,19 +143,30 @@ export const TEXT_COLORS: Record<string, string> = {
 };
 export type TextFont = 'serif' | 'mono';
 
-const colorOf = (el: HTMLElement) => {
-  const name = el.dataset.color;
-  return name && name in TEXT_COLORS ? name : null;
-};
+const FONT_FACES: Record<TextFont, string> = { serif: 'serif', mono: 'monospace' };
 
-/** Colour of text: <span data-color="red">…</span> in the file (Obsidian shows the text, uncoloured). */
+/** `<font color face>`: a tag no embed uses, so it can hold links and fields (the reader does not count nesting). */
+function fontTag(color: string | null, font: string | null, inner: string): string {
+  const attrs = [
+    color ? ` color="${attr(color)}"` : '',
+    font ? ` face="${attr(FONT_FACES[font as TextFont] ?? font)}"` : '',
+  ].join('');
+  return attrs ? `<font${attrs}>${inner}</font>` : inner;
+}
+
+/** Colour of text: `<font color="red">` in the file (Obsidian shows it coloured too). */
 const TextColor = Mark.create({
   name: 'textColor',
   addAttributes: () => ({ color: { default: 'red' } }),
   parseHTML: () => [
     {
-      tag: 'span[data-color]',
-      getAttrs: (el) => (colorOf(el as HTMLElement) ? { color: colorOf(el as HTMLElement) } : false),
+      tag: 'font[color]',
+      // The same tag may carry the font as well.
+      consuming: false,
+      getAttrs: (el) => {
+        const color = (el as HTMLElement).getAttribute('color') ?? '';
+        return color in TEXT_COLORS ? { color } : false;
+      },
     },
   ],
   renderHTML: ({ mark }) => [
@@ -163,26 +174,25 @@ const TextColor = Mark.create({
     { 'data-color': mark.attrs.color, style: `color: ${TEXT_COLORS[String(mark.attrs.color)] ?? 'inherit'}` },
     0,
   ],
-  renderMarkdown: (node, h) =>
-    `<span data-color="${attr(String(node.attrs?.color ?? ''))}">${h.renderChildren(node)}</span>`,
+  renderMarkdown: (node, h) => fontTag(String(node.attrs?.color ?? ''), null, h.renderChildren(node)),
 });
 
-/** Font of text: <span data-font="serif">…</span>; the document's own font is the default. */
+/** Font of text: `<font face="serif">` or `<font face="monospace">`; the document's own font is the default. */
 const TextFontMark = Mark.create({
   name: 'textFont',
   addAttributes: () => ({ font: { default: 'serif' } }),
   parseHTML: () => [
     {
-      tag: 'span[data-font]',
+      tag: 'font[face]',
+      consuming: false,
       getAttrs: (el) => {
-        const font = (el as HTMLElement).dataset.font;
-        return font === 'serif' || font === 'mono' ? { font } : false;
+        const face = (el as HTMLElement).getAttribute('face');
+        return face === 'serif' ? { font: 'serif' } : face === 'monospace' ? { font: 'mono' } : false;
       },
     },
   ],
   renderHTML: ({ mark }) => ['span', { 'data-font': mark.attrs.font, class: `doc-font-${mark.attrs.font}` }, 0],
-  renderMarkdown: (node, h) =>
-    `<span data-font="${attr(String(node.attrs?.font ?? ''))}">${h.renderChildren(node)}</span>`,
+  renderMarkdown: (node, h) => fontTag(null, String(node.attrs?.font ?? ''), h.renderChildren(node)),
 });
 
 // ---------- embeds: links to objects and live fields ----------
@@ -327,6 +337,17 @@ export const LiveField = Node.create({
 
 /** A picture of the project is stored by its path ("assets/…") and shown through `assetUrl`. */
 const ProjectImage = Image.extend({
+  // A path with spaces or brackets ("assets/лес и река.png") is written in angle brackets; brackets in the
+  // alt text are escaped.
+  renderMarkdown: (node) => {
+    const src = String(node.attrs?.src ?? '');
+    const alt = String(node.attrs?.alt ?? '')
+      .replace(/\n/g, ' ')
+      .replace(/([\\[\]])/g, '\\$1');
+    const title = String(node.attrs?.title ?? '').replace(/"/g, "'");
+    const where = /[\s()<>]/.test(src) ? `<${src}>` : src;
+    return title ? `![${alt}](${where} "${title}")` : `![${alt}](${where})`;
+  },
   addNodeView() {
     return ({ node }) => {
       const img = document.createElement('img');
@@ -491,11 +512,12 @@ function inlineHtml(nodes: JSONContent[], render: (node: JSONContent) => string)
     }
     for (const m of wrap) {
       if (m.type === 'link') inner = `<a href="${attr(String(m.attrs?.href ?? ''))}">${inner}</a>`;
-      else if (m.type === 'textColor')
-        inner = `<span data-color="${attr(String(m.attrs?.color ?? ''))}">${inner}</span>`;
-      else if (m.type === 'textFont') inner = `<span data-font="${attr(String(m.attrs?.font ?? ''))}">${inner}</span>`;
       else if (TAGS[m.type]) inner = TAGS[m.type][0] + inner + TAGS[m.type][1];
     }
+    // Colour and font share one tag.
+    const color = wrap.find((m) => m.type === 'textColor')?.attrs?.color;
+    const font = wrap.find((m) => m.type === 'textFont')?.attrs?.font;
+    inner = fontTag(color ? String(color) : null, font ? String(font) : null, inner);
     out += before + inner + after;
   }
   // Text that would start a list or a numbered list at the start of the line ("#" and ">" are entities already).
@@ -609,6 +631,11 @@ function normalize(node: JSONContent): JSONContent {
     const kept = out.content.filter((c) => !(c.type === 'paragraph' && !c.content?.length));
     out.content = kept.length ? kept : out.content.slice(0, 1);
   }
+  // The table writer of TipTap squeezes several spaces in a cell into one.
+  if ((out.type === 'tableCell' || out.type === 'tableHeader') && out.content) {
+    for (const para of out.content)
+      for (const t of para.content ?? []) if (t.text) t.text = t.text.replace(/\s{2,}/g, ' ');
+  }
   if (out.type === 'table' && out.content) {
     out.content.forEach((row, i) =>
       row.content?.forEach((cell) => (cell.type = i === 0 ? 'tableHeader' : 'tableCell')),
@@ -623,23 +650,15 @@ const CONTAINERS = new Set(['listItem', 'blockquote']);
 /** Bold or italic on spaces cannot be seen and Markdown cannot keep it: spaces at the edges count as plain. */
 function splitSpaces(node: JSONContent): JSONContent[] {
   const marks = node.marks as { type: string }[] | undefined;
-  if (
-    node.type === 'text' &&
-    marks?.length &&
-    !node.text?.trim() &&
-    marks.every((m) => NOTHING_ON_SPACES.has(m.type))
-  ) {
-    return [{ type: 'text', text: node.text }];
-  }
-  if (node.type !== 'text' || !node.text || !marks?.length || !marks.every((m) => INVISIBLE_ON_SPACES.has(m.type))) {
-    return [node];
-  }
+  if (node.type !== 'text' || !node.text || !marks?.length) return [node];
+  // On spaces, bold, italic and code mean nothing; the other marks (underline, strike, colour) stay.
+  const onSpaces = (text: string): JSONContent => {
+    const kept = marks.filter((m) => !NOTHING_ON_SPACES.has(m.type));
+    return kept.length ? { ...node, text, marks: kept } : { type: 'text', text };
+  };
+  if (!node.text.trim()) return [onSpaces(node.text)];
   const [, before, middle, after] = /^(\s*)([\s\S]*?)(\s*)$/.exec(node.text)!;
-  return [
-    ...(before ? [{ type: 'text', text: before }] : []),
-    ...(middle ? [{ ...node, text: middle }] : []),
-    ...(after ? [{ type: 'text', text: after }] : []),
-  ];
+  return [...(before ? [onSpaces(before)] : []), { ...node, text: middle }, ...(after ? [onSpaces(after)] : [])];
 }
 
 function trimLines(content: JSONContent[]): void {

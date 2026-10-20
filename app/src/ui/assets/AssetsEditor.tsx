@@ -23,7 +23,7 @@ import { useStore } from '../../core/useStore';
 import { formatBytes, formatDate, t, type MessageKey } from '../../i18n';
 import { platform } from '../../platform';
 import type { AssetEntry, PlatformError } from '../../platform/types';
-import { openEntity, revealInStory } from '../../state/navigation';
+import { openDocument, openEntity, openMap, revealInStory } from '../../state/navigation';
 import type { OpenProject } from '../../state/project';
 import {
   assetUseCounts,
@@ -32,7 +32,7 @@ import {
   folderColors,
   forgetFolder,
   moveAssetRefs,
-  movedPath,
+  moveInText,
   parentOf,
   setFolderColor,
   type AssetUse,
@@ -148,7 +148,7 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
       await platform().assetMove(dir, from, to);
       // Undo cannot move the file back, so the references follow it outside the undo history.
       store.dispatch(t('assets.step.move'), (d) => moveAssetRefs(d, from, to), { history: false });
-      store.rewriteHistory((text) => movedPath(text, from, to));
+      store.rewriteHistory((text) => moveInText(text, from, to));
       if (selected && (selected === from || selected.startsWith(`${from}/`)))
         setSelected(to + selected.slice(from.length));
       if (current === from || current.startsWith(`${from}/`)) setFolder(to + current.slice(from.length));
@@ -501,6 +501,10 @@ function usageText(u: AssetUse): string {
       return t('assets.use.field', { name: u.name || t('story.untitled'), field: u.field });
     case 'chapter':
       return t('assets.use.chapter', { title: u.title || t('story.untitled') });
+    case 'document':
+      return t('assets.use.document', { name: u.name });
+    case 'map':
+      return t('assets.use.map');
   }
 }
 
@@ -529,6 +533,8 @@ function AssetDetails({
   const go = (u: AssetUse) => {
     if (u.kind === 'entity' || u.kind === 'field') openEntity(u.entity);
     else if (u.kind === 'chapter') revealInStory({ graph: u.graph, node: u.node, highlight: [u.node] });
+    else if (u.kind === 'document') openDocument(u.doc);
+    else if (u.kind === 'map') openMap(u.node);
   };
   const row = (label: string, value: ReactNode) => (
     <div className="asset-prop">

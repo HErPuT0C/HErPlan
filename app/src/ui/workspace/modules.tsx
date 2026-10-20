@@ -14,7 +14,7 @@ export interface ModuleInfo {
 }
 
 export const MODULES: Record<ModuleKind, ModuleInfo> = {
-  map: { kind: 'map', icon: MapIcon, title: 'module.map', description: 'module.map.description', release: '0.4' },
+  map: { kind: 'map', icon: MapIcon, title: 'module.map', description: 'module.map.description', release: null },
   story: {
     kind: 'story',
     icon: GitBranch,

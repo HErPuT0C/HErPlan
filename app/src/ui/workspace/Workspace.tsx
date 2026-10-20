@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAtom } from '../../core/useStore';
-import { closeVariables, documentRequest, entityRequest, revealRequest } from '../../state/navigation';
+import { closeVariables, documentRequest, entityRequest, mapRequest, revealRequest } from '../../state/navigation';
 import { t } from '../../i18n';
 import { platform } from '../../platform';
 import { closeProject, type OpenProject } from '../../state/project';
@@ -31,6 +31,7 @@ import { VariablesPanel } from '../story/VariablesPanel';
 import { WorldEditor } from '../world/WorldEditor';
 import { AssetsEditor } from '../assets/AssetsEditor';
 import { DocumentsEditor } from '../documents/DocumentsEditor';
+import { MapEditor } from '../map/MapEditor';
 import { ModulePlaceholder } from './ModulePlaceholder';
 import { ProjectHeader } from './ProjectHeader';
 import { TabStrip } from './TabStrip';
@@ -101,6 +102,16 @@ export function Workspace({ project }: { project: OpenProject }) {
     });
     documentRequest.set(null);
   }, [wantedDoc, setTabs]);
+  // "Show on the map": bring the map tab to the front.
+  const wantedMap = useAtom(mapRequest);
+  useEffect(() => {
+    if (!wantedMap) return;
+    setTabs((s) => {
+      if (s.tabs.find((tab) => tab.id === s.active)?.kind === 'map') return s;
+      const map = s.tabs.find((tab) => tab.kind === 'map');
+      return map ? { ...s, active: map.id } : openTab(s, 'map');
+    });
+  }, [wantedMap, setTabs]);
   // The panel belongs to this project.
   useEffect(
     () => () => {
@@ -108,6 +119,7 @@ export function Workspace({ project }: { project: OpenProject }) {
       revealRequest.set(null);
       entityRequest.set(null);
       documentRequest.set(null);
+      mapRequest.set(null);
     },
     [],
   );
@@ -139,6 +151,8 @@ export function Workspace({ project }: { project: OpenProject }) {
           />
         ) : activeTab?.kind === 'database' ? (
           <WorldEditor key={activeTab.id} project={project} />
+        ) : activeTab?.kind === 'map' ? (
+          <MapEditor key={activeTab.id} project={project} />
         ) : activeTab?.kind === 'documents' ? (
           <DocumentsEditor
             key={activeTab.id}

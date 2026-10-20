@@ -39,6 +39,13 @@ export function openEntity(id: string): void {
   entityRequest.set({ id, at: performance.now() });
 }
 
+/** "Show this card on the project map" (where a picture is used): the map tab opens and selects it. */
+export const mapRequest = atom<{ node: string | null; at: number } | null>(null);
+
+export function openMap(node: string | null = null): void {
+  mapRequest.set({ node, at: performance.now() });
+}
+
 /** "Open this document" from anywhere (a link in another document, the project map): the documents tab shows it. */
 export const documentRequest = atom<{ id: string; at: number } | null>(null);
 

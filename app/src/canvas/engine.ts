@@ -411,6 +411,11 @@ export class CanvasEngine {
     return node.id;
   }
 
+  /** The world point under a point of the window (something dropped on the canvas from a list). */
+  worldAtClient(clientX: number, clientY: number): { x: number; y: number } {
+    return toWorld(this.camera, ...this.localXY(clientX, clientY));
+  }
+
   /** Free spot near the centre of the view for nodes created from a toolbar or menu without a point. */
   viewCenter(): { x: number; y: number } {
     return toWorld(this.camera, this.width / 2, this.height / 2);
