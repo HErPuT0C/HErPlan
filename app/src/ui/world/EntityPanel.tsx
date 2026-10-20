@@ -29,8 +29,10 @@ import {
   inverseLabel,
   parsePairs,
   rememberPair,
+  showsSection,
   typesFile,
   typeTree,
+  type CardSection,
   type EffectiveField,
   type TypesFile,
 } from '../../world/schema';
@@ -146,6 +148,8 @@ export function EntityPanel({
     },
   ];
 
+  const shows = (section: CardSection) => showsSection(schema, entity.type, section);
+
   // Fields grouped by where they come from: the type (and the types above it) or a property set.
   const groups: { key: string; title: string; fields: EffectiveField[] }[] = [];
   for (const f of effectiveFields(schema, entity.type)) {
@@ -164,13 +168,15 @@ export function EntityPanel({
   return (
     <aside className="world-panel" aria-label={t('world.card')} data-entity-panel={entity.id}>
       <header className="world-panel-head">
-        <ImageField
-          project={project}
-          large
-          value={entity.image}
-          label={t('world.picture')}
-          onChange={(image) => edit(t('world.step.image'), (e) => void (e.image = image))}
-        />
+        {shows('picture') && (
+          <ImageField
+            project={project}
+            large
+            value={entity.image}
+            label={t('world.picture')}
+            onChange={(image) => edit(t('world.step.image'), (e) => void (e.image = image))}
+          />
+        )}
         <div className="world-panel-title">
           <input
             className="input world-name"
@@ -214,19 +220,21 @@ export function EntityPanel({
         {menu && <Menu entries={entries} x={menu.x} y={menu.y} label={t('world.more')} onClose={() => setMenu(null)} />}
       </header>
       <div className="world-panel-body">
-        <div className="field">
-          <label className="field-label" htmlFor={`desc-${entity.id}`}>
-            {t('world.description')}
-          </label>
-          <textarea
-            id={`desc-${entity.id}`}
-            className="input textarea world-long"
-            value={entity.description}
-            rows={2}
-            disabled={readOnly}
-            onChange={(e) => edit(t('world.step.edit'), (x) => void (x.description = e.target.value), 'description')}
-          />
-        </div>
+        {shows('description') && (
+          <div className="field">
+            <label className="field-label" htmlFor={`desc-${entity.id}`}>
+              {t('world.description')}
+            </label>
+            <textarea
+              id={`desc-${entity.id}`}
+              className="input textarea world-long"
+              value={entity.description}
+              rows={2}
+              disabled={readOnly}
+              onChange={(e) => edit(t('world.step.edit'), (x) => void (x.description = e.target.value), 'description')}
+            />
+          </div>
+        )}
         {groups.map((g) => (
           <Section key={g.key} title={g.title}>
             {g.fields.map(({ field }) => (
@@ -242,9 +250,9 @@ export function EntityPanel({
           </Section>
         ))}
         {groups.length === 0 && <p className="muted small">{t('world.noFields')}</p>}
-        <Relations project={project} entity={entity} schema={schema} />
-        <OwnedVariables project={project} entity={entity} />
-        <Uses project={project} id={entity.id} />
+        {shows('relations') && <Relations project={project} entity={entity} schema={schema} />}
+        {shows('variables') && <OwnedVariables project={project} entity={entity} />}
+        {shows('uses') && <Uses project={project} id={entity.id} />}
       </div>
       {copyFrom && (
         <EntityPicker

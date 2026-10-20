@@ -64,6 +64,8 @@ export interface ExportField {
   options?: string[];
   target?: string | null;
   columns?: string[];
+  /** Since 0.4, "tags" fields: the catalog their tags come from. */
+  catalog?: string | null;
 }
 
 export interface ExportGraph {
@@ -116,6 +118,12 @@ export interface StoryExport {
       fields: ExportField[];
     }[];
     propertySets: { id: string; name: string; fields: ExportField[] }[];
+    /** Since 0.4: catalogs of tags; "tags" fields hold tag ids from the field's `catalog`. */
+    catalogs: {
+      id: string;
+      name: string;
+      tags: { id: string; name: string; description: string; color: string | null }[];
+    }[];
   };
   story: { root: string | null; graphs: ExportGraph[] };
 }
@@ -233,6 +241,7 @@ function exportField(f: FieldDef): ExportField {
     ...(f.type === 'enum' ? { options: f.options ?? [] } : {}),
     ...(f.type === 'ref' || f.type === 'refList' ? { target: f.target ?? null } : {}),
     ...(f.type === 'table' ? { columns: f.columns ?? [] } : {}),
+    ...(f.type === 'tags' ? { catalog: f.catalog ?? null } : {}),
   };
 }
 
@@ -282,6 +291,11 @@ export function exportStory(data: ProjectData, appVersion: string, now = new Dat
         fields: effectiveFields(schema, x.id).map(({ field }) => exportField(field)),
       })),
       propertySets: schema.propertySets.map((x) => ({ id: x.id, name: x.name, fields: x.fields.map(exportField) })),
+      catalogs: schema.catalogs.map((c) => ({
+        id: c.id,
+        name: c.name,
+        tags: c.tags.map((x) => ({ id: x.id, name: x.name, description: x.description, color: x.color })),
+      })),
     },
     story: {
       root: storyRoot(data)?.id ?? null,

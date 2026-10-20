@@ -1,7 +1,8 @@
 // "Types and fields" (F4-01…F4-05): the type tree with subtypes, the fields of each type, property sets
-// shared by many types, and ready-made sets. Changes apply at once and can be undone.
+// shared by many types, and ready-made sets; since 0.4 catalogs of tags and the blocks each card shows.
+// Changes apply at once and can be undone.
 
-import { ArrowDown, ArrowLeftRight, ArrowUp, Layers, Link2, Plus, Shapes, Trash } from 'lucide-react';
+import { ArrowDown, ArrowLeftRight, ArrowUp, BookMarked, Layers, Link2, Plus, Shapes, Trash } from 'lucide-react';
 import { useState } from 'react';
 import type { ProjectData } from '../../core/project/types';
 import { useStore } from '../../core/useStore';
@@ -10,7 +11,18 @@ import type { OpenProject } from '../../state/project';
 import { listEntities } from '../../story/entities';
 import { applyPreset, PRESETS } from '../../world/presets';
 import {
+  addCatalog,
   addField,
+  addTag,
+  CARD_SECTIONS,
+  deleteCatalog,
+  deleteTag,
+  moveTag,
+  renameCatalog,
+  setSection,
+  showsSection,
+  updateTag,
+  type CardSection,
   addSet,
   addType,
   attachSet,
@@ -40,7 +52,7 @@ import {
 import { Button, Checkbox, Dialog, IconButton } from '../components';
 import { FIELD_KIND_NAMES, typeName } from './typeNames';
 
-type Selected = { kind: 'type' | 'set' | 'relations'; id: string };
+type Selected = { kind: 'type' | 'set' | 'relations' | 'catalog'; id: string };
 
 const csv = (list: readonly string[] | undefined) => (list ?? []).join(', ');
 const fromCsv = (text: string) =>
@@ -70,7 +82,9 @@ export function SchemaDialog({
       ? true
       : selected.kind === 'type'
         ? schema.types.find((x) => x.id === selected.id)
-        : schema.propertySets.find((x) => x.id === selected.id);
+        : selected.kind === 'catalog'
+          ? schema.catalogs.find((x) => x.id === selected.id)
+          : schema.propertySets.find((x) => x.id === selected.id);
   const shown: Selected = current ? selected : { kind: 'type', id: 'character' };
 
   const newType = (parent: string | null) => {
@@ -86,6 +100,13 @@ export function SchemaDialog({
       id = addSet(d, t('schema.newSet'));
     });
     if (id) setSelected({ kind: 'set', id });
+  };
+  const newCatalog = () => {
+    let id = '';
+    change(t('schema.step.catalog'), (d) => {
+      id = addCatalog(d, t('schema.newCatalog'));
+    });
+    if (id) setSelected({ kind: 'catalog', id });
   };
 
   return (
@@ -147,10 +168,37 @@ export function SchemaDialog({
             <Link2 size={14} aria-hidden="true" />
             {t('schema.relationLabels')}
           </button>
+          <h3 className="insp-heading">{t('schema.catalogs')}</h3>
+          {schema.catalogs.length === 0 && <p className="muted small">{t('schema.noCatalogs')}</p>}
+          {schema.catalogs.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              className="schema-item"
+              aria-current={shown.kind === 'catalog' && shown.id === c.id ? 'true' : undefined}
+              onClick={() => setSelected({ kind: 'catalog', id: c.id })}
+            >
+              <BookMarked size={14} aria-hidden="true" />
+              {c.name || t('story.untitled')}
+            </button>
+          ))}
+          {!readOnly && (
+            <Button size="sm" variant="ghost" icon={<Plus size={14} />} onClick={newCatalog}>
+              {t('schema.addCatalog')}
+            </Button>
+          )}
         </nav>
         <div className="schema-editor">
           {shown.kind === 'relations' ? (
             <RelationLabels project={project} schema={schema} change={change} />
+          ) : shown.kind === 'catalog' ? (
+            <CatalogEditor
+              project={project}
+              schema={schema}
+              id={shown.id}
+              change={change}
+              onDeleted={() => setSelected({ kind: 'type', id: 'character' })}
+            />
           ) : shown.kind === 'type' ? (
             <TypeEditor
               project={project}
@@ -176,6 +224,14 @@ export function SchemaDialog({
 }
 
 type Change = (label: string, recipe: (d: ProjectData) => void, merge?: string) => void;
+
+const SECTION_NAMES = {
+  picture: 'schema.section.picture',
+  description: 'schema.section.description',
+  relations: 'schema.section.relations',
+  variables: 'schema.section.variables',
+  uses: 'schema.section.uses',
+} as const satisfies Record<CardSection, string>;
 
 function TypeEditor({
   project,
@@ -283,6 +339,19 @@ function TypeEditor({
         <p className="muted small">{t('schema.presetHint')}</p>
       </section>
       <FieldList project={project} owner={{ kind: 'type', id }} fields={type.fields} schema={schema} change={change} />
+      <section className="insp-section" data-card-blocks>
+        <h3 className="insp-heading">{t('schema.card')}</h3>
+        {CARD_SECTIONS.map((section) => (
+          <Checkbox
+            key={section}
+            label={t(SECTION_NAMES[section])}
+            checked={showsSection(schema, id, section)}
+            disabled={readOnly}
+            onChange={(on) => change(t('schema.step.card'), (d) => setSection(d, id, section, on))}
+          />
+        ))}
+        <p className="muted small">{t('schema.cardHint')}</p>
+      </section>
       <p className="muted small">
         {t('schema.typeCount', { count: listEntities({ entities, types: project.store.getState().types }, id).length })}
       </p>
@@ -451,6 +520,29 @@ function FieldList({
               ))}
             </select>
           )}
+          {f.type === 'tags' && (
+            <select
+              className="input select"
+              value={f.catalog ?? ''}
+              aria-label={t('schema.catalog')}
+              disabled={readOnly}
+              onChange={(e) => {
+                if (e.target.value !== NEW_CATALOG) return set(f, { catalog: e.target.value || null }, 'catalog');
+                change(t('schema.step.catalog'), (d) => {
+                  const catalog = addCatalog(d, f.label || t('schema.newCatalog'));
+                  updateField(d, owner, f.id, { catalog });
+                });
+              }}
+            >
+              <option value="">{t('schema.noCatalog')}</option>
+              {schema.catalogs.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name || t('story.untitled')}
+                </option>
+              ))}
+              <option value={NEW_CATALOG}>{t('schema.createCatalog')}</option>
+            </select>
+          )}
         </div>
       ))}
       {!readOnly && (
@@ -481,6 +573,8 @@ function FieldList({
     </section>
   );
 }
+
+const NEW_CATALOG = '\u0000new';
 
 /** A list typed as "a, b, c"; the draft is kept while typing so a trailing comma is not lost. */
 function ListInput({
@@ -577,6 +671,157 @@ function RelationLabels({ project, schema, change }: { project: OpenProject; sch
           {builtIn.map((p) => (p.label === p.inverse ? p.label : `${p.label} ↔ ${p.inverse}`)).join(', ')}
         </p>
       </section>
+    </>
+  );
+}
+
+/** A catalog of tags (0.4): the tags with descriptions, the fields that use it, how many cards carry each tag. */
+function CatalogEditor({
+  project,
+  schema,
+  id,
+  change,
+  onDeleted,
+}: {
+  project: OpenProject;
+  schema: TypesFile;
+  id: string;
+  change: Change;
+  onDeleted: () => void;
+}) {
+  const { readOnly } = project;
+  const entities = useStore(project.store, (s) => s.entities);
+  const catalog = schema.catalogs.find((x) => x.id === id)!;
+  const [name, setName] = useState('');
+  const fields = [
+    ...schema.types.flatMap((x) => x.fields.map((f) => ({ f, owner: typeName(x) }))),
+    ...schema.propertySets.flatMap((x) => x.fields.map((f) => ({ f, owner: x.name }))),
+  ].filter(({ f }) => f.type === 'tags' && f.catalog === id);
+  const uses = (tag: string) =>
+    Object.values(entities).filter(
+      (e) =>
+        e.values &&
+        typeof e.values === 'object' &&
+        Object.values(e.values).some((v) => Array.isArray(v) && v.includes(tag)),
+    ).length;
+  const add = () => {
+    if (!name.trim()) return;
+    change(t('schema.step.tag'), (d) => void addTag(d, id, name));
+    setName('');
+  };
+  const edit = (tag: string, patch: Parameters<typeof updateTag>[3], merge: string) =>
+    change(t('schema.step.tag'), (d) => updateTag(d, id, tag, patch), `tag:${tag}:${merge}`);
+  return (
+    <>
+      <p className="muted small">{t('schema.catalogHint')}</p>
+      <div className="field">
+        <label className="field-label" htmlFor={`catalog-name-${id}`}>
+          {t('schema.catalogName')}
+        </label>
+        <input
+          id={`catalog-name-${id}`}
+          className="input"
+          value={catalog.name}
+          disabled={readOnly}
+          onChange={(e) =>
+            change(t('schema.step.catalog'), (d) => renameCatalog(d, id, e.target.value), `catalog:${id}:name`)
+          }
+        />
+      </div>
+      <p className="muted small">
+        {fields.length
+          ? t('schema.catalogUsedBy', {
+              fields: fields.map(({ f, owner }) => `${owner} › ${f.label || t('schema.untitledField')}`).join(', '),
+            })
+          : t('schema.catalogUnused')}
+      </p>
+      <section className="insp-section">
+        <h3 className="insp-heading">{t('schema.tags')}</h3>
+        {catalog.tags.length === 0 && <p className="muted small">{t('schema.noTags')}</p>}
+        {catalog.tags.map((tag, i) => {
+          const count = uses(tag.id);
+          return (
+            <div key={tag.id} className="schema-field schema-tag" data-tag={tag.id}>
+              <div className="schema-field-row">
+                <input
+                  className="input"
+                  value={tag.name}
+                  placeholder={t('schema.tagName')}
+                  aria-label={t('schema.tagName')}
+                  disabled={readOnly}
+                  onChange={(e) => edit(tag.id, { name: e.target.value }, 'name')}
+                />
+                <span className="muted small schema-tag-uses">{t('schema.tagUses', { count })}</span>
+                {!readOnly && (
+                  <span className="iline-tools">
+                    <IconButton
+                      size="sm"
+                      label={t('story.up')}
+                      icon={<ArrowUp size={14} />}
+                      disabled={i === 0}
+                      onClick={() => change(t('schema.step.tag'), (d) => moveTag(d, id, i, i - 1))}
+                    />
+                    <IconButton
+                      size="sm"
+                      label={t('story.down')}
+                      icon={<ArrowDown size={14} />}
+                      disabled={i === catalog.tags.length - 1}
+                      onClick={() => change(t('schema.step.tag'), (d) => moveTag(d, id, i, i + 1))}
+                    />
+                    <IconButton
+                      size="sm"
+                      label={t('schema.removeTag')}
+                      icon={<Trash size={14} />}
+                      onClick={() => {
+                        if (count && !window.confirm(t('schema.removeTagUsed', { count }))) return;
+                        change(t('schema.step.deleteTag'), (d) => deleteTag(d, id, tag.id));
+                      }}
+                    />
+                  </span>
+                )}
+              </div>
+              <textarea
+                className="input textarea schema-tag-description"
+                rows={2}
+                value={tag.description}
+                placeholder={t('schema.tagDescription')}
+                aria-label={t('schema.tagDescription')}
+                disabled={readOnly}
+                onChange={(e) => edit(tag.id, { description: e.target.value }, 'description')}
+              />
+            </div>
+          );
+        })}
+        {!readOnly && (
+          <div className="insp-actions">
+            <input
+              className="input"
+              value={name}
+              placeholder={t('schema.tagName')}
+              aria-label={t('schema.addTag')}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && add()}
+            />
+            <Button size="sm" icon={<Plus size={14} />} disabled={!name.trim()} onClick={add}>
+              {t('schema.addTag')}
+            </Button>
+          </div>
+        )}
+      </section>
+      {!readOnly && (
+        <Button
+          size="sm"
+          variant="danger"
+          icon={<Trash size={14} />}
+          onClick={() => {
+            if (fields.length && !window.confirm(t('schema.deleteCatalogUsed', { count: fields.length }))) return;
+            change(t('schema.step.deleteCatalog'), (d) => deleteCatalog(d, id));
+            onDeleted();
+          }}
+        >
+          {t('schema.deleteCatalog')}
+        </Button>
+      )}
     </>
   );
 }

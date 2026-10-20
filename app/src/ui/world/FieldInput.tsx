@@ -1,13 +1,14 @@
 // Editors for the values of entity fields (F4-02), one per kind of field.
 
 import { ArrowUpRight, Plus, Trash, X } from 'lucide-react';
-import { useId, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
+import type { JsonObject } from '../../core/project/types';
 import { useStore } from '../../core/useStore';
 import { t } from '../../i18n';
 import { openEntity } from '../../state/navigation';
 import type { OpenProject } from '../../state/project';
-import { listEntities } from '../../story/entities';
-import type { FieldDef } from '../../world/schema';
+import { asEntity, listEntities, newEntity } from '../../story/entities';
+import { addTag, findCatalog, typesFile, type FieldDef } from '../../world/schema';
 import { coerceValue, type FieldValue, type TableValue } from '../../world/values';
 import { Button, IconButton, Switch } from '../components';
 import { ImageField } from './ImageField';
@@ -170,6 +171,17 @@ export function FieldInput({ project, field, value: raw, self, onChange }: Field
           label={label}
         />
       );
+    case 'tags':
+      return (
+        <TagsInput
+          project={project}
+          field={field}
+          value={value as string[]}
+          self={self}
+          onChange={onChange}
+          label={label}
+        />
+      );
     case 'image':
       return frame(
         <ImageField
@@ -253,7 +265,25 @@ function RefListInput({
   onChange,
   label,
 }: Omit<FieldInputProps, 'value'> & { value: string[]; label: ReactNode }) {
+  const entities = useStore(project.store, (s) => s.entities);
   const targets = useTargets(project, field, self).filter((e) => !value.includes(e.id));
+  // A card of the field's type can be made right here ("Tags as cards": a new trait while filling a card).
+  const create = field.target
+    ? (name: string) => {
+        const entity = newEntity(project.store.getState(), field.target!, name);
+        project.store.dispatch(t('world.step.newEntity'), (d) => {
+          d.entities[entity.id] = entity as unknown as JsonObject;
+          const owner = d.entities[self];
+          if (!owner) return;
+          const values = (owner.values && typeof owner.values === 'object' ? owner.values : {}) as JsonObject;
+          owner.values = { ...values, [field.id]: [...value, entity.id] } as JsonObject;
+        });
+      }
+    : undefined;
+  const notes = value
+    .map((id) => asEntity(entities[id]))
+    .filter((e): e is NonNullable<typeof e> => !!e && !!e.description.trim())
+    .map((e) => ({ id: e.id, name: e.name || t('story.untitled'), text: e.description }));
   return (
     <div className="field world-field" data-field={`value:${field.id}`}>
       {label}
@@ -273,22 +303,199 @@ function RefListInput({
             )}
           </span>
         ))}
-        {!project.readOnly && targets.length > 0 && (
-          <select
-            className="input imark-add"
-            value=""
-            aria-label={t('world.addRef')}
-            onChange={(e) => e.target.value && onChange([...value, e.target.value])}
-          >
-            <option value="">{t('world.addRef')}</option>
-            {targets.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name || t('story.untitled')}
-              </option>
-            ))}
-          </select>
+        {!project.readOnly && (targets.length > 0 || create) && (
+          <ChipPicker
+            label={t('world.addRef')}
+            options={targets.map((e) => ({ id: e.id, name: e.name || t('story.untitled'), hint: e.description }))}
+            onPick={(id) => onChange([...value, id])}
+            onCreate={create}
+          />
         )}
       </div>
+      <Notes notes={notes} />
+    </div>
+  );
+}
+
+/** Tags from a catalog (0.4): chips, their descriptions under them, a new tag made right from the field. */
+function TagsInput({
+  project,
+  field,
+  value,
+  self,
+  onChange,
+  label,
+}: Omit<FieldInputProps, 'value'> & { value: string[]; label: ReactNode }) {
+  const types = useStore(project.store, (s) => s.types);
+  const catalog = findCatalog(typesFile({ types }), field.catalog);
+  if (!catalog) {
+    return (
+      <div className="field world-field" data-field={`value:${field.id}`}>
+        {label}
+        <p className="muted small">{t('world.tags.noCatalog')}</p>
+      </div>
+    );
+  }
+  const chosen = value.map((id) => catalog.tags.find((x) => x.id === id)).filter((x) => x !== undefined);
+  const create = (name: string) =>
+    project.store.dispatch(t('world.step.tag'), (d) => {
+      const id = addTag(d, catalog.id, name);
+      const owner = d.entities[self];
+      if (!id || !owner) return;
+      const values = (owner.values && typeof owner.values === 'object' ? owner.values : {}) as JsonObject;
+      if (!value.includes(id)) owner.values = { ...values, [field.id]: [...value, id] } as JsonObject;
+    });
+  return (
+    <div className="field world-field" data-field={`value:${field.id}`}>
+      {label}
+      <div className="imark-chips">
+        {chosen.map((tag) => (
+          <span
+            key={tag.id}
+            className="chip world-tag"
+            title={tag.description || undefined}
+            style={tag.color ? { borderColor: tag.color } : undefined}
+          >
+            {tag.name || t('story.untitled')}
+            {!project.readOnly && (
+              <button
+                type="button"
+                className="chip-x"
+                aria-label={`${t('world.tags.remove')}: ${tag.name}`}
+                onClick={() => onChange(value.filter((x) => x !== tag.id))}
+              >
+                <X size={12} />
+              </button>
+            )}
+          </span>
+        ))}
+        {!project.readOnly && (
+          <ChipPicker
+            label={t('world.tags.add')}
+            options={catalog.tags
+              .filter((x) => !value.includes(x.id))
+              .map((x) => ({ id: x.id, name: x.name || t('story.untitled'), hint: x.description }))}
+            onPick={(id) => onChange([...value, id])}
+            onCreate={create}
+          />
+        )}
+      </div>
+      <Notes
+        notes={chosen.filter((x) => x.description.trim()).map((x) => ({ id: x.id, name: x.name, text: x.description }))}
+      />
+    </div>
+  );
+}
+
+function Notes({ notes }: { notes: { id: string; name: string; text: string }[] }) {
+  if (!notes.length) return null;
+  return (
+    <ul className="world-notes small">
+      {notes.map((n) => (
+        <li key={n.id}>
+          <strong>{n.name}</strong> — <span className="muted">{n.text}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+interface PickerOption {
+  id: string;
+  name: string;
+  hint?: string;
+}
+
+/**
+ * "Add…": a field to type into, with the matching options under it; Enter takes the first match, or makes a
+ * new one when nothing matches and `onCreate` is given.
+ */
+function ChipPicker({
+  label,
+  options,
+  onPick,
+  onCreate,
+}: {
+  label: string;
+  options: PickerOption[];
+  onPick: (id: string) => void;
+  onCreate?: (name: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const listId = useId();
+  const q = query.trim().toLowerCase();
+  const matches = options.filter((o) => !q || o.name.toLowerCase().includes(q));
+  const exact = options.some((o) => o.name.toLowerCase() === q);
+  const items: ({ kind: 'pick'; option: PickerOption } | { kind: 'create'; name: string })[] = [
+    ...matches.map((option) => ({ kind: 'pick' as const, option })),
+    ...(onCreate && q && !exact ? [{ kind: 'create' as const, name: query.trim() }] : []),
+  ];
+  const choose = (i: number) => {
+    const item = items[i];
+    if (!item) return;
+    if (item.kind === 'pick') onPick(item.option.id);
+    else onCreate?.(item.name);
+    setQuery('');
+    setActive(0);
+  };
+  return (
+    <div className="world-picker">
+      <input
+        className="input imark-add"
+        value={query}
+        placeholder={label}
+        aria-label={label}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={listId}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setActive(0);
+          setOpen(true);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') setActive((a) => Math.min(a + 1, items.length - 1));
+          else if (e.key === 'ArrowUp') setActive((a) => Math.max(a - 1, 0));
+          else if (e.key === 'Enter') choose(active);
+          else if (e.key === 'Escape') setOpen(false);
+          else return;
+          e.preventDefault();
+        }}
+      />
+      {open && (items.length > 0 || q) && (
+        <div className="world-picker-list" id={listId} role="listbox" aria-label={label}>
+          {items.length === 0 && <p className="muted small world-picker-empty">{t('world.tags.empty')}</p>}
+          {items.map((item, i) => (
+            <button
+              key={item.kind === 'pick' ? item.option.id : 'create'}
+              type="button"
+              role="option"
+              aria-selected={i === active}
+              className="world-picker-item"
+              // Chosen before the field loses focus and the list closes.
+              onMouseDown={(e) => {
+                e.preventDefault();
+                choose(i);
+              }}
+            >
+              {item.kind === 'pick' ? (
+                <>
+                  <span>{item.option.name}</span>
+                  {item.option.hint && <span className="muted small world-picker-hint">{item.option.hint}</span>}
+                </>
+              ) : (
+                <span className="world-picker-create">
+                  <Plus size={13} aria-hidden="true" /> {t('world.tags.create', { name: item.name })}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

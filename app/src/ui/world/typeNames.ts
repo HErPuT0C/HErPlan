@@ -23,6 +23,7 @@ export const FIELD_KIND_NAMES: Record<FieldKind, MessageKey> = {
   enum: 'schema.kind.enum',
   ref: 'schema.kind.ref',
   refList: 'schema.kind.refList',
+  tags: 'schema.kind.tags',
   image: 'schema.kind.image',
   color: 'schema.kind.color',
   table: 'schema.kind.table',

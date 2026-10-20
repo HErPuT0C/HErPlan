@@ -15,8 +15,16 @@ import {
 } from './entityOps';
 import { applyPreset, PRESETS } from './presets';
 import {
+  addCatalog,
   addField,
   addSet,
+  addTag,
+  deleteCatalog,
+  deleteTag,
+  findTag,
+  setSection,
+  showsSection,
+  updateField,
   addType,
   attachSet,
   canSetParent,
@@ -318,5 +326,67 @@ describe('asset library (F4-11, F4-12) and export of the database (F4-13)', () =
       builtIn: true,
       fields: [{ id: 'f-map', label: 'Карта', type: 'image' }],
     });
+  });
+});
+
+describe('catalogs of tags and card blocks (0.4)', () => {
+  it('tags are made once, put on cards of different types, shown with their names; deleting one takes it off', () => {
+    let traits = '';
+    let agile = '';
+    let fieldId = '';
+    const data = produce(sampleProject(), (d) => {
+      traits = addCatalog(d, 'Черты');
+      agile = addTag(d, traits, 'ловкий', 'уклоняется от первой атаки')!;
+      expect(addTag(d, traits, 'Ловкий ')).toBe(agile);
+      const field = newField('tags', 'Черты');
+      fieldId = field.id;
+      const set = addSet(d, 'Бой', [field]);
+      attachSet(d, 'character', set, true);
+      updateField(d, { kind: 'set', id: set }, field.id, { catalog: traits });
+      const own = addTag(d, traits, 'самостоятельный')!;
+      const mira = d.entities['ent-mira'];
+      mira.values = { [field.id]: [agile, own] } as JsonObject;
+    });
+    const schema = typesFile(data);
+    expect(schema.catalogs[0].tags.map((x) => x.name)).toEqual(['ловкий', 'самостоятельный']);
+    const field = effectiveFields(schema, 'character').find((f) => f.field.id === fieldId)!.field;
+    expect(field).toMatchObject({ type: 'tags', catalog: traits });
+    const v = coerceValue(field, data.entities['ent-mira'].values?.[fieldId as never]);
+    const ctx = { entityName: () => null, tagName: (id: string) => findTag(schema, id)?.name ?? null, yes: '', no: '' };
+    expect(valueText(field, v, ctx)).toBe('ловкий, самостоятельный');
+
+    const out = exportStory(data, '0.4.0');
+    expect(out.schema.catalogs[0].name).toBe('Черты');
+    expect(out.schema.catalogs[0].tags[0]).toMatchObject({ id: agile, description: 'уклоняется от первой атаки' });
+
+    const without = produce(data, (d) => deleteTag(d, traits, agile));
+    expect((without.entities['ent-mira'].values as Record<string, string[]>)[fieldId]).toHaveLength(1);
+    const noCatalog = produce(data, (d) => deleteCatalog(d, traits));
+    expect(effectiveFields(typesFile(noCatalog), 'character').find((f) => f.field.id === fieldId)!.field.catalog).toBe(
+      null,
+    );
+  });
+
+  it('a type hides card blocks for itself and its subtypes; a subtype can show them again', () => {
+    let tag = '';
+    let rare = '';
+    const data = produce(sampleProject(), (d) => {
+      tag = addType(d, 'Тег', null);
+      rare = addType(d, 'Редкий тег', tag);
+      setSection(d, tag, 'relations', false);
+      setSection(d, tag, 'variables', false);
+      setSection(d, rare, 'variables', true);
+    });
+    const schema = typesFile(data);
+    expect(showsSection(schema, tag, 'relations')).toBe(false);
+    expect(showsSection(schema, rare, 'relations')).toBe(false);
+    expect(showsSection(schema, rare, 'variables')).toBe(true);
+    expect(showsSection(schema, tag, 'description')).toBe(true);
+    expect(showsSection(schema, 'character', 'relations')).toBe(true);
+    // A hand-edited file with junk in "card" keeps only what it understands.
+    const odd = typesFile({
+      types: { types: [{ id: 'x', name: 'X', card: { uses: false, nonsense: 1 } }] } as unknown as JsonObject,
+    });
+    expect(odd.types.find((x) => x.id === 'x')!.card).toEqual({ uses: false });
   });
 });

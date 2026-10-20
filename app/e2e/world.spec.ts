@@ -185,3 +185,89 @@ test('a pair of relation labels of our own is offered on both sides', async ({ p
   await expect(panel.getByRole('combobox', { name: /Подпись с другой стороны/ })).toHaveValue('должник');
   expect(errors).toEqual([]);
 });
+
+test('a catalog of tags with descriptions; tags put on a card from the field, a new one made there', async ({
+  page,
+}) => {
+  const { errors } = await openSample(page);
+  await page.getByRole('button', { name: 'Типы и поля…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Типы и поля' });
+  await dialog.getByRole('button', { name: 'Справочник', exact: true }).click();
+  await dialog.getByLabel('Название справочника').fill('Черты');
+  await dialog.getByLabel('Добавить тег').fill('ловкий');
+  await dialog.getByRole('button', { name: 'Добавить тег' }).click();
+  await dialog.getByLabel('Описание тега').fill('уклоняется от первой атаки');
+  // "Character" gets a field with tags from the catalog.
+  await dialog.getByRole('button', { name: 'Персонаж', exact: true }).click();
+  await dialog.getByRole('combobox', { name: 'Вид поля' }).last().selectOption('tags');
+  await dialog.getByRole('button', { name: 'Поле', exact: true }).click();
+  await dialog.getByLabel('Название поля').last().fill('Черты');
+  await dialog.getByRole('combobox', { name: 'Справочник' }).selectOption({ label: 'Черты' });
+  await page.keyboard.press('Escape');
+
+  await card(page, 'Мира').click();
+  const panel = page.locator('.world-panel');
+  const add = panel.getByRole('combobox', { name: 'Добавить тег…' });
+  await add.click();
+  await page.getByRole('option', { name: /ловкий/ }).click();
+  await expect(panel.locator('.world-tag', { hasText: 'ловкий' })).toBeVisible();
+  await expect(panel.locator('.world-notes')).toContainText('уклоняется от первой атаки');
+  // A tag that is not in the catalog yet: typed and made with Enter.
+  await add.fill('самостоятельный');
+  await add.press('Enter');
+  await expect(panel.locator('.world-tag', { hasText: 'самостоятельный' })).toBeVisible();
+  await shot(page, 'w6-tags');
+
+  // The new tag is in the catalog too, and it says how many cards carry it.
+  await page.getByRole('button', { name: 'Типы и поля…' }).click();
+  await dialog.getByRole('button', { name: 'Черты', exact: true }).click();
+  await expect(dialog.getByLabel('Тег', { exact: true }).nth(1)).toHaveValue('самостоятельный');
+  await expect(dialog.locator('.schema-tag').first()).toContainText('у 1 карточки');
+  await shot(page, 'w7-catalog');
+  expect(errors).toEqual([]);
+});
+
+test('a type hides card blocks it does not need', async ({ page }) => {
+  const { errors } = await openSample(page);
+  await page.getByRole('button', { name: 'Типы и поля…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Типы и поля' });
+  await dialog.getByRole('button', { name: 'Предмет', exact: true }).click();
+  const blocks = dialog.locator('[data-card-blocks]');
+  await blocks.getByRole('checkbox', { name: 'Связи' }).uncheck();
+  await blocks.getByRole('checkbox', { name: 'Переменные карточки' }).uncheck();
+  await blocks.getByRole('checkbox', { name: 'Картинка' }).uncheck();
+  await page.keyboard.press('Escape');
+
+  await card(page, 'Ключ').click();
+  const panel = page.locator('.world-panel');
+  await expect(panel.getByLabel('Описание', { exact: true })).toBeVisible();
+  await expect(panel.getByRole('heading', { name: 'Связи' })).toHaveCount(0);
+  await expect(panel.getByRole('heading', { name: 'Переменные карточки' })).toHaveCount(0);
+  await expect(panel.getByRole('heading', { name: 'Где используется' })).toBeVisible();
+  // A character still shows everything.
+  await card(page, 'Мира').click();
+  await expect(panel.getByRole('heading', { name: 'Связи' })).toBeVisible();
+  await shot(page, 'w8-blocks');
+  expect(errors).toEqual([]);
+});
+
+test('a list of links shows the descriptions of the cards and makes a new card in place', async ({ page }) => {
+  const { errors } = await openSample(page);
+  await page.getByRole('button', { name: 'Типы и поля…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Типы и поля' });
+  await dialog.getByRole('button', { name: 'Персонаж', exact: true }).click();
+  await dialog.getByRole('combobox', { name: 'Вид поля' }).last().selectOption('refList');
+  await dialog.getByRole('button', { name: 'Поле', exact: true }).click();
+  await dialog.getByLabel('Название поля').last().fill('Вещи');
+  await dialog.getByRole('combobox', { name: 'На кого ссылается' }).last().selectOption({ label: 'Предмет' });
+  await page.keyboard.press('Escape');
+
+  await card(page, 'Мира').click();
+  const panel = page.locator('.world-panel');
+  const add = panel.locator('[data-field^="value:"]', { hasText: 'Вещи' }).getByRole('combobox');
+  await add.fill('Фонарь');
+  await add.press('Enter');
+  await expect(panel.locator('.chip', { hasText: 'Фонарь' })).toBeVisible();
+  await expect(card(page, 'Фонарь')).toBeVisible();
+  expect(errors).toEqual([]);
+});

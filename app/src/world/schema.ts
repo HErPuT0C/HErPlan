@@ -1,13 +1,26 @@
 // The world database's schema (F4-01…F4-05), stored in data/types.json: entity types with subtypes that
 // inherit fields, typed fields, property sets shared by many types, and the dictionary of relation label
 // pairs. Values live in the entity files by field id, so renaming or moving a field never touches them.
+// Since 0.4: catalogs of tags with descriptions ("Traits": agile, independent…) shared by many types, and
+// the blocks of a card each type shows.
 
 import { newId } from '../core/ids';
 import type { JsonObject, ProjectData } from '../core/project/types';
 import { WORLD_KINDS, type WorldKind } from '../story/model';
 
 export type FieldKind =
-  'text' | 'richtext' | 'number' | 'percent' | 'bool' | 'enum' | 'ref' | 'refList' | 'image' | 'color' | 'table';
+  | 'text'
+  | 'richtext'
+  | 'number'
+  | 'percent'
+  | 'bool'
+  | 'enum'
+  | 'ref'
+  | 'refList'
+  | 'tags'
+  | 'image'
+  | 'color'
+  | 'table';
 
 export const FIELD_KINDS: readonly FieldKind[] = [
   'text',
@@ -18,6 +31,7 @@ export const FIELD_KINDS: readonly FieldKind[] = [
   'enum',
   'ref',
   'refList',
+  'tags',
   'image',
   'color',
   'table',
@@ -33,8 +47,14 @@ export interface FieldDef {
   target?: string | null;
   /** table: column titles. */
   columns?: string[];
+  /** tags: the catalog the tags come from; null — not chosen yet. */
+  catalog?: string | null;
   [extra: string]: unknown;
 }
+
+/** Blocks of an entity card besides its fields; a type can hide any of them. */
+export type CardSection = 'picture' | 'description' | 'relations' | 'variables' | 'uses';
+export const CARD_SECTIONS: readonly CardSection[] = ['picture', 'description', 'relations', 'variables', 'uses'];
 
 export interface EntityType {
   id: string;
@@ -46,6 +66,8 @@ export interface EntityType {
   color: string | null;
   propertySets: string[];
   fields: FieldDef[];
+  /** Blocks this type shows (true) or hides (false); unset — as the type above it, shown at the top. */
+  card?: Partial<Record<CardSection, boolean>>;
   [extra: string]: unknown;
 }
 
@@ -62,10 +84,27 @@ export interface LabelPair {
   inverse: string;
 }
 
+/** One tag of a catalog: "agile — dodges the first attack". */
+export interface CatalogTag {
+  id: string;
+  name: string;
+  description: string;
+  color: string | null;
+}
+
+/** A list of tags made once and put on entities by "Tags" fields (traits, abilities, passives…). */
+export interface Catalog {
+  id: string;
+  name: string;
+  tags: CatalogTag[];
+  [extra: string]: unknown;
+}
+
 export interface TypesFile {
   types: EntityType[];
   propertySets: PropertySet[];
   relationLabels: LabelPair[];
+  catalogs: Catalog[];
   [extra: string]: unknown;
 }
 
@@ -86,7 +125,30 @@ function normalizeField(raw: unknown): FieldDef | null {
     ...(type === 'enum' ? { options: strings(raw.options) } : {}),
     ...(type === 'ref' || type === 'refList' ? { target: typeof raw.target === 'string' ? raw.target : null } : {}),
     ...(type === 'table' ? { columns: strings(raw.columns) } : {}),
+    ...(type === 'tags' ? { catalog: typeof raw.catalog === 'string' ? raw.catalog : null } : {}),
   };
+}
+
+function normalizeCard(raw: unknown): EntityType['card'] {
+  if (!isObject(raw)) return undefined;
+  const out: Partial<Record<CardSection, boolean>> = {};
+  for (const k of CARD_SECTIONS) if (typeof raw[k] === 'boolean') out[k] = raw[k];
+  return Object.keys(out).length ? out : undefined;
+}
+
+function normalizeCatalog(raw: unknown): Catalog | null {
+  if (!isObject(raw) || typeof raw.id !== 'string') return null;
+  const tags = Array.isArray(raw.tags)
+    ? raw.tags
+        .filter((x): x is JsonObject => isObject(x) && typeof x.id === 'string')
+        .map((x) => ({
+          id: x.id as string,
+          name: str(x.name),
+          description: str(x.description),
+          color: typeof x.color === 'string' ? x.color : null,
+        }))
+    : [];
+  return { ...raw, id: raw.id, name: str(raw.name), tags };
 }
 
 const fieldsOf = (raw: unknown): FieldDef[] =>
@@ -103,6 +165,7 @@ function normalizeType(raw: unknown): EntityType | null {
     color: typeof raw.color === 'string' ? raw.color : null,
     propertySets: strings(raw.propertySets),
     fields: fieldsOf(raw.fields),
+    card: normalizeCard(raw.card),
   };
 }
 
@@ -153,6 +216,9 @@ export function typesFile(data: Pick<ProjectData, 'types'>): TypesFile {
           .map((p) => ({ label: str(p.label).trim(), inverse: str(p.inverse).trim() }))
           .filter((p) => p.label && p.inverse)
       : [],
+    catalogs: Array.isArray(raw.catalogs)
+      ? raw.catalogs.map(normalizeCatalog).filter((x): x is Catalog => x !== null)
+      : [],
   };
 }
 
@@ -167,6 +233,7 @@ export function editableTypes(d: ProjectData): TypesFile {
   }
   t.propertySets ??= [];
   t.relationLabels ??= [];
+  t.catalogs ??= [];
   return t;
 }
 
@@ -248,6 +315,15 @@ export function effectiveFields(file: TypesFile, typeId: string): EffectiveField
   return out;
 }
 
+/** Does a card of this type show the block: the nearest type that says so decides; shown by default. */
+export function showsSection(file: TypesFile, typeId: string, section: CardSection): boolean {
+  for (const x of typeChain(file, typeId)) {
+    const v = x.card?.[section];
+    if (typeof v === 'boolean') return v;
+  }
+  return true;
+}
+
 /** Types that use a property set, directly. */
 export function typesUsingSet(file: TypesFile, setId: string): EntityType[] {
   return file.types.filter((x) => x.propertySets.includes(setId));
@@ -278,6 +354,13 @@ export function updateType(
   if (!x) return;
   if (patch.parent !== undefined && !canSetParent(typesFile(d), id, patch.parent)) delete patch.parent;
   Object.assign(x, patch);
+}
+
+/** Shows or hides a block on the cards of a type (and of its subtypes that do not say otherwise). */
+export function setSection(d: ProjectData, id: string, section: CardSection, shown: boolean): void {
+  const x = editableTypes(d).types.find((y) => y.id === id);
+  if (!x) return;
+  x.card = { ...(x.card ?? {}), [section]: shown };
 }
 
 /**
@@ -317,6 +400,7 @@ export function newField(type: FieldKind, label: string): FieldDef {
     ...(type === 'enum' ? { options: [] } : {}),
     ...(type === 'ref' || type === 'refList' ? { target: null } : {}),
     ...(type === 'table' ? { columns: [] } : {}),
+    ...(type === 'tags' ? { catalog: null } : {}),
   };
 }
 
@@ -333,6 +417,7 @@ export function updateField(d: ProjectData, owner: FieldOwner, id: string, patch
   if (f.type === 'enum') f.options ??= [];
   if ((f.type === 'ref' || f.type === 'refList') && f.target === undefined) f.target = null;
   if (f.type === 'table') f.columns ??= [];
+  if (f.type === 'tags' && f.catalog === undefined) f.catalog = null;
 }
 
 /** Removes the field from the schema; entity files keep its values (the field can be put back by undo). */
@@ -421,4 +506,84 @@ export function parsePairs(text: string): LabelPair[] {
     .map((p) => p.split(':').map((s) => s.trim()))
     .filter((p): p is [string, string] => p.length === 2 && !!p[0] && !!p[1])
     .map(([label, inverse]) => ({ label, inverse }));
+}
+
+// ---------- catalogs of tags (0.4) ----------
+
+export function findCatalog(file: TypesFile, id: string | null | undefined): Catalog | undefined {
+  return id ? file.catalogs.find((c) => c.id === id) : undefined;
+}
+
+/** A tag by id in any catalog (tag ids are unique in the project). */
+export function findTag(file: TypesFile, id: string): CatalogTag | undefined {
+  for (const c of file.catalogs) {
+    const tag = c.tags.find((x) => x.id === id);
+    if (tag) return tag;
+  }
+  return undefined;
+}
+
+export function addCatalog(d: ProjectData, name: string): string {
+  const id = newId();
+  editableTypes(d).catalogs.push({ id, name: name.trim(), tags: [] });
+  return id;
+}
+
+export function renameCatalog(d: ProjectData, id: string, name: string): void {
+  const c = editableTypes(d).catalogs.find((x) => x.id === id);
+  if (c) c.name = name;
+}
+
+/** Deletes a catalog: its fields lose the catalog, the values stay in the files (undo puts it back). */
+export function deleteCatalog(d: ProjectData, id: string): void {
+  const t = editableTypes(d);
+  t.catalogs = t.catalogs.filter((c) => c.id !== id);
+  for (const f of [...t.types.flatMap((y) => y.fields), ...t.propertySets.flatMap((p) => p.fields)]) {
+    if (f.type === 'tags' && f.catalog === id) f.catalog = null;
+  }
+}
+
+/** Adds a tag; a tag of the same name (any case) is not added twice, its id is returned instead. */
+export function addTag(d: ProjectData, catalog: string, name: string, description = ''): string | null {
+  const c = editableTypes(d).catalogs.find((x) => x.id === catalog);
+  const clean = name.trim();
+  if (!c || !clean) return null;
+  const same = c.tags.find((x) => x.name.toLowerCase() === clean.toLowerCase());
+  if (same) return same.id;
+  const id = newId();
+  c.tags.push({ id, name: clean, description, color: null });
+  return id;
+}
+
+export function updateTag(
+  d: ProjectData,
+  catalog: string,
+  id: string,
+  patch: Partial<Pick<CatalogTag, 'name' | 'description' | 'color'>>,
+): void {
+  const tag = editableTypes(d)
+    .catalogs.find((x) => x.id === catalog)
+    ?.tags.find((x) => x.id === id);
+  if (tag) Object.assign(tag, patch);
+}
+
+export function moveTag(d: ProjectData, catalog: string, from: number, to: number): void {
+  const tags = editableTypes(d).catalogs.find((x) => x.id === catalog)?.tags;
+  if (!tags || from < 0 || from >= tags.length || to < 0 || to >= tags.length) return;
+  const [x] = tags.splice(from, 1);
+  tags.splice(to, 0, x);
+}
+
+/** Deletes a tag and takes it off every entity. */
+export function deleteTag(d: ProjectData, catalog: string, id: string): void {
+  const c = editableTypes(d).catalogs.find((x) => x.id === catalog);
+  if (!c) return;
+  c.tags = c.tags.filter((x) => x.id !== id);
+  for (const e of Object.values(d.entities)) {
+    const values = e.values;
+    if (!isObject(values)) continue;
+    for (const [k, v] of Object.entries(values)) {
+      if (Array.isArray(v) && v.includes(id)) values[k] = v.filter((x) => x !== id);
+    }
+  }
 }

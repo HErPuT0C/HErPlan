@@ -65,6 +65,31 @@
               }
             }
           }
+        },
+        "catalogs": {
+          "type": "array",
+          "description": "Since 0.4: catalogs of tags; values of \"tags\" fields are tag ids.",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "tags"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["id", "name", "description", "color"],
+                  "properties": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "description": { "type": "string" },
+                    "color": { "type": ["string", "null"] }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -97,6 +122,7 @@
             "enum",
             "ref",
             "refList",
+            "tags",
             "image",
             "color",
             "table"
@@ -104,7 +130,8 @@
         },
         "options": { "type": "array", "items": { "type": "string" } },
         "target": { "type": ["string", "null"] },
-        "columns": { "type": "array", "items": { "type": "string" } }
+        "columns": { "type": "array", "items": { "type": "string" } },
+        "catalog": { "type": ["string", "null"] }
       }
     },
     "nodeRef": {

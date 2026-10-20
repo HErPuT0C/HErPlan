@@ -32,6 +32,7 @@ export function coerceValue(field: FieldDef, raw: unknown): FieldValue {
     case 'color':
       return typeof raw === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw) ? raw.toLowerCase() : null;
     case 'refList':
+    case 'tags':
       return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string' && !!x) : [];
     case 'table': {
       const columns = field.columns?.length ?? 0;
@@ -54,6 +55,8 @@ export function isEmptyValue(v: FieldValue): boolean {
 
 export interface ValueTextContext {
   entityName: (id: string) => string | null;
+  /** The name of a catalog tag (Tags fields); unknown tags are left out. */
+  tagName?: (id: string) => string | null;
   yes: string;
   no: string;
 }
@@ -71,6 +74,11 @@ export function valueText(field: FieldDef, v: FieldValue, ctx: ValueTextContext)
     case 'refList':
       return (v as string[])
         .map((id) => ctx.entityName(id))
+        .filter(Boolean)
+        .join(', ');
+    case 'tags':
+      return (v as string[])
+        .map((id) => ctx.tagName?.(id) ?? null)
         .filter(Boolean)
         .join(', ');
     case 'image':

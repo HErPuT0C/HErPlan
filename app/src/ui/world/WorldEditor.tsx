@@ -11,7 +11,15 @@ import { entityRequest } from '../../state/navigation';
 import type { OpenProject } from '../../state/project';
 import { asEntity, listEntities, newEntity, type WorldEntity } from '../../story/entities';
 import { reorderEntities } from '../../world/entityOps';
-import { effectiveFields, typesFile, typeTree, type FieldDef, type TypesFile } from '../../world/schema';
+import {
+  effectiveFields,
+  findCatalog,
+  findTag,
+  typesFile,
+  typeTree,
+  type FieldDef,
+  type TypesFile,
+} from '../../world/schema';
 import { coerceValue, compareValues, isEmptyValue, valueText, type ValueTextContext } from '../../world/values';
 import { Button, EmptyState, IconButton } from '../components';
 import { useAsync } from '../useAsync';
@@ -67,6 +75,7 @@ function opsFor(f: FieldDef): Op[] {
     case 'ref':
       return ['eq', 'empty', 'filled'];
     case 'refList':
+    case 'tags':
       return ['contains', 'empty', 'filled'];
     case 'text':
     case 'richtext':
@@ -97,7 +106,7 @@ function matches(e: WorldEntity, f: FieldDef, rule: Rule, ctx: ValueTextContext)
       if (f.type === 'ref' || f.type === 'enum') return v === rule.value;
       return valueText(f, v, ctx).toLowerCase() === want;
     case 'contains':
-      if (f.type === 'refList') return Array.isArray(v) && v.includes(rule.value);
+      if (f.type === 'refList' || f.type === 'tags') return Array.isArray(v) && v.includes(rule.value);
       return valueText(f, v, ctx).toLowerCase().includes(want);
   }
 }
@@ -148,10 +157,11 @@ export function WorldEditor({ project }: { project: OpenProject }) {
   const ctx: ValueTextContext = useMemo(
     () => ({
       entityName: (id) => (entities[id]?.name as string | undefined) ?? null,
+      tagName: (id) => findTag(schema, id)?.name ?? null,
       yes: t('var.yes'),
       no: t('var.no'),
     }),
-    [entities],
+    [entities, schema],
   );
   const fields = useMemo(
     () => (typeId === 'all' ? [] : effectiveFields(schema, typeId).map((f) => f.field)),
@@ -406,6 +416,7 @@ function RuleRow({
   fieldById: (id: string) => FieldDef | undefined;
 }) {
   const entities = useStore(project.store, (s) => s.entities);
+  const types = useStore(project.store, (s) => s.types);
   const f = fieldById(rule.field) ?? fields[0];
   const ops = opsFor(f);
   const op = ops.includes(rule.op) ? rule.op : ops[0];
@@ -451,6 +462,20 @@ function RuleRow({
             {(f.options ?? []).map((o) => (
               <option key={o} value={o}>
                 {o}
+              </option>
+            ))}
+          </select>
+        ) : f.type === 'tags' ? (
+          <select
+            className="input select"
+            value={rule.value}
+            aria-label={t('world.filter.value')}
+            onChange={(e) => onChange({ ...rule, op, value: e.target.value })}
+          >
+            <option value="" />
+            {(findCatalog(typesFile({ types }), f.catalog)?.tags ?? []).map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name || t('story.untitled')}
               </option>
             ))}
           </select>
