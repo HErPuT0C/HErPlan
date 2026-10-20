@@ -31,6 +31,8 @@ export interface AppSettings {
   /** Canvas mode: "normal" keeps titles readable from farther away, "economy" is for weak computers. */
   canvasQuality: QualityName;
   autosaveSeconds: number;
+  /** Story checks: the problems button and panel, and problem dots on cards. */
+  showChecks: boolean;
   dashboardView: 'cards' | 'list';
   /** Last folder where a project was created; null means Documents\HErPlan. */
   projectsDir: string | null;
@@ -47,6 +49,7 @@ export function defaultSettings(languages: readonly string[]): AppSettings {
     panButton: 'middle',
     canvasQuality: 'normal',
     autosaveSeconds: 5,
+    showChecks: true,
     dashboardView: 'cards',
     projectsDir: null,
     recentProjects: [],
@@ -84,6 +87,7 @@ export function parseSettings(text: string | null, languages: readonly string[])
     canvasQuality: oneOf(raw.canvasQuality, QUALITY_NAMES, defaults.canvasQuality),
     autosaveSeconds:
       Number.isInteger(autosave) && autosave >= 1 && autosave <= 60 ? autosave : defaults.autosaveSeconds,
+    showChecks: typeof raw.showChecks === 'boolean' ? raw.showChecks : defaults.showChecks,
     dashboardView: oneOf(raw.dashboardView, ['cards', 'list'] as const, defaults.dashboardView),
     projectsDir: typeof raw.projectsDir === 'string' && raw.projectsDir ? raw.projectsDir : null,
     recentProjects: Array.isArray(raw.recentProjects)

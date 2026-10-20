@@ -25,10 +25,25 @@ describe('application settings', () => {
   it('survives damaged or partly wrong files and keeps unknown fields', () => {
     expect(parseSettings('{"locale": "ru", "acc', ['en'])).toMatchObject({ locale: 'en', accent: 'mint' });
     const parsed = parseSettings(
-      JSON.stringify({ locale: 'fr', accent: 'indigo', uiScale: 133, autosaveSeconds: 0, future: true }),
+      JSON.stringify({
+        locale: 'fr',
+        accent: 'indigo',
+        uiScale: 133,
+        autosaveSeconds: 0,
+        showChecks: 'no',
+        future: true,
+      }),
       ['ru'],
     );
-    expect(parsed).toMatchObject({ locale: 'ru', accent: 'indigo', uiScale: 100, autosaveSeconds: 5, future: true });
+    expect(parsed).toMatchObject({
+      locale: 'ru',
+      accent: 'indigo',
+      uiScale: 100,
+      autosaveSeconds: 5,
+      showChecks: true,
+      future: true,
+    });
+    expect(parseSettings('{"showChecks": false}', ['ru']).showChecks).toBe(false);
   });
 
   it('round-trips through the file', () => {

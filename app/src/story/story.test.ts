@@ -150,6 +150,20 @@ describe('reference scenario (F3-15)', () => {
     expect(at(data, act(data, s, 'next'))).toBe('Ворота заперты');
   });
 
+  it('a chapter can be played on its own, from its start, and goes on into the story after it', () => {
+    const data = sampleProject();
+    const s = startPlay(data, undefined, 'g-ch2');
+    expect(at(data, s)).toBe('Опушка');
+    expect(s.stack.map((r) => r.node)).toEqual(['r-ch2']);
+    const r = route(data, s, ['next', 'Пройти мимо', 'next', 'К реке', 'next', 'next', 'next']);
+    // Gold is 5: the trader, then the end of chapter 2 leads on into chapter 3.
+    expect(r.stops.slice(-2)).toEqual(['Торговец', 'Рыцарь у ворот']);
+    const noStart = produce(data, (d) => {
+      g(d, 'g-ch2').nodes = g(d, 'g-ch2').nodes.filter((n) => n.kind !== 'start');
+    });
+    expect(startPlay(noStart, undefined, 'g-ch2').problem).toEqual({ code: 'noStartHere', params: { graph: 'g-ch2' } });
+  });
+
   it('stops on endless loops instead of hanging', () => {
     const data = produce(sampleProject(), (d) => {
       const c1 = g(d, 'g-ch1');

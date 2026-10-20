@@ -19,11 +19,12 @@ import { createNode } from '../../canvas/ops';
 import { newId } from '../../core/ids';
 import type { ProjectData } from '../../core/project/types';
 import { APP_VERSION } from '../../core/version';
-import { useAtom, useStore } from '../../core/useStore';
+import { useAtom, useAtomSelect, useStore } from '../../core/useStore';
 import { t } from '../../i18n';
 import { platform } from '../../platform';
 import { openVariables, revealRequest } from '../../state/navigation';
 import type { OpenProject } from '../../state/project';
+import { settings } from '../../state/settings';
 import { checkProject, countBySeverity } from '../../story/checks';
 import { exportJson } from '../../story/export';
 import { graphPath, graphTitle, refKey } from '../../story/flow';
@@ -56,8 +57,8 @@ interface Pending {
   field?: string;
 }
 
-/** Plot links and problems by node, rebuilt shortly after the project changes. */
-function useStoryIndex(project: OpenProject): void {
+/** Plot links and problems by node, rebuilt shortly after the project changes; no checks when they are off. */
+function useStoryIndex(project: OpenProject, checks: boolean): void {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const rebuild = () => {
@@ -77,7 +78,7 @@ function useStoryIndex(project: OpenProject): void {
           }
         }
       }
-      const problems = checkProject(data);
+      const problems = checks ? checkProject(data) : [];
       const rank = { error: 3, warning: 2, info: 1 } as const;
       const worst = new Map<string, 'error' | 'warning' | 'info'>();
       for (const p of problems) {
@@ -96,14 +97,23 @@ function useStoryIndex(project: OpenProject): void {
       unsubscribe();
       if (timer !== null) clearTimeout(timer);
     };
-  }, [project]);
+  }, [project, checks]);
+}
+
+/** Where a story tab is: the graph it shows (kept in the tab, see workspace.ts) and its canvas cameras. */
+export interface StoryTabProps {
+  /** The workspace tab, so two story tabs keep separate places and cameras. */
+  tab: string;
+  /** The graph the tab showed last time. */
+  graph?: string;
+  onGraph: (graph: string) => void;
 }
 
 /** The Story tab (FR-NAR-*): chapter overview and chapter graphs on the canvas, with logic and playthrough. */
-export function StoryEditor({ project }: { project: OpenProject }) {
+export function StoryEditor({ project, ...tab }: { project: OpenProject } & StoryTabProps) {
   const rootId = useStore(project.store, (s) => storyRoot(s)?.id);
   if (!rootId) return <EmptyStory project={project} />;
-  return <StoryWorkspace project={project} rootId={rootId} />;
+  return <StoryWorkspace project={project} rootId={rootId} {...tab} />;
 }
 
 function EmptyStory({ project }: { project: OpenProject }) {
@@ -131,11 +141,28 @@ function EmptyStory({ project }: { project: OpenProject }) {
   );
 }
 
-function StoryWorkspace({ project, rootId }: { project: OpenProject; rootId: string }) {
+function StoryWorkspace({
+  project,
+  rootId,
+  tab,
+  graph: initialGraph,
+  onGraph,
+}: { project: OpenProject; rootId: string } & StoryTabProps) {
   const { store, readOnly } = project;
-  const [graphId, setGraphId] = useState(rootId);
+  const [graphId, setGraphState] = useState(() =>
+    initialGraph && store.getState().graphs[initialGraph] ? initialGraph : rootId,
+  );
+  // The workspace hears where the tab went (to remember it); the callback changes with every render.
+  const onGraphRef = useRef(onGraph);
+  useLayoutEffect(() => {
+    onGraphRef.current = onGraph;
+  });
+  const setGraphId = useCallback((id: string) => {
+    setGraphState(id);
+    onGraphRef.current(id);
+  }, []);
   const [engine, setEngine] = useState<CanvasEngine | null>(null);
-  const [side, setSide] = useState<Side>('inspector');
+  const [chosenSide, setSide] = useState<Side>('inspector');
   const [focus, setFocus] = useState<InspectFocus | null>(null);
   const [play, setPlay] = useState<PlayHistory | null>(null);
   const pending = useRef<Pending | null>(null);
@@ -143,7 +170,10 @@ function StoryWorkspace({ project, rootId }: { project: OpenProject; rootId: str
   const path = useStore(store, (s) => graphPath(s, graphId).join('/'));
   const { problems } = useAtom(storyIndex);
   const counts = countBySeverity(problems);
-  useStoryIndex(project);
+  const showChecks = useAtomSelect(settings, (s) => s.showChecks);
+  useStoryIndex(project, showChecks);
+  // Problems were open when checks got switched off in the settings: show the inspector instead.
+  const side = chosenSide === 'problems' && !showChecks ? 'inspector' : chosenSide;
 
   // A deleted chapter (or an undone creation) takes the view back to the overview.
   const current = exists ? graphId : rootId;
@@ -167,7 +197,7 @@ function StoryWorkspace({ project, rootId }: { project: OpenProject; rootId: str
       if (target.graph === current && engine) settle(engine);
       else setGraphId(target.graph);
     },
-    [current, engine, settle],
+    [current, engine, settle, setGraphId],
   );
 
   const actions: StoryActions = useMemo(
@@ -195,7 +225,7 @@ function StoryWorkspace({ project, rootId }: { project: OpenProject; rootId: str
         );
       },
     }),
-    [project, store, current, go, readOnly],
+    [project, store, current, go, readOnly, setGraphId],
   );
 
   // "Where used" and problems in other editors ask to show a place here. A request is used once, so
@@ -227,8 +257,12 @@ function StoryWorkspace({ project, rootId }: { project: OpenProject; rootId: str
     if (pos) go({ graph: pos.graph, node: pos.node, highlight: [pos.node] });
   };
 
-  const startRun = (from?: NodeRef) => {
-    follow([startPlay(store.getState(), from)]);
+  /** How the current run started, for "start over": a node, a graph's start, or the whole story. */
+  const [runFrom, setRunFrom] = useState<{ node?: NodeRef; graph?: string }>({});
+  /** Plays from a node, from the start of a graph (by default the one on the canvas), or the whole story. */
+  const startRun = (from: { node?: NodeRef; graph?: string } = { graph: current }) => {
+    setRunFrom(from);
+    follow([startPlay(store.getState(), from.node, from.graph)]);
     setSide('play');
   };
 
@@ -266,7 +300,10 @@ function StoryWorkspace({ project, rootId }: { project: OpenProject; rootId: str
     menuEntries: (target: HitTarget) => {
       const data = store.getState();
       if (target.kind === 'background') {
-        return [{ id: 'play', label: t('play.fromStart'), icon: <Play size={16} />, onSelect: () => startRun() }];
+        return [
+          { id: 'play', label: t('play.thisCanvas'), icon: <Play size={16} />, onSelect: () => startRun() },
+          { id: 'play-all', label: t('play.fromStart'), icon: <Play size={16} />, onSelect: () => startRun({}) },
+        ];
       }
       if (target.kind === 'edge') {
         return [
@@ -308,7 +345,7 @@ function StoryWorkspace({ project, rootId }: { project: OpenProject; rootId: str
           id: 'play-here',
           label: t('play.fromHere'),
           icon: <Play size={16} />,
-          onSelect: () => startRun({ graph: current, node: node.id }),
+          onSelect: () => startRun({ node: { graph: current, node: node.id } }),
         });
       }
       return entries;
@@ -382,24 +419,32 @@ function StoryWorkspace({ project, rootId }: { project: OpenProject; rootId: str
             ))}
           </nav>
           <div className="story-actions">
-            <Button size="sm" variant="primary" icon={<Play size={14} />} onClick={() => startRun()}>
-              {t('play.start')}
-            </Button>
             <Button
               size="sm"
-              variant={side === 'problems' ? 'secondary' : 'ghost'}
-              icon={
-                counts.error ? (
-                  <CircleAlert size={14} className="text-danger" />
-                ) : (
-                  <TriangleAlert size={14} className={counts.warning ? 'text-warning' : undefined} />
-                )
-              }
-              aria-pressed={side === 'problems'}
-              onClick={() => setSide(side === 'problems' ? 'inspector' : 'problems')}
+              variant="primary"
+              icon={<Play size={14} />}
+              title={t('play.thisCanvas')}
+              onClick={() => startRun()}
             >
-              {t('problems.button', { count: counts.error + counts.warning })}
+              {t('play.start')}
             </Button>
+            {showChecks && (
+              <Button
+                size="sm"
+                variant={side === 'problems' ? 'secondary' : 'ghost'}
+                icon={
+                  counts.error ? (
+                    <CircleAlert size={14} className="text-danger" />
+                  ) : (
+                    <TriangleAlert size={14} className={counts.warning ? 'text-warning' : undefined} />
+                  )
+                }
+                aria-pressed={side === 'problems'}
+                onClick={() => setSide(side === 'problems' ? 'inspector' : 'problems')}
+              >
+                {t('problems.button', { count: counts.error + counts.warning })}
+              </Button>
+            )}
             <Button size="sm" variant="ghost" icon={<Variable size={14} />} onClick={() => openVariables()}>
               {t('var.button')}
             </Button>
@@ -435,6 +480,7 @@ function StoryWorkspace({ project, rootId }: { project: OpenProject; rootId: str
               key={current}
               project={project}
               graphId={current}
+              cameraKey={`${tab}:${current}`}
               ext={ext}
               onEngine={(e) => {
                 setEngine(e);
@@ -450,7 +496,7 @@ function StoryWorkspace({ project, rootId }: { project: OpenProject; rootId: str
                 <PlayPanel
                   history={play}
                   onChange={follow}
-                  onRestart={() => startRun()}
+                  onRestart={() => startRun(runFrom)}
                   onClose={() => {
                     setPlay(null);
                     setSide('inspector');

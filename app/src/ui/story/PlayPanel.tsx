@@ -103,7 +103,7 @@ export function PlayPanel({
             <CircleAlert size={16} aria-hidden="true" />
             <span>
               {state.problem
-                ? playProblemText(state.problem)
+                ? playProblemText(state.problem, data)
                 : t('play.problem.deadEnd', { node: node?.title || t('story.untitled') })}
             </span>
           </div>

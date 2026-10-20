@@ -73,6 +73,8 @@ export const storyEn: Record<keyof typeof storyRu, string> = {
   'check.refMissing': 'Node “{title}” refers to a deleted world card.',
 
   'play.problem.noStart': 'The story has no Start node — add one to the story canvas.',
+  'play.problem.noStartHere':
+    'Canvas “{graph}” has no Start node. Add one (double-click → Start) or choose “Play from here” in the menu of any node.',
   'play.problem.missingNode': 'The node this connection led to was deleted.',
   'play.problem.chapterNoStart': 'Chapter “{chapter}” has no Start node.',
   'play.problem.jumpNoTarget': 'Jump “{node}” leads nowhere.',
@@ -202,7 +204,8 @@ export const storyEn: Record<keyof typeof storyRu, string> = {
 
   'play.start': 'Play',
   'play.title': 'Playthrough',
-  'play.fromStart': 'Play from the start',
+  'play.fromStart': 'Play the whole story from its start',
+  'play.thisCanvas': 'Play this canvas from its Start',
   'play.fromHere': 'Play from here',
   'play.back': 'Step back',
   'play.restart': 'Start over',

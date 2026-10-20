@@ -14,6 +14,7 @@ import {
   openTab,
   parseWorkspace,
   serializeWorkspace,
+  setTabGraph,
   WORKSPACE_FILE,
   type WorkspaceState,
 } from '../../state/workspace';
@@ -102,7 +103,13 @@ export function Workspace({ project }: { project: OpenProject }) {
       />
       <main className="workspace-content" role="tabpanel" aria-label={t('tabs.content')}>
         {activeTab?.kind === 'story' ? (
-          <StoryEditor key={activeTab.id} project={project} />
+          <StoryEditor
+            key={activeTab.id}
+            project={project}
+            tab={activeTab.id}
+            graph={activeTab.graph}
+            onGraph={(graph) => setTabs((s) => setTabGraph(s, activeTab.id, graph))}
+          />
         ) : activeTab?.kind === 'database' ? (
           <WorldEditor key={activeTab.id} project={project} />
         ) : activeTab ? (

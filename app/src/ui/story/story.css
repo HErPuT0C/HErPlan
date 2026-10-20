@@ -67,7 +67,7 @@
 }
 .story-side {
   flex: none;
-  width: 340px;
+  width: min(340px, 45%);
   overflow-y: auto;
   border-left: 1px solid var(--line);
   background: var(--surface);
@@ -885,4 +885,17 @@
 }
 .cref .cnode-body {
   padding-top: 4px;
+}
+
+/* A narrow window (half of the screen with Windows Snap): the bar keeps its icons, the labels stay for
+   screen readers and tooltips only. */
+@media (max-width: 1100px) {
+  .story-actions .btn > span:not(.menu-button-chevron) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }

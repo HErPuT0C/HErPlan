@@ -72,6 +72,8 @@ export const storyRu = {
   'check.refMissing': 'Узел «{title}» ссылается на удалённую карточку мира.',
 
   'play.problem.noStart': 'В сценарии нет узла «Начало» — добавьте его на холст сценария.',
+  'play.problem.noStartHere':
+    'На холсте «{graph}» нет узла «Начало». Добавьте его (двойной клик → «Начало») или выберите «Пройти отсюда» в меню любого узла.',
   'play.problem.missingNode': 'Узел, к которому вела связь, удалён.',
   'play.problem.chapterNoStart': 'В главе «{chapter}» нет узла «Начало».',
   'play.problem.jumpNoTarget': 'Переход «{node}» никуда не ведёт.',
@@ -203,7 +205,8 @@ export const storyRu = {
 
   'play.start': 'Пройти',
   'play.title': 'Прохождение',
-  'play.fromStart': 'Пройти с начала',
+  'play.fromStart': 'Пройти с начала истории',
+  'play.thisCanvas': 'Пройти этот холст с его «Начала»',
   'play.fromHere': 'Пройти отсюда',
   'play.back': 'Шаг назад',
   'play.restart': 'Начать заново',

@@ -198,6 +198,9 @@ export const en: Record<MessageKey, string> = {
     'In normal mode node titles stay readable from far away. Economy draws less detail and spares the graphics card.',
   'settings.autosave': 'Autosave',
   'settings.autosaveHint': 'How soon after a change it is written to disk.',
+  'settings.showChecks': 'Story checks',
+  'settings.showChecksHint':
+    'The Problems button, the panel with found problems and the coloured dots on cards. Checks only give hints and never block anything.',
   'settings.seconds': '{count, plural, one {after # second} other {after # seconds}}',
   'settings.minutes': '{count, plural, one {# minute} other {# minutes}}',
   'settings.projectHint': 'These settings are stored in the project itself and apply on any computer.',

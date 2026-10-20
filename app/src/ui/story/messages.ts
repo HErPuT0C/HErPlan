@@ -85,6 +85,7 @@ export function problemText(p: Problem, data: ProjectData): string {
 
 const PLAY: Record<PlayProblemCode, MessageKey> = {
   noStart: 'play.problem.noStart',
+  noStartHere: 'play.problem.noStartHere',
   missingNode: 'play.problem.missingNode',
   chapterNoStart: 'play.problem.chapterNoStart',
   jumpNoTarget: 'play.problem.jumpNoTarget',
@@ -94,6 +95,8 @@ const PLAY: Record<PlayProblemCode, MessageKey> = {
   noOptions: 'play.problem.noOptions',
 };
 
-export function playProblemText(p: PlayProblem): string {
-  return t(PLAY[p.code], p.params);
+export function playProblemText(p: PlayProblem, data?: ProjectData): string {
+  const params = { ...p.params };
+  if (data && params.graph) params.graph = graphTitle(data, params.graph);
+  return t(PLAY[p.code], params);
 }

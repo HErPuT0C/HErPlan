@@ -12,6 +12,8 @@ export const WORKSPACE_FILE = '.herplan/workspace.json';
 export interface WorkspaceTab {
   id: string;
   kind: ModuleKind;
+  /** Story tabs: the graph on the canvas (each tab is a place of its own). */
+  graph?: string;
 }
 
 export interface WorkspaceState {
@@ -31,7 +33,10 @@ export function parseWorkspace(text: string | null): WorkspaceState {
         )
       : [];
     const active = tabs.some((tab) => tab.id === raw.active) ? (raw.active as string) : HOME;
-    return { tabs: tabs.map(({ id, kind }) => ({ id, kind })), active };
+    return {
+      tabs: tabs.map(({ id, kind, graph }) => ({ id, kind, ...(typeof graph === 'string' ? { graph } : {}) })),
+      active,
+    };
   } catch {
     return EMPTY_WORKSPACE;
   }
@@ -70,4 +75,11 @@ export function cycleTab(state: WorkspaceState, step: 1 | -1): WorkspaceState {
 /** "Story", "Story 2", …: the number tells several tabs of one editor apart. */
 export function tabNumber(state: WorkspaceState, tab: WorkspaceTab): number {
   return state.tabs.filter((t) => t.kind === tab.kind).indexOf(tab) + 1;
+}
+
+/** Remembers where a tab is (the graph of a story tab). */
+export function setTabGraph(state: WorkspaceState, id: string, graph: string): WorkspaceState {
+  const tab = state.tabs.find((t) => t.id === id);
+  if (!tab || tab.graph === graph) return state;
+  return { ...state, tabs: state.tabs.map((t) => (t.id === id ? { ...t, graph } : t)) };
 }

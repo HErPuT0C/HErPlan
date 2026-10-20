@@ -6,7 +6,7 @@ import { LOCALES, t, type MessageKey } from '../../i18n';
 import { platform } from '../../platform';
 import type { OpenProject } from '../../state/project';
 import { ACCENTS, settings, UI_SCALES, updateSettings, type Accent } from '../../state/settings';
-import { Button, Dialog, SelectField, TabPanel, Tabs, TextField } from '../components';
+import { Button, Dialog, SelectField, Switch, TabPanel, Tabs, TextField } from '../components';
 import { HOTKEYS } from '../hotkeys';
 import { ReportDialog } from '../report/ReportDialog';
 import { LOCALE_NAMES } from '../start/LanguageSwitch';
@@ -150,6 +150,14 @@ function EditorSettings() {
         onChange={(autosaveSeconds) => updateSettings((x) => ({ ...x, autosaveSeconds }))}
         hint={t('settings.autosaveHint')}
       />
+      <div className="field">
+        <Switch
+          label={t('settings.showChecks')}
+          checked={s.showChecks}
+          onChange={(showChecks) => updateSettings((x) => ({ ...x, showChecks }))}
+        />
+        <span className="field-hint">{t('settings.showChecksHint')}</span>
+      </div>
     </>
   );
 }

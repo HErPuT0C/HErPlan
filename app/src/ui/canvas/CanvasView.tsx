@@ -91,9 +91,12 @@ export function CanvasView({
   graphId,
   onEngine,
   ext,
+  cameraKey = graphId,
 }: {
   project: OpenProject;
   graphId: string;
+  /** Under which key the view is remembered between visits (a story tab keeps its own). */
+  cameraKey?: string;
   /** The benchmark page and the story editor drive the engine themselves. */
   onEngine?: (engine: CanvasEngine | null) => void;
   ext?: CanvasExtensions;
@@ -143,7 +146,7 @@ export function CanvasView({
           panButton: () => settings.get().panButton,
           readOnly,
         },
-        cameras.get(graphId) ?? null,
+        cameras.get(cameraKey) ?? null,
         settings.get().canvasQuality,
       );
     } catch (e) {
@@ -153,12 +156,12 @@ export function CanvasView({
     setEngine(created);
     onEngineRef.current?.(created);
     return () => {
-      cameras.set(graphId, created.currentCamera);
+      cameras.set(cameraKey, created.currentCamera);
       onEngineRef.current?.(null);
       created.destroy();
       setEngine(null);
     };
-  }, [project.store, graphId, readOnly, failed]);
+  }, [project.store, graphId, readOnly, failed, cameraKey]);
 
   useEffect(() => engine?.setQuality(canvasQuality), [engine, canvasQuality]);
 

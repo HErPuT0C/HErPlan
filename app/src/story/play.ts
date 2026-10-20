@@ -21,7 +21,15 @@ import { entityName, listVariables, registryFor, type Variable } from './variabl
 export type PlayStatus = 'running' | 'ended' | 'stuck' | 'error';
 
 export type PlayProblemCode =
-  'noStart' | 'missingNode' | 'chapterNoStart' | 'jumpNoTarget' | 'loop' | 'badExpression' | 'deadEnd' | 'noOptions';
+  | 'noStart'
+  | 'noStartHere'
+  | 'missingNode'
+  | 'chapterNoStart'
+  | 'jumpNoTarget'
+  | 'loop'
+  | 'badExpression'
+  | 'deadEnd'
+  | 'noOptions';
 
 export interface PlayProblem {
   code: PlayProblemCode;
@@ -265,8 +273,11 @@ function leave(data: ProjectData, s: PlayState, at: NodeRef): Step {
 
 // ---------- public API ----------
 
-/** A new run from the story's start, or from any node with the chapters above it entered. */
-export function startPlay(data: ProjectData, from?: NodeRef | null): PlayState {
+/**
+ * A new run: from a node (with the chapters above it entered), from the start of a graph (a chapter tested
+ * on its own continues into the story after its end), or from the start of the whole story.
+ */
+export function startPlay(data: ProjectData, from?: NodeRef | null, graph?: string): PlayState {
   const blank: PlayState = {
     pos: null,
     leaving: false,
@@ -278,10 +289,10 @@ export function startPlay(data: ProjectData, from?: NodeRef | null): PlayState {
   };
   let at = from ?? null;
   if (!at) {
-    const root = Object.values(data.graphs).find((g) => g.kind === 'story') as { id: string } | undefined;
-    const start = root && startOf(graphOf(data, root.id));
-    if (!root || !start) return fail(blank, 'noStart');
-    at = { graph: root.id, node: start.id };
+    const id = graph ?? (Object.values(data.graphs).find((g) => g.kind === 'story') as { id: string } | undefined)?.id;
+    const start = id ? startOf(graphOf(data, id)) : undefined;
+    if (!id || !start) return fail(blank, graph ? 'noStartHere' : 'noStart', { graph: graph ?? '' });
+    at = { graph: id, node: start.id };
   }
   return arrive(data, { ...blank, stack: chapterStack(data, at.graph) }, at);
 }

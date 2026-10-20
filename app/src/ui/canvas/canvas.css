@@ -431,8 +431,10 @@ textarea.cnode-edit {
 }
 
 /*
- * Mid zoom: node titles at a constant screen size (scaled back by --label-scale) fitted into the node's
- * box on screen: --w and --h are the node size in world units. WebGL draws the boxes.
+ * Mid zoom: node titles over the WebGL boxes, fitted into the node's box on screen (--w and --h are the
+ * node size in world units, --label-scale is 1 / zoom). The text shrinks with the zoom like the title of
+ * a card up close (13px × zoom), so it never grows while zooming out, until it reaches a barely readable
+ * minimum and stays there.
  */
 .clabel {
   position: absolute;
@@ -442,7 +444,7 @@ textarea.cnode-edit {
   transform-origin: 0 0;
   width: calc(var(--w) * 1px / var(--label-scale, 1));
   max-height: calc(var(--h) * 1px / var(--label-scale, 1));
-  padding: 3px 6px;
+  padding: 0.3em 0.75em;
   overflow: hidden;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -450,9 +452,9 @@ textarea.cnode-edit {
   line-clamp: 2;
   overflow-wrap: anywhere;
   color: #fff;
-  font-size: 12px;
+  font-size: max(7px, calc(13px / var(--label-scale, 1)));
   font-weight: 600;
-  line-height: 15px;
+  line-height: 1.25;
   text-shadow: 0 1px 2px rgb(0 0 0 / 0.7);
 }
 
