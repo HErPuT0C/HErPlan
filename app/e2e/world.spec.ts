@@ -271,3 +271,28 @@ test('a list of links shows the descriptions of the cards and makes a new card i
   await expect(card(page, 'Фонарь')).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('a yes/no field low in a long card does not shift the whole window (0.6 fix)', async ({ page }) => {
+  const { errors } = await openSample(page);
+  await page.setViewportSize({ width: 1366, height: 600 });
+  await card(page, 'Мира').click();
+  const panel = page.locator('.world-panel');
+  for (const name of ['Сила', 'Ловкость', 'Ум', 'Харизма', 'Удача', 'Скорость', 'Защита', 'Опыт']) {
+    await panel.getByRole('button', { name: 'Добавить поле…' }).click();
+    await page.getByRole('dialog').getByLabel('Название поля').fill(name);
+    await page.getByRole('dialog').getByRole('button', { name: 'Добавить', exact: true }).click();
+  }
+  await panel.getByRole('button', { name: 'Добавить поле…' }).click();
+  await page.getByRole('dialog').getByLabel('Название поля').fill('Напарник');
+  await page.getByRole('dialog').getByLabel('Вид поля').selectOption({ label: 'Да/нет' });
+  await page.getByRole('dialog').getByRole('button', { name: 'Добавить', exact: true }).click();
+  await page.locator('.world-panel-body').evaluate((e) => e.scrollTo(0, e.scrollHeight));
+  await panel.locator('.switch', { hasText: 'Напарник' }).click();
+  await expect(panel.getByRole('switch', { name: 'Напарник' })).toBeChecked();
+  // The window did not scroll: the header and the tabs are where they were, nothing sticks out below.
+  expect(
+    await page.evaluate(() => [document.scrollingElement!.scrollTop, document.scrollingElement!.scrollHeight]),
+  ).toEqual([0, 600]);
+  await expect(page.getByRole('tab', { name: 'База данных' })).toBeInViewport();
+  expect(errors).toEqual([]);
+});

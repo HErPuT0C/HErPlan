@@ -143,14 +143,16 @@ export function FieldInput({ project, field, value: raw, self, onChange, owner, 
     }
     case 'bool':
       return (
-        <div className="field world-field world-field-head" data-field={`value:${field.id}`}>
-          <Switch
-            label={field.label || t('schema.untitledField')}
-            checked={value === true}
-            disabled={readOnly}
-            onChange={(on) => onChange(on)}
-          />
-          {tools}
+        <div className="field world-field" data-field={`value:${field.id}`}>
+          <div className="world-field-head">
+            <Switch
+              label={field.label || t('schema.untitledField')}
+              checked={value === true}
+              disabled={readOnly}
+              onChange={(on) => onChange(on)}
+            />
+            {tools}
+          </div>
         </div>
       );
     case 'enum':

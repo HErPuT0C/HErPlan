@@ -60,7 +60,7 @@ export const worldRu = {
   'world.deletedEntity': 'удалённая карточка',
   'world.addRef': 'Добавить…',
   'world.removeRef': 'Убрать',
-  'world.tableNoColumns': 'Задайте столбцы таблицы в «Типы и поля…».',
+  'world.tableNoColumns': 'Задайте столбцы таблицы в настройках поля: ⋮ → «Настроить поле…».',
   'world.addRow': 'Строка',
   'world.removeRow': 'Удалить строку',
   'world.relations': 'Связи',

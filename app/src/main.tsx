@@ -25,6 +25,12 @@ function blockBrowserBehaviour(): void {
   window.addEventListener('contextmenu', (e) => {
     if (!isTypingTarget(e.target)) e.preventDefault();
   });
+  // The window itself never scrolls: panels scroll inside. Something that sticks out below the window (it
+  // happened with the hidden checkbox of a yes/no field low in a long card) must not, when it gets the
+  // focus, shift the whole interface up and leave an empty band below it.
+  window.addEventListener('scroll', () => {
+    if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+  });
 }
 
 async function start(): Promise<void> {

@@ -59,7 +59,7 @@ export const worldEn = {
   'world.deletedEntity': 'deleted card',
   'world.addRef': 'Add…',
   'world.removeRef': 'Remove',
-  'world.tableNoColumns': 'Set the table columns in “Types and fields…”.',
+  'world.tableNoColumns': 'Set the table columns in the field settings: ⋮ → “Field settings…”.',
   'world.addRow': 'Row',
   'world.removeRow': 'Delete row',
   'world.relations': 'Relations',

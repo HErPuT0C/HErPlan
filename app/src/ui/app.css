@@ -5,6 +5,10 @@ body,
   margin: 0;
 }
 
+#root {
+  overflow: clip;
+}
+
 body {
   background: var(--bg);
   color: var(--text);
