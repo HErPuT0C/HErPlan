@@ -40,7 +40,7 @@ export function TabStrip({ state, onActivate, onOpen, onClose, onCloseOthers }: 
   };
 
   return (
-    <nav className="tabstrip" aria-label={t('tabs.label')}>
+    <nav className="tabstrip" aria-label={t('tabs.label')} data-tour="tabs">
       <div role="tablist" aria-label={t('tabs.label')} className="tabstrip-tabs" onKeyDown={onKeyDown}>
         <button
           type="button"

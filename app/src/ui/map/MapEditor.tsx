@@ -174,7 +174,7 @@ function MapWorkspace({ project, graphId }: { project: OpenProject; graphId: str
   };
 
   return (
-    <div className="map">
+    <div className="map" data-tour="map">
       <ObjectList project={project} onStart={startDrag} />
       <div ref={canvasBox} className={['map-canvas', drag?.over && 'map-canvas-over'].filter(Boolean).join(' ')}>
         <CanvasView project={project} graphId={graphId} cameraKey={`map:${graphId}`} ext={ext} onEngine={setEngine} />

@@ -95,7 +95,9 @@ export function ProjectHeader({ project, onSearch, onHistory, onExport, onSettin
           <span>{project.dir}</span>
         </button>
       </div>
-      <SaveStatus saver={project.saver} />
+      <span data-tour="save">
+        <SaveStatus saver={project.saver} />
+      </span>
       <div className="project-actions">
         <IconButton
           label={undoLabel ? t('common.undoWhat', { what: undoLabel }) : t('common.undo')}
@@ -110,11 +112,26 @@ export function ProjectHeader({ project, onSearch, onHistory, onExport, onSettin
           onClick={() => store.redo()}
         />
         <span className="toolbar-sep" />
-        <IconButton label={t('search.open')} icon={<Search size={18} />} onClick={onSearch} />
-        <IconButton label={t('var.title')} icon={<Variable size={18} />} onClick={() => openVariables()} />
-        <IconButton label={t('history.title')} icon={<ArchiveRestore size={18} />} onClick={onHistory} />
-        <IconButton label={t('export.button')} icon={<Download size={18} />} onClick={onExport} />
-        <IconButton label={t('settings.title')} icon={<Settings size={18} />} onClick={onSettings} />
+        <IconButton label={t('search.open')} icon={<Search size={18} />} onClick={onSearch} data-tour="search" />
+        <IconButton
+          label={t('var.title')}
+          icon={<Variable size={18} />}
+          onClick={() => openVariables()}
+          data-tour="variables"
+        />
+        <IconButton
+          label={t('history.title')}
+          icon={<ArchiveRestore size={18} />}
+          onClick={onHistory}
+          data-tour="history"
+        />
+        <IconButton label={t('export.button')} icon={<Download size={18} />} onClick={onExport} data-tour="export" />
+        <IconButton
+          label={t('settings.title')}
+          icon={<Settings size={18} />}
+          onClick={onSettings}
+          data-tour="settings"
+        />
         <IconButton label={t('project.close')} icon={<X size={18} />} onClick={onClose} />
       </div>
     </header>

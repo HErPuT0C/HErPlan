@@ -148,7 +148,7 @@ export function TasksEditor({
     });
 
   return (
-    <div className="tasks">
+    <div className="tasks" data-tour="tasks">
       <nav className="tasks-boards" aria-label={t('tasks.boards')}>
         <h3 className="insp-heading">{t('tasks.boards')}</h3>
         {boards.map((b) => (

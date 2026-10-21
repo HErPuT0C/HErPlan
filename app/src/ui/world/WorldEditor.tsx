@@ -259,7 +259,7 @@ export function WorldEditor({ project }: { project: OpenProject }) {
   const manual = sort.by === 'manual';
 
   return (
-    <div className="world">
+    <div className="world" data-tour="world">
       <nav className="world-types" aria-label={t('world.types')}>
         <button
           type="button"

@@ -1,4 +1,4 @@
-import { FileArchive, FolderInput, FolderOpen, FolderSearch, Plus, Settings, Trash } from 'lucide-react';
+import { FileArchive, FolderInput, FolderOpen, FolderSearch, GraduationCap, Plus, Settings, Trash } from 'lucide-react';
 import { useState } from 'react';
 import { useAtom } from '../../core/useStore';
 import { formatDate, t } from '../../i18n';
@@ -16,6 +16,8 @@ import { CreateProjectDialog } from './CreateProjectDialog';
 import { zipFilters } from './filters';
 import { ImportDialog, type ImportSource } from './ImportDialog';
 import { LanguageSwitch } from './LanguageSwitch';
+import { openTutorialProject } from '../tour/learning';
+import { Welcome } from '../tour/Welcome';
 import { versionText } from '../version';
 import './start.css';
 
@@ -26,6 +28,7 @@ export function StartScreen() {
   const [importing, setImporting] = useState<ImportSource | null>(null);
   const [recovery, setRecovery] = useState<RecoveryRequest | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tutorial, setTutorial] = useState(false);
 
   const handleResult = (result: OpenResult) => {
     if (result.ok) {
@@ -106,6 +109,18 @@ export function StartScreen() {
                 },
               ]}
             />
+            <Button
+              variant="ghost"
+              icon={<GraduationCap size={18} />}
+              title={t('learning.openHint')}
+              busy={tutorial}
+              onClick={async () => {
+                setTutorial(true);
+                if (!(await openTutorialProject(false))) setTutorial(false);
+              }}
+            >
+              {t('learning.open')}
+            </Button>
           </div>
         </section>
 
@@ -135,6 +150,7 @@ export function StartScreen() {
       <ImportDialog source={importing} onClose={() => setImporting(null)} />
       <RecoveryDialog request={recovery} onClose={() => setRecovery(null)} />
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <Welcome />
     </div>
   );
 }

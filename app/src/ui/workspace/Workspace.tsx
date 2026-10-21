@@ -8,6 +8,7 @@ import {
   documentRequest,
   entityRequest,
   mapRequest,
+  moduleRequest,
   revealRequest,
 } from '../../state/navigation';
 import { t } from '../../i18n';
@@ -137,6 +138,17 @@ export function Workspace({ project }: { project: OpenProject }) {
       return assets ? { ...s, active: assets.id } : openTab(s, 'assets');
     });
   }, [wantedAsset, setTabs]);
+  // "Show this module" (the tour): a tab of it to the front, a new one if there is none.
+  const wantedModule = useAtom(moduleRequest);
+  useEffect(() => {
+    if (!wantedModule) return;
+    setTabs((s) => {
+      if (s.tabs.find((tab) => tab.id === s.active)?.kind === wantedModule.kind) return s;
+      const tab = s.tabs.find((x) => x.kind === wantedModule.kind);
+      return tab ? { ...s, active: tab.id } : openTab(s, wantedModule.kind);
+    });
+    moduleRequest.set(null);
+  }, [wantedModule, setTabs]);
   // "Show on the map": bring the map tab to the front.
   const wantedMap = useAtom(mapRequest);
   useEffect(() => {

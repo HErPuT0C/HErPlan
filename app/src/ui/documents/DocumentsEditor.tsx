@@ -334,7 +334,7 @@ export function DocumentsEditor({
   };
 
   return (
-    <div className="docs">
+    <div className="docs" data-tour="docs">
       <nav
         className={['docs-tree', moving.dragged && moving.over === '/' && 'assets-tree-over'].filter(Boolean).join(' ')}
         aria-label={t('module.documents')}

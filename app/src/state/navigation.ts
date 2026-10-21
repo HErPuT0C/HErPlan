@@ -2,6 +2,7 @@
 // checks list takes the designer to a node; the workspace opens the story tab and the editor reveals it.
 
 import { atom } from '../core/atom';
+import type { ModuleKind } from './workspace';
 
 export interface RevealRequest {
   graph: string;
@@ -72,4 +73,11 @@ export const taskRequest = atom<{ id: string; at: number } | null>(null);
 
 export function openTask(id: string): void {
   taskRequest.set({ id, at: performance.now() });
+}
+
+/** "Show this part of the application" (the tour): the workspace brings a tab of the module to the front. */
+export const moduleRequest = atom<{ kind: ModuleKind; at: number } | null>(null);
+
+export function openModule(kind: ModuleKind): void {
+  moduleRequest.set({ kind, at: performance.now() });
 }

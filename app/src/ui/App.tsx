@@ -6,6 +6,7 @@ import { ToastRegion } from './components';
 import { CanvasBench } from './dev/CanvasBench';
 import { Showcase } from './dev/Showcase';
 import { StartScreen } from './start/StartScreen';
+import { Tour } from './tour/Tour';
 import { Workspace } from './workspace/Workspace';
 import './app.css';
 
@@ -31,6 +32,7 @@ export function App() {
       ) : (
         <StartScreen />
       )}
+      <Tour />
       <ToastRegion />
     </>
   );

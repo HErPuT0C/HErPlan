@@ -12,7 +12,9 @@ test('canvas benchmark runs on 5 000 nodes', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto('/');
-  await page.evaluate(() => localStorage.setItem('herplan.web.settings.v1', JSON.stringify({ locale: 'ru' })));
+  await page.evaluate(() =>
+    localStorage.setItem('herplan.web.settings.v1', JSON.stringify({ locale: 'ru', tourSeen: true })),
+  );
   await page.goto('/#/dev/canvas-bench?nodes=5000&auto=1');
   await page.reload();
   await page.waitForFunction(() => (window as BenchWindow).__herplanBench !== undefined, null, { timeout: 30_000 });

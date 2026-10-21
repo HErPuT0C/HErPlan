@@ -1,0 +1,82 @@
+/* The tour (0.7): the window dimmed around one lit part, and a card next to it. */
+
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+}
+.tour-dim {
+  position: absolute;
+  inset: 0;
+  background: rgb(8 10 14 / 0.62);
+}
+.tour-spot {
+  position: absolute;
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 0 0 2px var(--accent),
+    0 0 0 100vmax rgb(8 10 14 / 0.62);
+  transition:
+    left 0.2s ease,
+    top 0.2s ease,
+    width 0.2s ease,
+    height 0.2s ease;
+  pointer-events: none;
+}
+.tour-card {
+  position: absolute;
+  width: min(380px, calc(100vw - 24px));
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-popup);
+  color: var(--text);
+}
+.tour-title {
+  margin: var(--space-1) 0 var(--space-2);
+  font-size: var(--fs-lg);
+}
+.tour-text {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.5;
+}
+.tour-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.tour-skip {
+  margin-right: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.tour-skip:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tour-spot {
+    transition: none;
+  }
+}
+
+/* The first start. */
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.welcome p {
+  margin: 0;
+  line-height: 1.5;
+}

@@ -492,6 +492,7 @@ function StoryWorkspace({
               icon={<Play size={14} />}
               title={t('play.thisCanvas')}
               onClick={() => startRun()}
+              data-tour="play"
             >
               {t('play.start')}
             </Button>
@@ -507,6 +508,7 @@ function StoryWorkspace({
                   )
                 }
                 aria-pressed={side === 'problems'}
+                data-tour="checks"
                 onClick={() => setSide(side === 'problems' ? 'inspector' : 'problems')}
               >
                 {t('problems.button', { count: counts.error + counts.warning })}
@@ -542,7 +544,7 @@ function StoryWorkspace({
           </div>
         </header>
         <div className="story-main">
-          <div className="story-canvas">
+          <div className="story-canvas" data-tour="canvas">
             <CanvasView
               key={current}
               project={project}

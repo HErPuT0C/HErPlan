@@ -1,6 +1,6 @@
 [package]
 name = "herplan"
-version = "0.6.0"
+version = "0.7.0"
 description = "HErPlan desktop application"
 edition.workspace = true
 license.workspace = true

@@ -363,7 +363,7 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
   const file = selected ? (entries ?? []).find((e) => e.path === selected && e.kind === 'file') : undefined;
 
   return (
-    <div className="assets">
+    <div className="assets" data-tour="assets">
       <nav className="assets-tree" aria-label={t('assets.folders')}>
         <FolderRow
           path={ROOT}

@@ -120,6 +120,84 @@ export const en: Record<MessageKey, string> = {
   'tasks.step.move': 'Task moved',
   'tasks.step.trash': 'Task trash',
   'tasks.step.restore': 'Task restored',
+  'tour.progress': 'Step {n} of {total}',
+  'tour.next': 'Next',
+  'tour.back': 'Back',
+  'tour.done': 'Get started',
+  'tour.skip': 'End the tour',
+  'tour.welcome.title': 'Welcome to HErPlan',
+  'tour.welcome.text':
+    'HErPlan is an editor for game design: a branching story, a world database, documents, tasks and a project map in one folder on disk. Let us show the main things in a couple of minutes. The tutorial project “The Last Lantern” is open — touch anything in it.',
+  'tour.save.title': 'It saves by itself',
+  'tour.save.text':
+    'Every change is written to disk a few seconds later — here you see that everything is saved. Ctrl+Z undoes, Ctrl+S saves at once.',
+  'tour.tabs.title': 'Modules in tabs',
+  'tour.tabs.text':
+    'The story, the database, documents, tasks, the map and the assets open in tabs. “+” opens a module; you can keep two tabs of one module — say, two chapters side by side.',
+  'tour.story.title': 'The story canvas',
+  'tour.story.text':
+    'Nodes are scenes, dialogues, choices, conditions; arrows are the order. Double-click a chapter to open it, right-click empty space to make a node. The mouse wheel zooms, the middle button pans.',
+  'tour.play.title': 'Playthrough — Play',
+  'tour.play.text':
+    'Plays the story like a game: shows the text, offers the choices, counts the variables. A quick way to see that a branch does not lead into a dead end.',
+  'tour.checks.title': 'Checks',
+  'tour.checks.text':
+    'They look for story mistakes: unreachable nodes, dead ends, typos in conditions, guns that never fire. A click on a problem leads to the place.',
+  'tour.variables.title': 'Variables and labels',
+  'tour.variables.text':
+    'One panel for the whole project: variables (coins, trust) and task labels live here, and you see where each variable changes and where it is read.',
+  'tour.world.title': 'The world database',
+  'tour.world.text':
+    'Characters, places, items and your own types. A card has fields, tags from catalogs, relations to other cards and a Where used list. A field can be added right on the card.',
+  'tour.docs.title': 'Documents',
+  'tour.docs.text':
+    'The design document, a wiki, level documents — plain Markdown files. “@” inserts a link to a card, a chapter or a file; names in links follow by themselves. Export to PDF and Markdown.',
+  'tour.tasks.title': 'Tasks',
+  'tour.tasks.text':
+    'Boards of lists: tasks are dragged between columns; a task has a checklist, labels and links to chapters and cards.',
+  'tour.map.title': 'The project map',
+  'tour.map.text':
+    'The whole project on one canvas: chapters, documents, cards and pictures next to notes and arrows. Double-click a card to open the object.',
+  'tour.assets.title': 'Assets',
+  'tour.assets.text':
+    'Pictures and files of the project in folders. Drag files here from the explorer; right-click to rename, move or delete. You see where each file is used.',
+  'tour.search.title': 'Search — Ctrl+K',
+  'tour.search.text':
+    'Finds anything by a part of a word: cards, chapters, lines, documents, tasks, files. Enter opens what was found.',
+  'tour.history.title': 'Version history',
+  'tour.history.text':
+    'Copies of the project are made by themselves. From here the project goes back to any of them, or a copy is made by hand.',
+  'tour.export.title': 'Export',
+  'tour.export.text':
+    'The whole project into one .zip, to pass on or to keep. The story for a game engine — as JSON (a button on the Story tab).',
+  'tour.settings.title': 'Settings',
+  'tour.settings.text':
+    'Language, interface scale, autosave, shortcuts. This is also where the tour can be taken again.',
+  'tour.finish.title': 'That’s it!',
+  'tour.finish.text':
+    'The tutorial project stays with you: play it through, look into the “Start here” document. For your own project — Close project, then New project on the start screen.',
+  'tour.welcome.textOwn':
+    'HErPlan is an editor for game design: a branching story, a world database, documents, tasks and a project map in one folder on disk. Let us show the main things in a couple of minutes — on your open project.',
+  'tour.finish.textOwn':
+    'The tutorial project “The Last Lantern”, with examples of everything HErPlan can do, is in the settings, under Learning.',
+  'welcome.title': 'Welcome to HErPlan',
+  'welcome.text':
+    'Would you like a short tour? We will open the tutorial project “The Last Lantern” — a small story with a script, a world database, documents and tasks — and show you around on it.',
+  'welcome.hint':
+    'The tutorial project is an ordinary project in Documents\\HErPlan: change it or delete it. The tour can be taken again in the settings.',
+  'welcome.tour': 'Take the tour',
+  'welcome.projectOnly': 'Just the tutorial project',
+  'welcome.notNow': 'Not now',
+  'welcome.later': 'The tour and the tutorial project wait in the settings, under Learning.',
+  'learning.failed': 'Could not open the tutorial project: {reason}',
+  'learning.open': 'Tutorial project',
+  'learning.openHint': 'A fresh copy of the tutorial project “The Last Lantern” in the projects folder',
+  'settings.learning': 'Learning',
+  'settings.learningText':
+    'The tour shows the parts of HErPlan step by step. The tutorial project “The Last Lantern” is a small story that has everything: chapters with choices and variables, a world database, documents, tasks and a map.',
+  'settings.takeTour': 'Take the tour',
+  'settings.openTutorial': 'Open the tutorial project',
+  'settings.openTutorialHint': 'A fresh copy opens; the open project is saved and closed first.',
   'common.change': 'Change…',
   'common.close': 'Close',
   'common.retry': 'Retry',

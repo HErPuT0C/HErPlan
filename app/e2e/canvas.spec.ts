@@ -6,7 +6,10 @@ async function openStoryCanvas(page: Page) {
   await page.goto('/');
   await page.evaluate(() => {
     localStorage.clear();
-    localStorage.setItem('herplan.web.settings.v1', JSON.stringify({ locale: 'ru', canvasHintsOpen: false }));
+    localStorage.setItem(
+      'herplan.web.settings.v1',
+      JSON.stringify({ locale: 'ru', canvasHintsOpen: false, tourSeen: true }),
+    );
   });
   await page.reload();
   await page.getByRole('button', { name: 'Создать проект' }).click();

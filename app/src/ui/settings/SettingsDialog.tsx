@@ -1,4 +1,4 @@
-import { Bug, Check, ExternalLink, Gauge, MessageSquare } from 'lucide-react';
+import { BookOpen, Bug, Check, ExternalLink, Gauge, GraduationCap, MessageSquare } from 'lucide-react';
 import { useState } from 'react';
 import type { BackupKeep } from '../../core/project/types';
 import { useAtom, useStore } from '../../core/useStore';
@@ -10,12 +10,13 @@ import { Button, Dialog, SelectField, Switch, TabPanel, Tabs, TextField } from '
 import { HOTKEYS } from '../hotkeys';
 import { ReportDialog } from '../report/ReportDialog';
 import { LOCALE_NAMES } from '../start/LanguageSwitch';
+import { openTutorialProject, takeTour } from '../tour/learning';
 import { versionText } from '../version';
 
 export const REPO_URL = 'https://github.com/HErPuT0C/HErPlan';
 const ISSUES_URL = `${REPO_URL}/issues/new`;
 
-type Section = 'general' | 'appearance' | 'editor' | 'project' | 'hotkeys' | 'about';
+type Section = 'general' | 'appearance' | 'editor' | 'project' | 'hotkeys' | 'learning' | 'about';
 
 const ACCENT_NAMES: Record<Accent, MessageKey> = {
   mint: 'settings.accent.mint',
@@ -41,6 +42,7 @@ export function SettingsDialog({
     { value: 'editor', label: t('settings.editor') },
     ...(project ? [{ value: 'project' as const, label: t('settings.project') }] : []),
     { value: 'hotkeys', label: t('settings.hotkeys') },
+    { value: 'learning', label: t('settings.learning') },
     { value: 'about', label: t('settings.about') },
   ];
   const current = sections.some((s) => s.value === section) ? section : 'general';
@@ -54,6 +56,7 @@ export function SettingsDialog({
         {current === 'editor' && <EditorSettings />}
         {current === 'project' && project && <ProjectSettings project={project} />}
         {current === 'hotkeys' && <HotkeyList />}
+        {current === 'learning' && <Learning onClose={onClose} />}
         {current === 'about' && <About />}
       </TabPanel>
     </Dialog>
@@ -256,6 +259,42 @@ function HotkeyList() {
         ))}
       </tbody>
     </table>
+  );
+}
+
+/** The tour and the tutorial project (0.7). */
+function Learning({ onClose }: { onClose: () => void }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="about">
+      <p className="muted">{t('settings.learningText')}</p>
+      <div className="about-actions">
+        <Button
+          variant="primary"
+          icon={<GraduationCap size={16} />}
+          disabled={busy}
+          onClick={() => {
+            onClose();
+            takeTour();
+          }}
+        >
+          {t('settings.takeTour')}
+        </Button>
+        <Button
+          icon={<BookOpen size={16} />}
+          busy={busy}
+          onClick={async () => {
+            setBusy(true);
+            const ok = await openTutorialProject(false);
+            setBusy(false);
+            if (ok) onClose();
+          }}
+        >
+          {t('settings.openTutorial')}
+        </Button>
+      </div>
+      <p className="muted small">{t('settings.openTutorialHint')}</p>
+    </div>
   );
 }
 

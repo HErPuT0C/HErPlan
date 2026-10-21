@@ -13,7 +13,7 @@ async function freshStart(page: Page) {
   await page.goto('/');
   await page.evaluate(() => {
     localStorage.clear();
-    localStorage.setItem('herplan.web.settings.v1', JSON.stringify({ locale: 'ru' }));
+    localStorage.setItem('herplan.web.settings.v1', JSON.stringify({ locale: 'ru', tourSeen: true }));
   });
   await page.reload();
 }
@@ -90,7 +90,7 @@ test('an empty folder named like the project is used directly, not nested', asyn
     localStorage.setItem('herplan.web.fs.v1', JSON.stringify(fs));
     localStorage.setItem(
       'herplan.web.settings.v1',
-      JSON.stringify({ locale: 'ru', projectsDir: '/Documents/Games/TactiCall' }),
+      JSON.stringify({ locale: 'ru', tourSeen: true, projectsDir: '/Documents/Games/TactiCall' }),
     );
   });
   await page.reload();
