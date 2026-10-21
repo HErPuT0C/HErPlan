@@ -9,7 +9,7 @@ import { allGraphs, asStory } from '../story/model';
 import { documentsLinkingTo } from '../documents/links';
 import { docName } from '../documents/model';
 import { listVariables } from '../story/variables';
-import { effectiveFields, typesFile } from './schema';
+import { cardFields, typesFile } from './schema';
 
 /** A relation as one entity sees it: its own (outgoing) or one another entity keeps about it. */
 export interface RelationView {
@@ -126,8 +126,9 @@ export function copyValues(d: ProjectData, from: string, to: string): number {
   const target = d.entities[to];
   if (!source || !target) return 0;
   const schema = typesFile(d);
-  const mine = new Set(effectiveFields(schema, String(target.type)).map((f) => f.field.id));
-  const shared = effectiveFields(schema, source.type).filter((f) => mine.has(f.field.id));
+  const into = asEntity(plain(target));
+  const mine = new Set(into ? cardFields(schema, into).map((f) => f.field.id) : []);
+  const shared = cardFields(schema, source).filter((f) => mine.has(f.field.id));
   const values = { ...(asEntity(plain(target))?.values ?? {}) };
   let copied = 0;
   for (const { field } of shared) {
@@ -177,7 +178,7 @@ export function entityUses(data: ProjectData, id: string): EntityUse[] {
   for (const raw of Object.values(data.entities)) {
     const e = asEntity(raw);
     if (!e || e.id === id) continue;
-    for (const { field } of effectiveFields(schema, e.type)) {
+    for (const { field } of cardFields(schema, e)) {
       const v = e.values[field.id];
       const hit =
         (field.type === 'ref' && v === id) || (field.type === 'refList' && Array.isArray(v) && v.includes(id));

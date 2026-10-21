@@ -3,10 +3,11 @@
 // Changes apply at once and can be undone.
 
 import { ArrowDown, ArrowLeftRight, ArrowUp, BookMarked, Layers, Link2, Plus, Shapes, Trash } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { ProjectData } from '../../core/project/types';
 import { useStore } from '../../core/useStore';
 import { t } from '../../i18n';
+import { openEntity } from '../../state/navigation';
 import type { OpenProject } from '../../state/project';
 import { listEntities } from '../../story/entities';
 import { applyPreset, PRESETS } from '../../world/presets';
@@ -36,6 +37,7 @@ import {
   isBuiltIn,
   moveField,
   newField,
+  ownFields,
   removeField,
   renameSet,
   typeChain,
@@ -223,7 +225,7 @@ export function SchemaDialog({
   );
 }
 
-type Change = (label: string, recipe: (d: ProjectData) => void, merge?: string) => void;
+export type Change = (label: string, recipe: (d: ProjectData) => void, merge?: string) => void;
 
 const SECTION_NAMES = {
   picture: 'schema.section.picture',
@@ -432,37 +434,27 @@ function FieldList({
 }) {
   const { readOnly } = project;
   const [kind, setKind] = useState<FieldKind>('text');
-  const set = (f: FieldDef, patch: Partial<FieldDef>, merge: string) =>
-    change(t('schema.step.field'), (d) => updateField(d, owner, f.id, patch), `field:${f.id}:${merge}`);
   return (
     <section className="insp-section">
       <h3 className="insp-heading">{t('schema.fields')}</h3>
       {fields.length === 0 && <p className="muted small">{t('schema.noFields')}</p>}
       {fields.map((f, i) => (
-        <div key={f.id} className="schema-field" data-field={`field:${f.id}`}>
-          <div className="schema-field-row">
-            <input
-              className="input"
-              value={f.label}
-              placeholder={t('schema.fieldLabel')}
-              aria-label={t('schema.fieldLabel')}
-              disabled={readOnly}
-              onChange={(e) => set(f, { label: e.target.value }, 'label')}
-            />
-            <select
-              className="input select"
-              value={f.type}
-              aria-label={t('schema.fieldKind')}
-              disabled={readOnly}
-              onChange={(e) => set(f, { type: e.target.value as FieldKind }, 'type')}
-            >
-              {FIELD_KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {t(FIELD_KIND_NAMES[k])}
-                </option>
-              ))}
-            </select>
-            {!readOnly && (
+        <FieldEditor
+          key={f.id}
+          field={f}
+          schema={schema}
+          readOnly={readOnly}
+          onPatch={(patch, merge) =>
+            change(t('schema.step.field'), (d) => updateField(d, owner, f.id, patch), `field:${f.id}:${merge}`)
+          }
+          onNewCatalog={() =>
+            change(t('schema.step.catalog'), (d) => {
+              const catalog = addCatalog(d, f.label || t('schema.newCatalog'));
+              updateField(d, owner, f.id, { catalog });
+            })
+          }
+          tools={
+            !readOnly && (
               <span className="iline-tools">
                 <IconButton
                   size="sm"
@@ -485,65 +477,9 @@ function FieldList({
                   onClick={() => change(t('schema.step.removeField'), (d) => removeField(d, owner, f.id))}
                 />
               </span>
-            )}
-          </div>
-          {f.type === 'enum' && (
-            <ListInput
-              value={f.options}
-              label={t('schema.options')}
-              disabled={readOnly}
-              onChange={(options) => set(f, { options }, 'options')}
-            />
-          )}
-          {f.type === 'table' && (
-            <ListInput
-              value={f.columns}
-              label={t('schema.columns')}
-              disabled={readOnly}
-              onChange={(columns) => set(f, { columns }, 'columns')}
-            />
-          )}
-          {(f.type === 'ref' || f.type === 'refList') && (
-            <select
-              className="input select"
-              value={f.target ?? ''}
-              aria-label={t('schema.target')}
-              disabled={readOnly}
-              onChange={(e) => set(f, { target: e.target.value || null }, 'target')}
-            >
-              <option value="">{t('schema.anyEntity')}</option>
-              {typeTree(schema).map(({ type, depth }) => (
-                <option key={type.id} value={type.id}>
-                  {' '.repeat(depth)}
-                  {typeName(type)}
-                </option>
-              ))}
-            </select>
-          )}
-          {f.type === 'tags' && (
-            <select
-              className="input select"
-              value={f.catalog ?? ''}
-              aria-label={t('schema.catalog')}
-              disabled={readOnly}
-              onChange={(e) => {
-                if (e.target.value !== NEW_CATALOG) return set(f, { catalog: e.target.value || null }, 'catalog');
-                change(t('schema.step.catalog'), (d) => {
-                  const catalog = addCatalog(d, f.label || t('schema.newCatalog'));
-                  updateField(d, owner, f.id, { catalog });
-                });
-              }}
-            >
-              <option value="">{t('schema.noCatalog')}</option>
-              {schema.catalogs.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name || t('story.untitled')}
-                </option>
-              ))}
-              <option value={NEW_CATALOG}>{t('schema.createCatalog')}</option>
-            </select>
-          )}
-        </div>
+            )
+          }
+        />
       ))}
       {!readOnly && (
         <div className="insp-actions">
@@ -571,6 +507,107 @@ function FieldList({
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * One field's settings: its name and kind, and what the kind needs (values of a list, columns of a table, the
+ * type a link points at, the catalog of tags). Used by "Types and fields" and by the card itself (0.5).
+ */
+export function FieldEditor({
+  field: f,
+  schema,
+  readOnly,
+  onPatch,
+  onNewCatalog,
+  tools,
+}: {
+  field: FieldDef;
+  schema: TypesFile;
+  readOnly: boolean;
+  onPatch: (patch: Partial<FieldDef>, merge: string) => void;
+  onNewCatalog: () => void;
+  tools?: ReactNode;
+}) {
+  return (
+    <div className="schema-field" data-field={`field:${f.id}`}>
+      <div className="schema-field-row">
+        <input
+          className="input"
+          value={f.label}
+          placeholder={t('schema.fieldLabel')}
+          aria-label={t('schema.fieldLabel')}
+          disabled={readOnly}
+          onChange={(e) => onPatch({ label: e.target.value }, 'label')}
+        />
+        <select
+          className="input select"
+          value={f.type}
+          aria-label={t('schema.fieldKind')}
+          disabled={readOnly}
+          onChange={(e) => onPatch({ type: e.target.value as FieldKind }, 'type')}
+        >
+          {FIELD_KINDS.map((k) => (
+            <option key={k} value={k}>
+              {t(FIELD_KIND_NAMES[k])}
+            </option>
+          ))}
+        </select>
+        {tools}
+      </div>
+      {f.type === 'enum' && (
+        <ListInput
+          value={f.options}
+          label={t('schema.options')}
+          disabled={readOnly}
+          onChange={(options) => onPatch({ options }, 'options')}
+        />
+      )}
+      {f.type === 'table' && (
+        <ListInput
+          value={f.columns}
+          label={t('schema.columns')}
+          disabled={readOnly}
+          onChange={(columns) => onPatch({ columns }, 'columns')}
+        />
+      )}
+      {(f.type === 'ref' || f.type === 'refList') && (
+        <select
+          className="input select"
+          value={f.target ?? ''}
+          aria-label={t('schema.target')}
+          disabled={readOnly}
+          onChange={(e) => onPatch({ target: e.target.value || null }, 'target')}
+        >
+          <option value="">{t('schema.anyEntity')}</option>
+          {typeTree(schema).map(({ type, depth }) => (
+            <option key={type.id} value={type.id}>
+              {' '.repeat(depth)}
+              {typeName(type)}
+            </option>
+          ))}
+        </select>
+      )}
+      {f.type === 'tags' && (
+        <select
+          className="input select"
+          value={f.catalog ?? ''}
+          aria-label={t('schema.catalog')}
+          disabled={readOnly}
+          onChange={(e) =>
+            e.target.value === NEW_CATALOG ? onNewCatalog() : onPatch({ catalog: e.target.value || null }, 'catalog')
+          }
+        >
+          <option value="">{t('schema.noCatalog')}</option>
+          {schema.catalogs.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name || t('story.untitled')}
+            </option>
+          ))}
+          <option value={NEW_CATALOG}>{t('schema.createCatalog')}</option>
+        </select>
+      )}
+    </div>
   );
 }
 
@@ -675,8 +712,11 @@ function RelationLabels({ project, schema, change }: { project: OpenProject; sch
   );
 }
 
-/** A catalog of tags (0.4): the tags with descriptions, the fields that use it, how many cards carry each tag. */
-function CatalogEditor({
+/**
+ * A catalog of tags (0.4): the tags with descriptions, the fields that use it, the cards that carry each tag.
+ * Shown in "Types and fields" and, since 0.5, in the database itself.
+ */
+export function CatalogEditor({
   project,
   schema,
   id,
@@ -696,14 +736,12 @@ function CatalogEditor({
   const fields = [
     ...schema.types.flatMap((x) => x.fields.map((f) => ({ f, owner: typeName(x) }))),
     ...schema.propertySets.flatMap((x) => x.fields.map((f) => ({ f, owner: x.name }))),
+    ...listEntities({ entities }).flatMap((e) =>
+      ownFields(e).map((f) => ({ f, owner: e.name || t('story.untitled') })),
+    ),
   ].filter(({ f }) => f.type === 'tags' && f.catalog === id);
-  const uses = (tag: string) =>
-    Object.values(entities).filter(
-      (e) =>
-        e.values &&
-        typeof e.values === 'object' &&
-        Object.values(e.values).some((v) => Array.isArray(v) && v.includes(tag)),
-    ).length;
+  const carriers = (tag: string) =>
+    listEntities({ entities }).filter((e) => Object.values(e.values).some((v) => Array.isArray(v) && v.includes(tag)));
   const add = () => {
     if (!name.trim()) return;
     change(t('schema.step.tag'), (d) => void addTag(d, id, name));
@@ -739,7 +777,8 @@ function CatalogEditor({
         <h3 className="insp-heading">{t('schema.tags')}</h3>
         {catalog.tags.length === 0 && <p className="muted small">{t('schema.noTags')}</p>}
         {catalog.tags.map((tag, i) => {
-          const count = uses(tag.id);
+          const cards = carriers(tag.id);
+          const count = cards.length;
           return (
             <div key={tag.id} className="schema-field schema-tag" data-tag={tag.id}>
               <div className="schema-field-row">
@@ -789,6 +828,15 @@ function CatalogEditor({
                 disabled={readOnly}
                 onChange={(e) => edit(tag.id, { description: e.target.value }, 'description')}
               />
+              {cards.length > 0 && (
+                <div className="schema-tag-cards small">
+                  {cards.map((e) => (
+                    <button key={e.id} type="button" className="entity-link" onClick={() => openEntity(e.id)}>
+                      {e.name || t('story.untitled')}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}

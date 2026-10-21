@@ -2,7 +2,21 @@
 // from this side, the variables it owns, and where it is used. Every change is saved at once and can be
 // undone; there are no Save or Cancel buttons.
 
-import { ArrowRight, Copy, Files, MoreHorizontal, Plus, Trash, Variable as VariableIcon, X } from 'lucide-react';
+import {
+  ArrowRight,
+  Copy,
+  Eye,
+  EyeOff,
+  Files,
+  Layers,
+  MoreHorizontal,
+  MoreVertical,
+  Plus,
+  Settings2,
+  Trash,
+  Variable as VariableIcon,
+  X,
+} from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import type { JsonObject, ProjectData } from '../../core/project/types';
 import { useStore } from '../../core/useStore';
@@ -25,15 +39,33 @@ import {
   type RelationView,
 } from '../../world/entityOps';
 import {
+  addCatalog,
+  addField,
+  CARD_SECTIONS,
+  cardFields,
+  cardShows,
   effectiveFields,
+  FIELD_KINDS,
+  filledCount,
+  hiddenFields,
+  hideField,
   inverseLabel,
+  newField,
+  ownFields,
   parsePairs,
+  promoteField,
   rememberPair,
+  removeField,
+  setCardSection,
+  setSection,
   showsSection,
   typesFile,
   typeTree,
+  updateField,
   type CardSection,
   type EffectiveField,
+  type FieldKind,
+  type FieldOwner,
   type TypesFile,
 } from '../../world/schema';
 import type { FieldValue } from '../../world/values';
@@ -43,14 +75,46 @@ import { ValueInput } from '../story/ValueInput';
 import { useDraft } from '../useDraft';
 import { EntityLink, FieldInput } from './FieldInput';
 import { ImageField } from './ImageField';
-import { typeName } from './typeNames';
+import { FieldEditor } from './SchemaDialog';
+import { FIELD_KIND_NAMES, typeName } from './typeNames';
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({ title, tools, children }: { title: string; tools?: ReactNode; children: ReactNode }) {
   return (
     <section className="insp-section">
-      <h3 className="insp-heading">{title}</h3>
+      <div className="world-section-head">
+        <h3 className="insp-heading">{title}</h3>
+        {tools}
+      </div>
       {children}
     </section>
+  );
+}
+
+const SECTION_NAMES = {
+  picture: 'schema.section.picture',
+  description: 'schema.section.description',
+  relations: 'schema.section.relations',
+  variables: 'schema.section.variables',
+  uses: 'schema.section.uses',
+} as const satisfies Record<CardSection, string>;
+
+/** A small "⋯" next to a field or a block of the card, with its menu. */
+function ToolMenu({ label, entries }: { label: string; entries: MenuEntry[] }) {
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  return (
+    <>
+      <IconButton
+        size="sm"
+        className="world-tool"
+        label={label}
+        icon={<MoreVertical size={14} />}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setAt({ x: r.right - 220, y: r.bottom + 4 });
+        }}
+      />
+      {at && <Menu entries={entries} x={at.x} y={at.y} label={label} onClose={() => setAt(null)} />}
+    </>
   );
 }
 
@@ -84,6 +148,9 @@ export function EntityPanel({
   const name = useDraft(entity.name);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [copyFrom, setCopyFrom] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [settings, setSettings] = useState<{ owner: FieldOwner; field: string } | null>(null);
+  const typeLabel = typeName(schema.types.find((x) => x.id === entity.type));
 
   const rename = (value: string) =>
     edit(
@@ -116,7 +183,122 @@ export function EntityPanel({
     store.dispatch(t('world.step.delete'), (d) => deleteEntity(d, entity.id));
     onClose();
   };
+  const shows = (section: CardSection) => cardShows(schema, entity, section);
+  const change = (label: string, recipe: (d: ProjectData) => void) => !readOnly && store.dispatch(label, recipe);
+  /** A block hidden on this card only, or on every card of the type. */
+  const blockTools = (section: CardSection) =>
+    readOnly ? undefined : (
+      <ToolMenu
+        label={t('world.block.menu', { name: t(SECTION_NAMES[section]) })}
+        entries={[
+          {
+            id: 'card',
+            label: t('world.block.hideHere'),
+            icon: <EyeOff size={16} />,
+            onSelect: () => change(t('world.step.card'), (d) => setCardSection(d, entity.id, section, false)),
+          },
+          {
+            id: 'type',
+            label: t('world.block.hideType', { type: typeLabel }),
+            icon: <EyeOff size={16} />,
+            onSelect: () =>
+              change(t('world.step.card'), (d) => {
+                setSection(d, entity.type, section, false);
+                setCardSection(d, entity.id, section, null);
+              }),
+          },
+        ]}
+      />
+    );
+  /** The menu of one field: settings, off this card, or out of the type altogether. */
+  const fieldTools = (f: EffectiveField) => {
+    if (readOnly) return undefined;
+    const owner: FieldOwner = f.from;
+    const name = f.field.label || t('schema.untitledField');
+    const where =
+      f.from.kind === 'set'
+        ? t('world.field.inSet', { name: schema.propertySets.find((x) => x.id === f.from.id)?.name ?? '' })
+        : t('world.field.inType', { type: typeName(schema.types.find((x) => x.id === f.from.id)) });
+    const entries: MenuEntry[] =
+      f.from.kind === 'entity'
+        ? [
+            {
+              id: 'settings',
+              label: t('world.field.settings'),
+              icon: <Settings2 size={16} />,
+              onSelect: () => setSettings({ owner, field: f.field.id }),
+            },
+            {
+              id: 'promote',
+              label: t('world.field.promote', { type: typeLabel }),
+              icon: <Layers size={16} />,
+              onSelect: () => change(t('world.step.field'), (d) => promoteField(d, entity.id, f.field.id, entity.type)),
+            },
+            { id: 'sep', separator: true },
+            {
+              id: 'delete',
+              label: t('world.field.delete'),
+              icon: <Trash size={16} />,
+              danger: true,
+              onSelect: () => change(t('world.step.field'), (d) => removeField(d, owner, f.field.id)),
+            },
+          ]
+        : [
+            {
+              id: 'settings',
+              label: t('world.field.settingsShared', { where }),
+              icon: <Settings2 size={16} />,
+              onSelect: () => setSettings({ owner, field: f.field.id }),
+            },
+            {
+              id: 'hide',
+              label: t('world.field.hideHere'),
+              icon: <EyeOff size={16} />,
+              onSelect: () => change(t('world.step.card'), (d) => hideField(d, entity.id, f.field.id, true)),
+            },
+            { id: 'sep', separator: true },
+            {
+              id: 'delete',
+              label: t('world.field.deleteShared', { where }),
+              icon: <Trash size={16} />,
+              danger: true,
+              onSelect: () => {
+                const filled = filledCount(store.getState(), f.field.id);
+                const question = filled
+                  ? t('world.field.deleteSharedUsed', { name, count: filled })
+                  : t('world.field.deleteSharedConfirm', { name, where });
+                if (!window.confirm(question)) return;
+                change(t('schema.step.removeField'), (d) => removeField(d, owner, f.field.id));
+              },
+            },
+          ];
+    return <ToolMenu label={t('world.field.menu', { name })} entries={entries} />;
+  };
+
   const entries: MenuEntry[] = [
+    {
+      id: 'field',
+      label: t('world.field.add'),
+      icon: <Plus size={16} />,
+      disabled: readOnly,
+      onSelect: () => setAdding(true),
+    },
+    {
+      id: 'picture',
+      label: shows('picture') ? t('world.block.hidePicture') : t('world.block.showPicture'),
+      icon: shows('picture') ? <EyeOff size={16} /> : <Eye size={16} />,
+      disabled: readOnly,
+      onSelect: () =>
+        change(t('world.step.card'), (d) =>
+          setCardSection(
+            d,
+            entity.id,
+            'picture',
+            shows('picture') ? false : showsSection(schema, entity.type, 'picture') ? null : true,
+          ),
+        ),
+    },
+    { id: 'sep0', separator: true },
     {
       id: 'duplicate',
       label: t('world.duplicate'),
@@ -148,22 +330,26 @@ export function EntityPanel({
     },
   ];
 
-  const shows = (section: CardSection) => showsSection(schema, entity.type, section);
-
-  // Fields grouped by where they come from: the type (and the types above it) or a property set.
+  // Fields grouped by where they come from: the type (and the types above it), a property set, or the card.
   const groups: { key: string; title: string; fields: EffectiveField[] }[] = [];
-  for (const f of effectiveFields(schema, entity.type)) {
+  for (const f of cardFields(schema, entity)) {
     const key = `${f.from.kind}:${f.from.id}`;
     let group = groups.find((g) => g.key === key);
     if (!group) {
       const title =
         f.from.kind === 'type'
           ? typeName(schema.types.find((x) => x.id === f.from.id))
-          : (schema.propertySets.find((s) => s.id === f.from.id)?.name ?? '');
+          : f.from.kind === 'entity'
+            ? t('world.ownFields')
+            : (schema.propertySets.find((s) => s.id === f.from.id)?.name ?? '');
       groups.push((group = { key, title, fields: [] }));
     }
     group.fields.push(f);
   }
+  // What this card does not show, to bring back with a click.
+  const hiddenHere = new Set(hiddenFields(entity));
+  const hiddenTypeFields = effectiveFields(schema, entity.type).filter((f) => hiddenHere.has(f.field.id));
+  const hiddenBlocks = CARD_SECTIONS.filter((x) => !shows(x));
 
   return (
     <aside className="world-panel" aria-label={t('world.card')} data-entity-panel={entity.id}>
@@ -222,9 +408,12 @@ export function EntityPanel({
       <div className="world-panel-body">
         {shows('description') && (
           <div className="field">
-            <label className="field-label" htmlFor={`desc-${entity.id}`}>
-              {t('world.description')}
-            </label>
+            <div className="world-field-head">
+              <label className="field-label" htmlFor={`desc-${entity.id}`}>
+                {t('world.description')}
+              </label>
+              {blockTools('description')}
+            </div>
             <textarea
               id={`desc-${entity.id}`}
               className="input textarea world-long"
@@ -237,23 +426,79 @@ export function EntityPanel({
         )}
         {groups.map((g) => (
           <Section key={g.key} title={g.title}>
-            {g.fields.map(({ field }) => (
+            {g.fields.map((f) => (
               <FieldInput
-                key={field.id}
+                key={f.field.id}
                 project={project}
-                field={field}
-                value={entity.values[field.id]}
+                field={f.field}
+                value={entity.values[f.field.id]}
                 self={entity.id}
-                onChange={(v) => setValue(field.id, v)}
+                owner={f.from}
+                tools={fieldTools(f)}
+                onChange={(v) => setValue(f.field.id, v)}
               />
             ))}
           </Section>
         ))}
         {groups.length === 0 && <p className="muted small">{t('world.noFields')}</p>}
-        {shows('relations') && <Relations project={project} entity={entity} schema={schema} />}
-        {shows('variables') && <OwnedVariables project={project} entity={entity} />}
-        {shows('uses') && <Uses project={project} id={entity.id} />}
+        {!readOnly && (
+          <Button size="sm" variant="ghost" icon={<Plus size={14} />} onClick={() => setAdding(true)}>
+            {t('world.field.add')}
+          </Button>
+        )}
+        {shows('relations') && (
+          <Relations project={project} entity={entity} schema={schema} tools={blockTools('relations')} />
+        )}
+        {shows('variables') && <OwnedVariables project={project} entity={entity} tools={blockTools('variables')} />}
+        {shows('uses') && <Uses project={project} id={entity.id} tools={blockTools('uses')} />}
+        {(hiddenBlocks.length > 0 || hiddenTypeFields.length > 0) && (
+          <section className="insp-section world-hidden" aria-label={t('world.hidden')}>
+            <h3 className="insp-heading">{t('world.hidden')}</h3>
+            <div className="imark-chips">
+              {hiddenBlocks.map((x) => (
+                <button
+                  key={x}
+                  type="button"
+                  className="chip world-hidden-chip"
+                  title={t('world.hidden.show')}
+                  disabled={readOnly}
+                  onClick={() =>
+                    change(t('world.step.card'), (d) =>
+                      setCardSection(d, entity.id, x, showsSection(schema, entity.type, x) ? null : true),
+                    )
+                  }
+                >
+                  <Eye size={12} aria-hidden="true" /> {t(SECTION_NAMES[x])}
+                </button>
+              ))}
+              {hiddenTypeFields.map(({ field }) => (
+                <button
+                  key={field.id}
+                  type="button"
+                  className="chip world-hidden-chip"
+                  title={t('world.hidden.show')}
+                  disabled={readOnly}
+                  onClick={() => change(t('world.step.card'), (d) => hideField(d, entity.id, field.id, false))}
+                >
+                  <Eye size={12} aria-hidden="true" /> {field.label || t('schema.untitledField')}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
+      {adding && (
+        <AddFieldDialog
+          project={project}
+          entity={entity}
+          typeLabel={typeLabel}
+          onAdded={(owner, field, needsSettings) => needsSettings && setSettings({ owner, field })}
+          onClose={() => setAdding(false)}
+        />
+      )}
+      {settings && (
+        <FieldSettingsDialog project={project} {...settings} typeLabel={typeLabel} onClose={() => setSettings(null)} />
+      )}
       {copyFrom && (
         <EntityPicker
           project={project}
@@ -275,7 +520,17 @@ export function EntityPanel({
 
 // ---------- relations (F4-06) ----------
 
-function Relations({ project, entity, schema }: { project: OpenProject; entity: WorldEntity; schema: TypesFile }) {
+function Relations({
+  project,
+  entity,
+  schema,
+  tools,
+}: {
+  project: OpenProject;
+  entity: WorldEntity;
+  schema: TypesFile;
+  tools?: ReactNode;
+}) {
   const { store, readOnly } = project;
   const entities = useStore(store, (s) => s.entities);
   const views = relationsOf({ entities }, entity.id);
@@ -306,7 +561,7 @@ function Relations({ project, entity, schema }: { project: OpenProject; entity: 
     );
 
   return (
-    <Section title={t('world.relations')}>
+    <Section title={t('world.relations')} tools={tools}>
       {views.length === 0 && <p className="muted small">{t('world.noRelations')}</p>}
       {views.map((v) => (
         <div key={v.relation.id} className="world-relation">
@@ -406,7 +661,7 @@ function Relations({ project, entity, schema }: { project: OpenProject; entity: 
 
 // ---------- variables of the entity (F4-10) ----------
 
-function OwnedVariables({ project, entity }: { project: OpenProject; entity: WorldEntity }) {
+function OwnedVariables({ project, entity, tools }: { project: OpenProject; entity: WorldEntity; tools?: ReactNode }) {
   const { store, readOnly } = project;
   const data = useStore(store, (s) => s);
   const owned = listVariables(data).filter((v) => v.owner?.id === entity.id);
@@ -424,7 +679,7 @@ function OwnedVariables({ project, entity }: { project: OpenProject; entity: Wor
     setName('');
   };
   return (
-    <Section title={t('world.variables')}>
+    <Section title={t('world.variables')} tools={tools}>
       {owned.length === 0 && <p className="muted small">{t('world.noVariables')}</p>}
       {owned.map((v) => (
         <div key={v.id} className="world-var">
@@ -505,7 +760,7 @@ function usageText(u: EntityUse): string {
   }
 }
 
-function Uses({ project, id }: { project: OpenProject; id: string }) {
+function Uses({ project, id, tools }: { project: OpenProject; id: string; tools?: ReactNode }) {
   const data = useStore(project.store, (s) => s);
   const uses = entityUses(data, id);
   const go = (u: EntityUse) => {
@@ -515,7 +770,7 @@ function Uses({ project, id }: { project: OpenProject; id: string }) {
     else openEntity(u.entity);
   };
   return (
-    <Section title={t('world.uses')}>
+    <Section title={t('world.uses')} tools={tools}>
       {uses.length === 0 && <p className="muted small">{t('world.notUsed')}</p>}
       {uses.map((u, i) => (
         <button key={i} type="button" className="var-use world-use" onClick={() => go(u)}>
@@ -524,6 +779,156 @@ function Uses({ project, id }: { project: OpenProject; id: string }) {
         </button>
       ))}
     </Section>
+  );
+}
+
+// ---------- fields made and set up from the card (0.5) ----------
+
+const KINDS_WITH_SETTINGS: readonly FieldKind[] = ['enum', 'table', 'ref', 'refList'];
+
+/** "Add a field": to this card only, or to every card of its type. */
+function AddFieldDialog({
+  project,
+  entity,
+  typeLabel,
+  onAdded,
+  onClose,
+}: {
+  project: OpenProject;
+  entity: WorldEntity;
+  typeLabel: string;
+  onAdded: (owner: FieldOwner, field: string, needsSettings: boolean) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [kind, setKind] = useState<FieldKind>('text');
+  const [scope, setScope] = useState<'entity' | 'type'>('entity');
+  const add = () => {
+    const field = newField(kind, name.trim() || t(FIELD_KIND_NAMES[kind]));
+    const owner: FieldOwner =
+      scope === 'entity' ? { kind: 'entity', id: entity.id } : { kind: 'type', id: entity.type };
+    project.store.dispatch(t('world.step.field'), (d) => {
+      // A tags field comes with a catalog of its own, so tags can be put at once.
+      if (kind === 'tags') field.catalog = addCatalog(d, field.label);
+      addField(d, owner, field);
+    });
+    onClose();
+    onAdded(owner, field.id, KINDS_WITH_SETTINGS.includes(kind));
+  };
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      size="sm"
+      title={t('world.field.newTitle')}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="primary" onClick={add}>
+            {t('world.field.create')}
+          </Button>
+        </>
+      }
+    >
+      <div className="field">
+        <label className="field-label" htmlFor="new-field-name">
+          {t('schema.fieldLabel')}
+        </label>
+        <input
+          id="new-field-name"
+          className="input"
+          autoFocus
+          value={name}
+          placeholder={t(FIELD_KIND_NAMES[kind])}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && add()}
+        />
+      </div>
+      <div className="field">
+        <label className="field-label" htmlFor="new-field-kind">
+          {t('schema.fieldKind')}
+        </label>
+        <select
+          id="new-field-kind"
+          className="input select"
+          value={kind}
+          onChange={(e) => setKind(e.target.value as FieldKind)}
+        >
+          {FIELD_KINDS.map((k) => (
+            <option key={k} value={k}>
+              {t(FIELD_KIND_NAMES[k])}
+            </option>
+          ))}
+        </select>
+      </div>
+      <fieldset className="world-scope">
+        <legend className="field-label">{t('world.field.scope')}</legend>
+        <label className="radio">
+          <input type="radio" name="scope" checked={scope === 'entity'} onChange={() => setScope('entity')} />
+          {t('world.field.scopeCard', { name: entity.name || t('story.untitled') })}
+        </label>
+        <label className="radio">
+          <input type="radio" name="scope" checked={scope === 'type'} onChange={() => setScope('type')} />
+          {t('world.field.scopeType', { type: typeLabel })}
+        </label>
+      </fieldset>
+    </Dialog>
+  );
+}
+
+/** A field's settings from the card: of this card only, or shared by the type (or property set). */
+function FieldSettingsDialog({
+  project,
+  owner,
+  field: id,
+  typeLabel,
+  onClose,
+}: {
+  project: OpenProject;
+  owner: FieldOwner;
+  field: string;
+  typeLabel: string;
+  onClose: () => void;
+}) {
+  const { store, readOnly } = project;
+  const data = useStore(store, (s) => s);
+  const schema = typesFile(data);
+  const field =
+    owner.kind === 'entity'
+      ? ownFields(data.entities[owner.id] ?? {}).find((f) => f.id === id)
+      : (effectiveFields(schema, owner.kind === 'type' ? owner.id : '').find((f) => f.field.id === id)?.field ??
+        schema.propertySets.find((x) => x.id === owner.id)?.fields.find((f) => f.id === id));
+  if (!field) return null;
+  const note =
+    owner.kind === 'entity'
+      ? t('world.field.noteCard')
+      : owner.kind === 'set'
+        ? t('world.field.noteSet', { name: schema.propertySets.find((x) => x.id === owner.id)?.name ?? '' })
+        : t('world.field.noteType', {
+            type: typeName(schema.types.find((x) => x.id === owner.id)) || typeLabel,
+          });
+  return (
+    <Dialog open onClose={onClose} size="sm" title={t('world.field.settingsTitle', { name: field.label })}>
+      <p className="muted small">{note}</p>
+      <FieldEditor
+        field={field}
+        schema={schema}
+        readOnly={readOnly}
+        onPatch={(patch, merge) =>
+          store.dispatch(t('schema.step.field'), (d) => updateField(d, owner, id, patch), {
+            mergeKey: `field:${id}:${merge}`,
+          })
+        }
+        onNewCatalog={() =>
+          store.dispatch(t('schema.step.catalog'), (d) => {
+            const catalog = addCatalog(d, field.label || t('schema.newCatalog'));
+            updateField(d, owner, id, { catalog });
+          })
+        }
+      />
+    </Dialog>
   );
 }
 

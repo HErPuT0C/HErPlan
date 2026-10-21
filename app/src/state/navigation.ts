@@ -52,3 +52,17 @@ export const documentRequest = atom<{ id: string; at: number } | null>(null);
 export function openDocument(id: string): void {
   documentRequest.set({ id, at: performance.now() });
 }
+
+/** "Open this catalog of tags" (from a tags field of a card): the database shows the catalog. */
+export const catalogRequest = atom<{ id: string; at: number } | null>(null);
+
+export function openCatalog(id: string): void {
+  catalogRequest.set({ id, at: performance.now() });
+}
+
+/** "Show this file in the assets" (a link to a file in a document): the assets tab opens its folder and selects it. */
+export const assetRequest = atom<{ path: string; at: number } | null>(null);
+
+export function revealAsset(path: string): void {
+  assetRequest.set({ path, at: performance.now() });
+}

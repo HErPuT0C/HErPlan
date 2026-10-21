@@ -288,7 +288,17 @@
         },
         "values": {
           "type": "object",
-          "description": "Since 0.3: field values by field id (see schema.types[].fields)."
+          "description": "Since 0.3: field values by field id (see schema.types[].fields). Since 0.5 without the type's fields this entity hides (hiddenFields) and with its own fields (fields)."
+        },
+        "fields": {
+          "type": "array",
+          "description": "Since 0.5: fields of this entity only, present when it has any.",
+          "items": { "$ref": "#/$defs/field" }
+        },
+        "hiddenFields": {
+          "type": "array",
+          "description": "Since 0.5: ids of fields of the entity's type this entity does not have, present when there are any.",
+          "items": { "type": "string" }
         },
         "relations": {
           "type": "array",

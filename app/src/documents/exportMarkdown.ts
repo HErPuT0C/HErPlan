@@ -1,14 +1,15 @@
 // Markdown export for Obsidian (F5-08): every document as a note in its folder, and the cards of the world
 // database as notes of their own, so links between them work. Links to cards and documents become Obsidian
-// links ([[Folder/Note|Label]]), links to story nodes their titles, live fields their current values.
+// links ([[Folder/Note|Label]]), links to story nodes and files their titles, live fields their current values.
 
 import type { ProjectData } from '../core/project/types';
 import type { FileText } from '../platform/types';
 import { asEntity, listEntities } from '../story/entities';
 import { relationsOf } from '../world/entityOps';
-import { effectiveFields, typesFile } from '../world/schema';
+import { cardFields, typesFile } from '../world/schema';
 import { coerceValue, isEmptyValue } from '../world/values';
 import { linkLabel, fieldText } from './lookups';
+import type { LinkKind } from './markdown';
 import { cleanName, listDocuments } from './model';
 
 export interface ExportWords {
@@ -50,16 +51,17 @@ export function obsidianExport(data: ProjectData, words: ExportWords): FileText[
     const target = kind === 'ent' ? notes.get(ref) : kind === 'doc' ? docPath.get(ref) : undefined;
     return target ? `[[${target}|${text || target.split('/').pop()}]]` : plain(text);
   };
-  const current = (kind: string, ref: string, stored: string) =>
-    linkLabel(data, kind as 'ent' | 'node' | 'doc', ref) ?? stored;
+  const current = (kind: string, ref: string, stored: string) => linkLabel(data, kind as LinkKind, ref) ?? stored;
 
+  // Where a link leads in the editor (a place) means nothing in Obsidian: the link goes to the note.
   const convert = (body: string) =>
     body
-      .replace(/\[\[(ent|node|doc):([^|\]\n]+)(?:\|([^\]\n]*))?\]\]/g, (_, kind: string, ref: string, stored = '') =>
-        link(kind, ref, current(kind, ref, stored)),
+      .replace(
+        /\[\[(ent|node|doc|asset):([^|\]\n]+)(?:\|([^|\]\n]*))?(?:\|[^|\]\n]+)?\]\]/g,
+        (_, kind: string, ref: string, stored = '') => link(kind, ref, current(kind, ref, stored)),
       )
       .replace(
-        /<span data-link="(ent|node|doc):([^"]+)">([^<]*)<\/span>/g,
+        /<span data-link="(ent|node|doc|asset):([^"]+)"(?: data-place="[^"]*")?>([^<]*)<\/span>/g,
         (_, kind: string, ref: string, stored: string) => link(kind, ref, current(kind, ref, stored)),
       )
       .replace(/\{\{ent:([^.}\s]+)\.([^}\s]+)\}\}/g, (_, entity: string, field: string) =>
@@ -78,7 +80,7 @@ export function obsidianExport(data: ProjectData, words: ExportWords): FileText[
   for (const e of listEntities(data)) {
     const lines = [`# ${plain(e.name || words.untitled)}`, '', `*${plain(words.typeName(e.type))}*`, ''];
     if (e.description.trim()) lines.push(plain(e.description), '');
-    const values = effectiveFields(schema, e.type)
+    const values = cardFields(schema, e)
       .map(({ field }) => ({ field, v: coerceValue(field, e.values[field.id]) }))
       .filter(({ field, v }) => !isEmptyValue(v) && field.type !== 'table');
     if (values.length) {

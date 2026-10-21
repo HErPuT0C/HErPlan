@@ -1,13 +1,14 @@
 // The asset library (F4-11, F4-12): folders (with colours) on the left, files of the open folder in the
 // middle, the selected file on the right with a preview, "open in Windows", "show in the explorer" and
 // where it is used. Files and whole folders can be dropped in from the explorer; files move between folders
-// by dragging them onto a folder.
+// by dragging them onto a folder or with "Move to…" of the right-click menu (0.5).
 
 import {
   ExternalLink,
   File as FileIcon,
   FileText,
   Folder,
+  FolderInput,
   FolderOpen,
   FolderPlus,
   FolderUp,
@@ -17,13 +18,13 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { searchKey } from '../../canvas/ops';
-import { useStore } from '../../core/useStore';
+import { useAtom, useStore } from '../../core/useStore';
 import { formatBytes, formatDate, t, type MessageKey } from '../../i18n';
 import { platform } from '../../platform';
 import type { AssetEntry, PlatformError } from '../../platform/types';
-import { openDocument, openEntity, openMap, revealInStory } from '../../state/navigation';
+import { assetRequest, openDocument, openEntity, openMap, revealInStory } from '../../state/navigation';
 import type { OpenProject } from '../../state/project';
 import {
   assetUseCounts,
@@ -89,6 +90,20 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const refresh = () => setVersion((v) => v + 1);
+
+  // "Show this file" (a link to a file in a document): its folder opens and the file is selected.
+  const wanted = useAtom(assetRequest);
+  useEffect(() => {
+    if (!wanted) return;
+    const timer = setTimeout(() => {
+      assetRequest.set(null);
+      setQuery('');
+      setFolder(parentOf(wanted.path));
+      setSelected(wanted.path);
+      refresh();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [wanted]);
   const counts = useMemo(() => assetUseCounts(data), [data]);
   const colors = folderColors(data);
 
@@ -212,6 +227,62 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
       }
     });
 
+  /** "Move to…": every other folder; a folder cannot go into itself or into a folder inside it. */
+  const moveMenu = (path: string, x: number, y: number) =>
+    setMenu({
+      x,
+      y,
+      entries: [ROOT, ...folders]
+        .filter((f) => f !== path && !f.startsWith(`${path}/`))
+        .map((f) => ({
+          id: `to:${f}`,
+          label: f === ROOT ? t('module.assets') : `${'  '.repeat(f.split('/').length - 2)}${baseName(f)}`,
+          icon: <Folder size={16} style={{ color: colors[f] ?? undefined }} />,
+          disabled: parentOf(path) === f,
+          onSelect: () => void move(path, `${f}/${baseName(path)}`),
+        })),
+    });
+  const openFile = (path: string) =>
+    void platform()
+      .openAsset(dir, path)
+      .catch((x) => toast({ kind: 'error', text: errorText(x) }));
+  /** Right click on a file: open it, show it in the explorer, rename, move to another folder, delete. */
+  const fileMenu = (path: string, x: number, y: number) => {
+    setSelected(path);
+    setMenu({
+      x,
+      y,
+      entries: [
+        { id: 'open', label: t('assets.open'), icon: <ExternalLink size={16} />, onSelect: () => openFile(path) },
+        { id: 'reveal', label: t('assets.reveal'), icon: <FolderOpen size={16} />, onSelect: () => void reveal(path) },
+        { id: 'sep', separator: true },
+        {
+          id: 'rename',
+          label: t('assets.rename'),
+          icon: <Pencil size={16} />,
+          disabled: readOnly,
+          onSelect: () => rename(path),
+        },
+        {
+          id: 'move',
+          label: t('assets.moveTo'),
+          icon: <FolderInput size={16} />,
+          disabled: readOnly,
+          onSelect: () => moveMenu(path, x, y),
+        },
+        { id: 'sep2', separator: true },
+        {
+          id: 'delete',
+          label: t('assets.delete'),
+          icon: <Trash size={16} />,
+          danger: true,
+          disabled: readOnly,
+          onSelect: () => remove(path, false),
+        },
+      ],
+    });
+  };
+
   const folderMenu = (path: string, x: number, y: number) =>
     setMenu({
       x,
@@ -233,6 +304,13 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
                 icon: <Pencil size={16} />,
                 disabled: readOnly,
                 onSelect: () => rename(path),
+              },
+              {
+                id: 'move',
+                label: t('assets.moveTo'),
+                icon: <FolderInput size={16} />,
+                disabled: readOnly,
+                onSelect: () => moveMenu(path, x, y),
               },
               ...COLORS.map(([c, name]) => ({
                 id: `color-${c}`,
@@ -398,11 +476,11 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
                     title={e.path}
                     {...(readOnly ? {} : moving.handle(e.path))}
                     onClick={() => setSelected(e.path)}
-                    onDoubleClick={() =>
-                      void platform()
-                        .openAsset(dir, e.path)
-                        .catch((x) => toast({ kind: 'error', text: errorText(x) }))
-                    }
+                    onDoubleClick={() => openFile(e.path)}
+                    onContextMenu={(m) => {
+                      m.preventDefault();
+                      fileMenu(e.path, m.clientX, m.clientY);
+                    }}
                   >
                     <Thumb project={project} path={e.path} size={88} />
                     <span className="asset-name">{baseName(e.path)}</span>

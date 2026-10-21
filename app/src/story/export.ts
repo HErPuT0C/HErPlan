@@ -13,7 +13,15 @@ import { allGraphs, asStory, storyRoot, type NodeRef } from './model';
 import { joinedEffects, textPieces } from './textEffects';
 import { knownNames } from './usage';
 import { fullName, listVariables } from './variables';
-import { effectiveFields, isBuiltIn, typesFile, type FieldDef } from '../world/schema';
+import {
+  cardFields,
+  effectiveFields,
+  hiddenFields,
+  isBuiltIn,
+  ownFields,
+  typesFile,
+  type FieldDef,
+} from '../world/schema';
 import { coerceValue } from '../world/values';
 
 export const EXPORT_FORMAT = 'herplan-export';
@@ -103,10 +111,17 @@ export interface StoryExport {
     name: string;
     description: string;
     image: string | null;
-    /** Since 0.3: values by field id (the fields of the entity's type, see `schema`). */
+    /**
+     * Since 0.3: values by field id (the fields of the entity's type, see `schema`); since 0.5 without the
+     * type's fields this card hides (`hiddenFields`) and with its own fields (`fields`).
+     */
     values: Record<string, unknown>;
     /** Since 0.3: relations kept at this entity; the other side sees them with `inverseLabel`. */
     relations: { id: string; to: string; label: string; inverseLabel: string; description: string }[];
+    /** Since 0.5: fields of this card only, when it has any. */
+    fields?: ExportField[];
+    /** Since 0.5: ids of the type's fields this card does not have, when there are any. */
+    hiddenFields?: string[];
   }[];
   /** Since 0.3: entity types (with every field an entity of the type has) and property sets. */
   schema: {
@@ -272,7 +287,7 @@ export function exportStory(data: ProjectData, appVersion: string, now = new Dat
       description: e.description,
       image: e.image,
       values: Object.fromEntries(
-        effectiveFields(schema, e.type).map(({ field }) => [field.id, coerceValue(field, e.values[field.id])]),
+        cardFields(schema, e).map(({ field }) => [field.id, coerceValue(field, e.values[field.id])]),
       ),
       relations: e.relations.map((r) => ({
         id: r.id,
@@ -281,6 +296,8 @@ export function exportStory(data: ProjectData, appVersion: string, now = new Dat
         inverseLabel: r.inverseLabel,
         description: r.description,
       })),
+      ...(ownFields(e).length ? { fields: ownFields(e).map(exportField) } : {}),
+      ...(hiddenFields(e).length ? { hiddenFields: hiddenFields(e) } : {}),
     })),
     schema: {
       types: schema.types.map((x) => ({

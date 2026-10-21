@@ -21,6 +21,71 @@
   justify-content: flex-start;
   margin-top: var(--space-2);
 }
+.world-types > .muted.small {
+  margin: 0 8px;
+}
+.world-nav-heading {
+  margin: var(--space-3) 8px var(--space-1);
+}
+
+/* A catalog of tags open in the database (0.5). */
+.world-catalog {
+  overflow-y: auto;
+}
+.world-catalog-body > .btn-danger {
+  align-self: flex-start;
+}
+.world-catalog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 720px;
+  padding: var(--space-4);
+}
+.schema-tag-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 4px;
+}
+
+/* A field's name with its menu on the card (0.5). */
+.world-field-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+}
+.world-field-head > .field-label {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.world-field-head > .switch {
+  flex: 1;
+}
+.world-tag-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+}
+.world-tag-note > .textarea {
+  flex-basis: 100%;
+}
+.world-tag-describe {
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: text;
+}
+.world-tag-describe:hover {
+  text-decoration: underline dotted;
+}
 .schema-item {
   display: flex;
   align-items: center;
@@ -594,4 +659,40 @@ html[data-dragging] * {
 .schema-tag-description {
   min-height: 0;
   resize: vertical;
+}
+
+/* Fields and blocks set up from the card (0.5). */
+.world-section-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+}
+.world-section-head > .insp-heading {
+  flex: 1;
+}
+.world-tool {
+  color: var(--text-muted);
+}
+.world-hidden {
+  opacity: 0.85;
+}
+.world-hidden-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.world-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.world-scope .radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }

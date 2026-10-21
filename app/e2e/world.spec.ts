@@ -71,12 +71,12 @@ test('a type of our own with a property set; a field added to the set appears ev
   await page.getByRole('button', { name: 'Оружие', exact: true }).click();
   const panel = page.locator('.world-panel');
   await panel.getByLabel('Имя', { exact: true }).fill('Меч');
-  await expect(panel.getByLabel('Урон')).toBeVisible();
-  await panel.getByLabel('Урон').fill('12');
+  await expect(panel.getByRole('spinbutton', { name: 'Урон' })).toBeVisible();
+  await panel.getByRole('spinbutton', { name: 'Урон' }).fill('12');
   // And so does the key, an ordinary item.
   await page.getByRole('navigation', { name: 'Типы' }).getByRole('button', { name: /Все/ }).click();
   await card(page, 'Ключ').click();
-  await expect(panel.getByLabel('Урон')).toBeVisible();
+  await expect(panel.getByRole('spinbutton', { name: 'Урон' })).toBeVisible();
   await shot(page, 'w3-panel');
   expect(errors).toEqual([]);
 });

@@ -27,7 +27,8 @@ import StarterKit from '@tiptap/starter-kit';
 
 // ---------- what embeds show ----------
 
-export type LinkKind = 'ent' | 'node' | 'doc';
+/** What a link points at: a card, a story node, a document, or (since 0.5) a file of the assets. */
+export type LinkKind = 'ent' | 'node' | 'doc' | 'asset';
 
 /** Names and values the embeds show; the interface sets it to read the open project. */
 export interface EmbedLookup {
@@ -35,6 +36,8 @@ export interface EmbedLookup {
   linkLabel(kind: LinkKind, ref: string): string | null;
   /** Current value of a field of an entity as text ("name", "description" or a field id); null when gone. */
   fieldText(entity: string, field: string): string | null;
+  /** A tooltip of a link: where a click on it leads. */
+  linkHint?(kind: LinkKind, ref: string, place: string): string;
 }
 
 let lookup: EmbedLookup = { linkLabel: () => null, fieldText: () => null };
@@ -64,6 +67,7 @@ function liveView(
   attrName: string,
   value: (attrs: Record<string, string>) => string,
   text: (attrs: Record<string, string>) => string,
+  hint?: (attrs: Record<string, string>) => string,
 ) {
   return ({ node }: { node: { attrs: Record<string, string>; type: { name: string } } }) => {
     let attrs = node.attrs;
@@ -74,6 +78,9 @@ function liveView(
       const shown = text(attrs);
       dom.textContent = shown || '?';
       dom.classList.toggle('doc-embed-missing', !shown);
+      if (attrs.place) dom.dataset.place = attrs.place;
+      else delete dom.dataset.place;
+      if (hint) dom.title = hint(attrs);
     };
     draw();
     const stop = onEmbedLookup(draw);
@@ -214,14 +221,18 @@ function withMarks(node: JSONContent, text: string): string {
   return out;
 }
 
-const LINK_RE = /^\[\[(ent|node|doc):([^|\]\n]+)(?:\|([^\]\n]*))?\]\]/;
+const LINK_RE = /^\[\[(ent|node|doc|asset):([^|\]\n]+)(?:\|([^|\]\n]*))?(?:\|([^|\]\n]+))?\]\]/;
 const FIELD_RE = /^\{\{ent:([^.}\s]+)\.([^}\s]+)\}\}/;
 
 /** Label for the file: what the object is called now, or the label read from the file when it is gone. */
 const labelFor = (kind: LinkKind, ref: string, stored: string) =>
   (lookup.linkLabel(kind, ref) ?? stored).replace(/[|\]\n]/g, ' ');
 
-/** `[[ent:<id>|Name]]`, `[[node:<graph>/<node>|Title]]`, `[[doc:<id>|Title]]` — a link to a project object. */
+/**
+ * `[[ent:<id>|Name]]`, `[[node:<graph>/<node>|Title]]`, `[[doc:<id>|Title]]`, `[[asset:<path>|file.png]]` — a link
+ * to a project object. Since 0.5 a third part says where a click leads when the object is in several places:
+ * `[[ent:<id>|Name|map:<node>]]` opens the card on the project map instead of the database (see places.ts).
+ */
 export const ObjectLink = Node.create({
   name: 'objectLink',
   group: 'inline',
@@ -229,7 +240,7 @@ export const ObjectLink = Node.create({
   atom: true,
   selectable: true,
   addAttributes() {
-    return { kind: { default: 'ent' }, ref: { default: '' }, label: { default: '' } };
+    return { kind: { default: 'ent' }, ref: { default: '' }, label: { default: '' }, place: { default: '' } };
   },
   parseHTML() {
     return [
@@ -237,14 +248,23 @@ export const ObjectLink = Node.create({
         tag: 'span[data-link]',
         getAttrs: (el) => {
           const [kind, ...rest] = ((el as HTMLElement).dataset.link ?? '').split(':');
-          return { kind, ref: rest.join(':'), label: (el as HTMLElement).textContent ?? '' };
+          return {
+            kind,
+            ref: rest.join(':'),
+            label: (el as HTMLElement).textContent ?? '',
+            place: (el as HTMLElement).dataset.place ?? '',
+          };
         },
       },
     ];
   },
   renderHTML({ node }) {
-    const { kind, ref, label } = node.attrs as { kind: LinkKind; ref: string; label: string };
-    return ['span', { 'data-link': `${kind}:${ref}`, class: 'doc-embed doc-link' }, labelFor(kind, ref, label)];
+    const { kind, ref, label, place } = node.attrs as { kind: LinkKind; ref: string; label: string; place: string };
+    return [
+      'span',
+      { 'data-link': `${kind}:${ref}`, ...(place ? { 'data-place': place } : {}), class: 'doc-embed doc-link' },
+      labelFor(kind, ref, label),
+    ];
   },
   addNodeView() {
     return liveView(
@@ -252,6 +272,7 @@ export const ObjectLink = Node.create({
       'data-link',
       (a) => `${a.kind}:${a.ref}`,
       (a) => lookup.linkLabel(a.kind as LinkKind, a.ref) ?? '',
+      (a) => lookup.linkHint?.(a.kind as LinkKind, a.ref, a.place ?? '') ?? '',
     ) as never;
   },
   markdownTokenizer: {
@@ -261,17 +282,30 @@ export const ObjectLink = Node.create({
     tokenize(src: string) {
       const m = LINK_RE.exec(src);
       if (!m) return undefined;
-      return { type: 'objectLink', raw: m[0], kind: m[1], ref: m[2], label: m[3] ?? '' } as MarkdownToken;
+      return {
+        type: 'objectLink',
+        raw: m[0],
+        kind: m[1],
+        ref: m[2],
+        label: m[3] ?? '',
+        place: m[4] ?? '',
+      } as MarkdownToken;
     },
   },
-  parseMarkdown: (token, h) => h.createNode('objectLink', { kind: token.kind, ref: token.ref, label: token.label }),
+  parseMarkdown: (token, h) =>
+    h.createNode('objectLink', { kind: token.kind, ref: token.ref, label: token.label, place: token.place ?? '' }),
   renderMarkdown: (node) => {
-    const { kind, ref, label } = (node.attrs ?? {}) as { kind: LinkKind; ref: string; label: string };
+    const { kind, ref, label, place } = (node.attrs ?? {}) as {
+      kind: LinkKind;
+      ref: string;
+      label: string;
+      place?: string;
+    };
     return withMarks(
       node,
       htmlMarks
-        ? `<span data-link="${attr(`${kind}:${ref}`)}">${attr(labelFor(kind, ref, label))}</span>`
-        : `[[${kind}:${ref}|${labelFor(kind, ref, label)}]]`,
+        ? `<span data-link="${attr(`${kind}:${ref}`)}"${place ? ` data-place="${attr(place)}"` : ''}>${attr(labelFor(kind, ref, label))}</span>`
+        : `[[${kind}:${ref}|${labelFor(kind, ref, label)}${place ? `|${place}` : ''}]]`,
     );
   },
 });

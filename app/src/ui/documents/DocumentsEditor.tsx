@@ -406,17 +406,43 @@ export function DocumentsEditor({
         ) : open ? (
           <DocumentView key={open} project={project} id={open} />
         ) : (
-          <EmptyState
-            title={live.length ? t('docs.pick') : t('docs.empty')}
-            text={live.length ? '' : t('docs.emptyHint')}
-            actions={
-              !readOnly && (
-                <Button variant="primary" icon={<FilePlus size={16} />} onClick={() => create('')}>
-                  {t('docs.newDoc')}
-                </Button>
-              )
-            }
-          />
+          <div className="docs-start">
+            <EmptyState
+              title={live.length ? t('docs.pick') : t('docs.empty')}
+              text={live.length ? '' : t('docs.emptyHint')}
+            />
+            {!readOnly && (
+              <section className="docs-gallery" aria-label={t('docs.gallery')}>
+                <h3 className="insp-heading">{t('docs.gallery')}</h3>
+                <div className="docs-gallery-grid">
+                  <TemplateCard
+                    icon={<FilePlus size={20} />}
+                    name={t('docs.template.empty')}
+                    hint={t('docs.template.emptyHint')}
+                    onPick={() => create('')}
+                  />
+                  {builtInTemplates(getLocale()).map((tpl) => (
+                    <TemplateCard
+                      key={tpl.id}
+                      icon={<LayoutTemplate size={20} />}
+                      name={tpl.name}
+                      hint={tpl.hint ?? ''}
+                      onPick={() => create('', tpl)}
+                    />
+                  ))}
+                  {own.map((tpl) => (
+                    <TemplateCard
+                      key={tpl.id}
+                      icon={<FileText size={20} />}
+                      name={tpl.name}
+                      hint={t('docs.template.own')}
+                      onPick={() => create('', tpl)}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
         )}
       </div>
 
@@ -425,6 +451,29 @@ export function DocumentsEditor({
       )}
       <PromptDialog request={prompt} onClose={() => setPrompt(null)} />
     </div>
+  );
+}
+
+/** A template on the start page of the documents: a click makes a document from it. */
+function TemplateCard({
+  icon,
+  name,
+  hint,
+  onPick,
+}: {
+  icon: React.ReactNode;
+  name: string;
+  hint: string;
+  onPick: () => void;
+}) {
+  return (
+    <button type="button" className="docs-template" onClick={onPick}>
+      <span className="docs-template-icon" aria-hidden="true">
+        {icon}
+      </span>
+      <span className="docs-template-name">{name}</span>
+      {hint && <span className="docs-template-hint muted small">{hint}</span>}
+    </button>
   );
 }
 

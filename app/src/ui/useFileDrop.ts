@@ -5,10 +5,10 @@ import { useEffect, useRef, useState, type DragEvent, type RefObject } from 'rea
 import { platform } from '../platform';
 
 export interface FileDropHandlers {
-  /** Desktop: paths of the dropped files and folders. */
-  onPaths: (paths: string[]) => void;
+  /** Desktop: paths of the dropped files and folders, and where they were dropped (CSS pixels). */
+  onPaths: (paths: string[], point: { x: number; y: number }) => void;
   /** Web build: the dropped files (folders are not available there). */
-  onFiles: (files: File[]) => void;
+  onFiles: (files: File[], point: { x: number; y: number }) => void;
   disabled?: boolean;
 }
 
@@ -28,7 +28,7 @@ export function useFileDrop(ref: RefObject<HTMLElement | null>, handlers: FileDr
     const p = platform();
     const stopDrop = p.onFileDrop((paths, x, y) => {
       setOver(false);
-      if (!latest.current.disabled && inside(ref.current, x, y)) latest.current.onPaths(paths);
+      if (!latest.current.disabled && inside(ref.current, x, y)) latest.current.onPaths(paths, { x, y });
     });
     const stopOver = p.onFileDragOver?.((point) => setOver(!!point && inside(ref.current, point.x, point.y)));
     return () => {
@@ -52,7 +52,7 @@ export function useFileDrop(ref: RefObject<HTMLElement | null>, handlers: FileDr
         if (!hasFiles(e)) return;
         e.preventDefault();
         setOver(false);
-        if (!handlers.disabled) handlers.onFiles([...e.dataTransfer.files]);
+        if (!handlers.disabled) handlers.onFiles([...e.dataTransfer.files], { x: e.clientX, y: e.clientY });
       },
     },
   };

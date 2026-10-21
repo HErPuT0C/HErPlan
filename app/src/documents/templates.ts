@@ -9,13 +9,24 @@ export interface DocumentTemplate {
   id: string;
   name: string;
   body: string;
+  /** What the template is for, in one line (our own templates). */
+  hint?: string;
 }
 
-type BuiltIn = { id: string; name: Record<Locale, string>; body: Record<Locale, string> };
+type BuiltIn = {
+  id: string;
+  name: Record<Locale, string>;
+  hint: Record<Locale, string>;
+  body: Record<Locale, string>;
+};
 
 const GDD: BuiltIn = {
   id: 'gdd',
   name: { ru: 'Диздок (GDD)', en: 'Game design document' },
+  hint: {
+    ru: 'Идея, игровой цикл, механики, мир, монетизация',
+    en: 'Idea, core loop, mechanics, world, business model',
+  },
   body: {
     ru: `# Диздок
 
@@ -103,6 +114,7 @@ Where and when it happens. The main conflict. Link the chapters of the story wit
 const PITCH: BuiltIn = {
   id: 'pitch',
   name: { ru: 'Питч для издателя', en: 'Publisher pitch' },
+  hint: { ru: 'Коротко об игре для издателя или инвестора', en: 'The game in brief for a publisher or an investor' },
   body: {
     ru: `# Питч
 
@@ -164,6 +176,7 @@ Funding, publishing, marketing, ports — and on what terms.
 const WIKI: BuiltIn = {
   id: 'wiki',
   name: { ru: 'Вики мира', en: 'World wiki' },
+  hint: { ru: 'Статья о месте, народе или событии мира', en: 'An article about a place, a people or an event' },
   body: {
     ru: `# Вики мира
 
@@ -219,6 +232,10 @@ Mention locations with "@" — the links lead to their cards.
 const LEVEL: BuiltIn = {
   id: 'level',
   name: { ru: 'Документ уровня', en: 'Level document' },
+  hint: {
+    ru: 'Цели, путь игрока, враги, награды и ритм уровня',
+    en: "Goals, the player's path, enemies, rewards, pacing",
+  },
   body: {
     ru: `# Уровень
 
@@ -290,7 +307,7 @@ Insert a picture of the map from the assets.
 const BUILT_IN: BuiltIn[] = [GDD, PITCH, WIKI, LEVEL];
 
 export function builtInTemplates(locale: Locale): DocumentTemplate[] {
-  return BUILT_IN.map((x) => ({ id: x.id, name: x.name[locale], body: x.body[locale] }));
+  return BUILT_IN.map((x) => ({ id: x.id, name: x.name[locale], hint: x.hint[locale], body: x.body[locale] }));
 }
 
 /** The designer's own templates (data/documents.json → templates). */

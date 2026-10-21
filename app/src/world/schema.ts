@@ -2,7 +2,8 @@
 // inherit fields, typed fields, property sets shared by many types, and the dictionary of relation label
 // pairs. Values live in the entity files by field id, so renaming or moving a field never touches them.
 // Since 0.4: catalogs of tags with descriptions ("Traits": agile, independent…) shared by many types, and
-// the blocks of a card each type shows.
+// the blocks of a card each type shows. Since 0.5 a card can have fields of its own, hide fields of its
+// type and show or hide blocks unlike its type.
 
 import { newId } from '../core/ids';
 import type { JsonObject, ProjectData } from '../core/project/types';
@@ -282,9 +283,9 @@ export function typeTree(file: TypesFile): { type: EntityType; depth: number }[]
   return out;
 }
 
-/** Where a field of an entity comes from: its own type, a type above it, or a property set. */
+/** Where a field of an entity comes from: its own type, a type above it, a property set, or the card itself. */
 export interface FieldSource {
-  kind: 'type' | 'set';
+  kind: 'type' | 'set' | 'entity';
   id: string;
 }
 
@@ -322,6 +323,43 @@ export function showsSection(file: TypesFile, typeId: string, section: CardSecti
     if (typeof v === 'boolean') return v;
   }
   return true;
+}
+
+/**
+ * What a card keeps about its own fields and blocks (0.5), next to its values: `fields` of this card only,
+ * `hiddenFields` (ids of its type's fields it does not have), `card` (blocks it shows or hides unlike its type).
+ */
+export interface CardOwnership {
+  id: string;
+  type: string;
+  [key: string]: unknown;
+}
+
+/** Fields of this card only. */
+export function ownFields(e: Readonly<Record<string, unknown>>): FieldDef[] {
+  return fieldsOf(e.fields);
+}
+
+/** Ids of the type's fields this card does not have. */
+export function hiddenFields(e: Readonly<Record<string, unknown>>): string[] {
+  return strings(e.hiddenFields);
+}
+
+/** Every field of one card: its type's (without those it hides), then its own. */
+export function cardFields(file: TypesFile, e: CardOwnership): EffectiveField[] {
+  const hidden = new Set(hiddenFields(e));
+  return [
+    ...effectiveFields(file, e.type).filter((f) => !hidden.has(f.field.id)),
+    ...ownFields(e)
+      .filter((f) => !hidden.has(f.id))
+      .map((field) => ({ field, from: { kind: 'entity' as const, id: e.id } })),
+  ];
+}
+
+/** Does this card show the block: the card's own choice, else its type's. */
+export function cardShows(file: TypesFile, e: CardOwnership, section: CardSection): boolean {
+  const own = normalizeCard(e.card)?.[section];
+  return typeof own === 'boolean' ? own : showsSection(file, e.type, section);
 }
 
 /** Types that use a property set, directly. */
@@ -377,16 +415,34 @@ export function deleteType(d: ProjectData, id: string): void {
   for (const y of t.types) if (y.parent === id) y.parent = x.parent;
   for (const e of Object.values(d.entities)) if (e.type === id) e.type = heir;
   // Links that pointed at entities of this type now point at the type that took them in.
-  for (const f of [...t.types.flatMap((y) => y.fields), ...t.propertySets.flatMap((p) => p.fields)]) {
+  for (const f of [
+    ...t.types.flatMap((y) => y.fields),
+    ...t.propertySets.flatMap((p) => p.fields),
+    ...cardsFields(d),
+  ]) {
     if ((f.type === 'ref' || f.type === 'refList') && f.target === id) f.target = heir;
   }
   t.types = t.types.filter((y) => y.id !== id);
 }
 
-/** Where a field is defined: a type or a property set. */
-export type FieldOwner = { kind: 'type' | 'set'; id: string };
+/** Own fields of every card, as the draft keeps them (to change in place). */
+function cardsFields(d: ProjectData): FieldDef[] {
+  return Object.values(d.entities).flatMap((e) =>
+    Array.isArray(e.fields) ? (e.fields.filter((f) => isObject(f)) as unknown as FieldDef[]) : [],
+  );
+}
 
-function ownerFields(t: TypesFile, owner: FieldOwner): FieldDef[] | undefined {
+/** Where a field is defined: a type, a property set, or one card (its own field). */
+export type FieldOwner = { kind: 'type' | 'set' | 'entity'; id: string };
+
+function ownerFields(d: ProjectData, owner: FieldOwner): FieldDef[] | undefined {
+  if (owner.kind === 'entity') {
+    const e = d.entities[owner.id];
+    if (!e) return undefined;
+    if (!Array.isArray(e.fields)) e.fields = [];
+    return e.fields as unknown as FieldDef[];
+  }
+  const t = editableTypes(d);
   return owner.kind === 'type'
     ? t.types.find((x) => x.id === owner.id)?.fields
     : t.propertySets.find((x) => x.id === owner.id)?.fields;
@@ -405,12 +461,12 @@ export function newField(type: FieldKind, label: string): FieldDef {
 }
 
 export function addField(d: ProjectData, owner: FieldOwner, field: FieldDef): void {
-  ownerFields(editableTypes(d), owner)?.push(field);
+  ownerFields(d, owner)?.push(field);
 }
 
 /** A changed kind keeps the field id, so values that still fit stay usable (see coerceValue). */
 export function updateField(d: ProjectData, owner: FieldOwner, id: string, patch: Partial<Omit<FieldDef, 'id'>>): void {
-  const fields = ownerFields(editableTypes(d), owner);
+  const fields = ownerFields(d, owner);
   const f = fields?.find((x) => x.id === id);
   if (!f) return;
   Object.assign(f, patch);
@@ -420,8 +476,20 @@ export function updateField(d: ProjectData, owner: FieldOwner, id: string, patch
   if (f.type === 'tags' && f.catalog === undefined) f.catalog = null;
 }
 
-/** Removes the field from the schema; entity files keep its values (the field can be put back by undo). */
+/**
+ * Removes the field from the schema; entity files keep its values (the field can be put back by undo). A
+ * card's own field goes with its value.
+ */
 export function removeField(d: ProjectData, owner: FieldOwner, id: string): void {
+  if (owner.kind === 'entity') {
+    const e = d.entities[owner.id];
+    if (!e || !Array.isArray(e.fields)) return;
+    const kept = e.fields.filter((f) => !isObject(f) || f.id !== id);
+    if (kept.length) e.fields = kept;
+    else delete e.fields;
+    if (isObject(e.values)) delete e.values[id];
+    return;
+  }
   const t = editableTypes(d);
   if (owner.kind === 'type') {
     const x = t.types.find((y) => y.id === owner.id);
@@ -433,10 +501,52 @@ export function removeField(d: ProjectData, owner: FieldOwner, id: string): void
 }
 
 export function moveField(d: ProjectData, owner: FieldOwner, from: number, to: number): void {
-  const fields = ownerFields(editableTypes(d), owner);
+  const fields = ownerFields(d, owner);
   if (!fields || from < 0 || from >= fields.length || to < 0 || to >= fields.length) return;
   const [f] = fields.splice(from, 1);
   fields.splice(to, 0, f);
+}
+
+/** A card's own field becomes a field of a type: every card of the type gets it, this card keeps its value. */
+export function promoteField(d: ProjectData, entity: string, field: string, type: string): void {
+  const e = d.entities[entity];
+  if (!e || !Array.isArray(e.fields)) return;
+  const raw = e.fields.find((x) => isObject(x) && x.id === field);
+  const f = normalizeField(raw && JSON.parse(JSON.stringify(raw)));
+  if (!f || !editableTypes(d).types.some((x) => x.id === type)) return;
+  const kept = e.fields.filter((x) => x !== raw);
+  if (kept.length) e.fields = kept;
+  else delete e.fields;
+  addField(d, { kind: 'type', id: type }, f);
+}
+
+/** A field of the type is taken off one card (hidden) or put back; the value stays in the file. */
+export function hideField(d: ProjectData, entity: string, field: string, hidden: boolean): void {
+  const e = d.entities[entity];
+  if (!e) return;
+  const list = strings(e.hiddenFields).filter((x) => x !== field);
+  if (hidden) list.push(field);
+  if (list.length) e.hiddenFields = list;
+  else delete e.hiddenFields;
+}
+
+/** A block shown or hidden on one card; null — as its type says. */
+export function setCardSection(d: ProjectData, entity: string, section: CardSection, shown: boolean | null): void {
+  const e = d.entities[entity];
+  if (!e) return;
+  const card: Partial<Record<CardSection, boolean>> = { ...(normalizeCard(e.card) ?? {}) };
+  if (shown === null) delete card[section];
+  else card[section] = shown;
+  if (Object.keys(card).length) e.card = card;
+  else delete e.card;
+}
+
+/** Cards that have a value in a field (the field of a type or set, before it is deleted). */
+export function filledCount(d: Pick<ProjectData, 'entities'>, field: string): number {
+  return Object.values(d.entities).filter((e) => {
+    const v = isObject(e.values) ? e.values[field] : undefined;
+    return v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0);
+  }).length;
 }
 
 export function addSet(d: ProjectData, name: string, fields: FieldDef[] = []): string {
@@ -538,7 +648,11 @@ export function renameCatalog(d: ProjectData, id: string, name: string): void {
 export function deleteCatalog(d: ProjectData, id: string): void {
   const t = editableTypes(d);
   t.catalogs = t.catalogs.filter((c) => c.id !== id);
-  for (const f of [...t.types.flatMap((y) => y.fields), ...t.propertySets.flatMap((p) => p.fields)]) {
+  for (const f of [
+    ...t.types.flatMap((y) => y.fields),
+    ...t.propertySets.flatMap((p) => p.fields),
+    ...cardsFields(d),
+  ]) {
     if (f.type === 'tags' && f.catalog === id) f.catalog = null;
   }
 }

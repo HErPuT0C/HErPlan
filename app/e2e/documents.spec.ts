@@ -66,10 +66,14 @@ test('a document: typed with formatting, a link to a card that follows its name,
   await page.keyboard.type('Мельница');
   await page.keyboard.press('Enter');
   await page.keyboard.type('Героиня — ');
-  // A link to a card from the toolbar.
-  await page.getByRole('button', { name: 'Ссылка на карточку' }).click();
+  // A link to a card from the toolbar, to the card in the database.
+  await page.getByRole('button', { name: /Ссылка на карточку, документ/ }).click();
   await page.getByRole('dialog').getByPlaceholder('Поиск').fill('Мира');
-  await page.getByRole('dialog').getByRole('option', { name: /Мира/ }).click();
+  await page.getByRole('dialog').getByRole('option', { name: /^Мира/ }).first().click();
+  await page
+    .getByRole('dialog')
+    .getByRole('option', { name: /Карточка «Мира» в базе данных/ })
+    .click();
   await page.keyboard.type('пришла ');
   await page.keyboard.press('Control+B');
   await page.keyboard.type('рано');

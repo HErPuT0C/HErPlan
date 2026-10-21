@@ -123,7 +123,17 @@ export function fuzz(runs: number, steps: number, trace?: (line: string) => void
             rnd() < 0.5
               ? {
                   type: 'objectLink',
-                  attrs: { kind: pick(['ent', 'doc', 'node']), ref: pick(['mira', 'g/n', 'd-1']), label: 'X' },
+                  attrs: {
+                    ...pick([
+                      { kind: 'ent', ref: 'mira' },
+                      { kind: 'doc', ref: 'd-1' },
+                      { kind: 'node', ref: 'g/n' },
+                      { kind: 'asset', ref: pick(['assets/a.png', 'assets/лес и река [2].png']) },
+                    ]),
+                    label: 'X',
+                    // Since 0.5 a link can lead elsewhere than the object's own place.
+                    place: pick(['', '', 'map:n-1', 'story:g/n', 'assets:assets/a b.png']),
+                  },
                 }
               : { type: 'liveField', attrs: { entity: 'mira', field: pick(['f-trust', 'name']) } };
           chain.insertContent(n).run();

@@ -1,12 +1,15 @@
 // Keeps what the embeds of open documents show (F5-04) in step with the project: names of entities, titles of
-// story nodes and documents, values of fields; embeds redraw when what they show changes.
+// story nodes and documents, values of fields, where a link leads; embeds redraw when what they show changes.
 
 import { useEffect } from 'react';
 import type { ProjectData } from '../../core/project/types';
 import { fieldText, linkLabel } from '../../documents/lookups';
 import { setAssetResolver, setEmbedLookup } from '../../documents/markdown';
+import { linkTarget } from '../../documents/places';
+import { t } from '../../i18n';
 import { platform } from '../../platform';
 import type { OpenProject } from '../../state/project';
+import { placeLabel } from './places';
 
 /** Keeps the embeds of every open document in step with the project. */
 export function useEmbedLookup(project: OpenProject): void {
@@ -31,6 +34,10 @@ export function useEmbedLookup(project: OpenProject): void {
       setEmbedLookup({
         linkLabel: (kind, ref) => linkLabel(store.getState(), kind, ref),
         fieldText: (entity, field) => fieldText(store.getState(), entity, field),
+        linkHint: (kind, ref, place) => {
+          const data = store.getState();
+          return t('docs.link.hint', { where: placeLabel(data, linkTarget(data, kind, ref, place)) });
+        },
       });
     };
     sync();

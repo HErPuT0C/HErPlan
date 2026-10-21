@@ -1,17 +1,30 @@
 // The world database (F4): entities of every type as cards grouped by type and subtype, or as a table;
 // sorting by any field or by hand (drag), filters, search, and the card of the selected entity on the right.
 
-import { ArrowDownAZ, ArrowUpAZ, Filter, LayoutGrid, Plus, Settings2, Shapes, Table2, X } from 'lucide-react';
+import {
+  ArrowDownAZ,
+  ArrowUpAZ,
+  BookMarked,
+  Filter,
+  LayoutGrid,
+  Plus,
+  Settings2,
+  Shapes,
+  Table2,
+  X,
+} from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import type { JsonObject } from '../../core/project/types';
+import type { JsonObject, ProjectData } from '../../core/project/types';
 import { useAtom, useStore } from '../../core/useStore';
 import { t } from '../../i18n';
 import { platform } from '../../platform';
-import { entityRequest } from '../../state/navigation';
+import { catalogRequest, entityRequest } from '../../state/navigation';
 import type { OpenProject } from '../../state/project';
 import { asEntity, listEntities, newEntity, type WorldEntity } from '../../story/entities';
 import { reorderEntities } from '../../world/entityOps';
 import {
+  addCatalog,
+  cardFields,
   effectiveFields,
   findCatalog,
   findTag,
@@ -25,7 +38,7 @@ import { Button, EmptyState, IconButton } from '../components';
 import { useAsync } from '../useAsync';
 import { usePointerDrag } from '../usePointerDrag';
 import { EntityPanel } from './EntityPanel';
-import { SchemaDialog } from './SchemaDialog';
+import { CatalogEditor, SchemaDialog } from './SchemaDialog';
 import { typeName } from './typeNames';
 import './world.css';
 
@@ -125,6 +138,18 @@ export function WorldEditor({ project }: { project: OpenProject }) {
   const [rules, setRules] = useState<Rule[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [schemaOpen, setSchemaOpen] = useState(false);
+  // A catalog of tags open in place of the cards (0.5); null — the cards.
+  const [chosenCatalog, setCatalog] = useState<string | null>(null);
+  const catalog = chosenCatalog && schema.catalogs.some((c) => c.id === chosenCatalog) ? chosenCatalog : null;
+  const change = (label: string, recipe: (d: ProjectData) => void, merge?: string) =>
+    !readOnly && store.dispatch(label, recipe, merge ? { mergeKey: `schema:${merge}` } : {});
+  const newCatalog = () => {
+    let id = '';
+    change(t('schema.step.catalog'), (d) => {
+      id = addCatalog(d, t('schema.newCatalog'));
+    });
+    if (id) setCatalog(id);
+  };
   const setView = (v: View) => {
     setViewState(v);
     try {
@@ -141,6 +166,7 @@ export function WorldEditor({ project }: { project: OpenProject }) {
     const timer = setTimeout(() => {
       entityRequest.set(null);
       setSelected(request.id);
+      setCatalog(null);
       setTypeId((current) => {
         const e = asEntity(store.getState().entities[request.id]);
         return current === 'all' || !e || listEntities(store.getState(), current).some((x) => x.id === e.id)
@@ -153,6 +179,17 @@ export function WorldEditor({ project }: { project: OpenProject }) {
     }, 0);
     return () => clearTimeout(timer);
   }, [request, store]);
+
+  // "Open the catalog" from a tags field of a card.
+  const wantedCatalog = useAtom(catalogRequest);
+  useEffect(() => {
+    if (!wantedCatalog) return;
+    const timer = setTimeout(() => {
+      catalogRequest.set(null);
+      setCatalog(wantedCatalog.id);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [wantedCatalog]);
 
   const ctx: ValueTextContext = useMemo(
     () => ({
@@ -176,7 +213,7 @@ export function WorldEditor({ project }: { project: OpenProject }) {
     if (q) {
       list = list.filter((e) => {
         if (e.name.toLowerCase().includes(q) || e.description.toLowerCase().includes(q)) return true;
-        return effectiveFields(schema, e.type).some(({ field }) =>
+        return cardFields(schema, e).some(({ field }) =>
           valueText(field, coerceValue(field, e.values[field.id]), ctx).toLowerCase().includes(q),
         );
       });
@@ -227,8 +264,11 @@ export function WorldEditor({ project }: { project: OpenProject }) {
         <button
           type="button"
           className="schema-item"
-          aria-current={typeId === 'all' ? 'true' : undefined}
-          onClick={() => setTypeId('all')}
+          aria-current={typeId === 'all' && !catalog ? 'true' : undefined}
+          onClick={() => {
+            setTypeId('all');
+            setCatalog(null);
+          }}
         >
           <Shapes size={14} aria-hidden="true" />
           {t('world.all')}
@@ -239,10 +279,11 @@ export function WorldEditor({ project }: { project: OpenProject }) {
             key={type.id}
             type="button"
             className="schema-item"
-            aria-current={typeId === type.id ? 'true' : undefined}
+            aria-current={typeId === type.id && !catalog ? 'true' : undefined}
             style={{ paddingLeft: 8 + depth * 16 }}
             onClick={() => {
               setTypeId(type.id);
+              setCatalog(null);
               setRules([]);
               if (sort.by !== 'manual' && sort.by !== 'name') setSort({ by: 'manual', dir: 1 });
             }}
@@ -251,131 +292,166 @@ export function WorldEditor({ project }: { project: OpenProject }) {
             <span className="muted">{listEntities({ entities, types }, type.id).length}</span>
           </button>
         ))}
+        <h3 className="insp-heading world-nav-heading">{t('schema.catalogs')}</h3>
+        {schema.catalogs.length === 0 && <p className="muted small">{t('world.catalogs.none')}</p>}
+        {schema.catalogs.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            className="schema-item"
+            aria-current={catalog === c.id ? 'true' : undefined}
+            onClick={() => setCatalog(c.id)}
+          >
+            <BookMarked size={14} aria-hidden="true" />
+            {c.name || t('story.untitled')}
+            <span className="muted">{c.tags.length}</span>
+          </button>
+        ))}
+        {!readOnly && (
+          <Button size="sm" variant="ghost" icon={<Plus size={14} />} onClick={newCatalog}>
+            {t('schema.addCatalog')}
+          </Button>
+        )}
         <Button size="sm" variant="ghost" icon={<Settings2 size={14} />} onClick={() => setSchemaOpen(true)}>
           {t('world.schema')}
         </Button>
       </nav>
 
-      <div className="world-main">
-        <header className="world-bar">
-          <input
-            className="input world-search"
-            type="search"
-            value={query}
-            placeholder={t('world.search')}
-            aria-label={t('world.search')}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <div className="world-seg" role="radiogroup" aria-label={t('world.view')}>
-            <IconButton
-              size="sm"
-              label={t('world.view.cards')}
-              icon={<LayoutGrid size={16} />}
-              pressed={view === 'cards'}
-              onClick={() => setView('cards')}
-            />
-            <IconButton
-              size="sm"
-              label={t('world.view.table')}
-              icon={<Table2 size={16} />}
-              pressed={view === 'table'}
-              onClick={() => setView('table')}
-            />
-          </div>
-          <select
-            className="input select world-sort"
-            value={sort.by}
-            aria-label={t('world.sort')}
-            onChange={(e) => setSort({ by: e.target.value, dir: sort.dir })}
-          >
-            <option value="manual">{t('world.sort.manual')}</option>
-            {allFields
-              .filter((f) => f.type !== 'table' && f.type !== 'image')
-              .map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.label || t('schema.untitledField')}
-                </option>
-              ))}
-          </select>
-          {!manual && (
-            <IconButton
-              size="sm"
-              label={t(sort.dir === 1 ? 'world.sort.asc' : 'world.sort.desc')}
-              icon={sort.dir === 1 ? <ArrowDownAZ size={16} /> : <ArrowUpAZ size={16} />}
-              onClick={() => setSort({ ...sort, dir: sort.dir === 1 ? -1 : 1 })}
-            />
-          )}
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={<Filter size={14} />}
-            onClick={() => setRules([...rules, { id: Date.now(), field: 'name', op: 'contains', value: '' }])}
-          >
-            {t('world.filter')}
-          </Button>
-          {!readOnly && (
-            <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={add}>
-              {t('world.add', {
-                type: typeName(schema.types.find((x) => x.id === (typeId === 'all' ? 'character' : typeId))),
-              })}
-            </Button>
-          )}
-        </header>
-        {rules.length > 0 && (
-          <div className="world-rules">
-            {rules.map((rule) => (
-              <RuleRow
-                key={rule.id}
-                rule={rule}
-                fields={allFields}
-                project={project}
-                onChange={(next) => setRules(rules.map((r) => (r.id === rule.id ? next : r)))}
-                onRemove={() => setRules(rules.filter((r) => r.id !== rule.id))}
-                fieldById={fieldById}
-              />
-            ))}
-          </div>
-        )}
-        <div className="world-content">
-          {shown.length === 0 ? (
-            <EmptyState
-              title={Object.keys(entities).length ? t('world.nothingFound') : t('world.empty')}
-              text={Object.keys(entities).length ? t('world.nothingFoundHint') : t('world.emptyHint')}
-            />
-          ) : view === 'cards' ? (
-            <CardsView
+      {catalog ? (
+        <div className="world-main world-catalog" aria-label={t('schema.catalogs')}>
+          <div className="world-catalog-body">
+            <CatalogEditor
+              key={catalog}
               project={project}
               schema={schema}
-              list={shown}
-              selected={selected}
-              manual={manual && !readOnly}
-              ctx={ctx}
-              onSelect={setSelected}
-              onMove={move}
+              id={catalog}
+              change={change}
+              onDeleted={() => setCatalog(null)}
             />
-          ) : (
-            <TableView
-              project={project}
-              schema={schema}
-              list={shown}
-              fields={fields}
-              selected={selected}
-              sort={sort}
-              manual={manual && !readOnly}
-              ctx={ctx}
-              onSort={(by) => setSort(sort.by === by ? { by, dir: sort.dir === 1 ? -1 : 1 } : { by, dir: 1 })}
-              onSelect={setSelected}
-              onMove={(moved, before) =>
-                move(
-                  moved,
-                  before,
-                  shown.map((e) => e.id),
-                )
-              }
-            />
-          )}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="world-main">
+          <header className="world-bar">
+            <input
+              className="input world-search"
+              type="search"
+              value={query}
+              placeholder={t('world.search')}
+              aria-label={t('world.search')}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <div className="world-seg" role="radiogroup" aria-label={t('world.view')}>
+              <IconButton
+                size="sm"
+                label={t('world.view.cards')}
+                icon={<LayoutGrid size={16} />}
+                pressed={view === 'cards'}
+                onClick={() => setView('cards')}
+              />
+              <IconButton
+                size="sm"
+                label={t('world.view.table')}
+                icon={<Table2 size={16} />}
+                pressed={view === 'table'}
+                onClick={() => setView('table')}
+              />
+            </div>
+            <select
+              className="input select world-sort"
+              value={sort.by}
+              aria-label={t('world.sort')}
+              onChange={(e) => setSort({ by: e.target.value, dir: sort.dir })}
+            >
+              <option value="manual">{t('world.sort.manual')}</option>
+              {allFields
+                .filter((f) => f.type !== 'table' && f.type !== 'image')
+                .map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.label || t('schema.untitledField')}
+                  </option>
+                ))}
+            </select>
+            {!manual && (
+              <IconButton
+                size="sm"
+                label={t(sort.dir === 1 ? 'world.sort.asc' : 'world.sort.desc')}
+                icon={sort.dir === 1 ? <ArrowDownAZ size={16} /> : <ArrowUpAZ size={16} />}
+                onClick={() => setSort({ ...sort, dir: sort.dir === 1 ? -1 : 1 })}
+              />
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<Filter size={14} />}
+              onClick={() => setRules([...rules, { id: Date.now(), field: 'name', op: 'contains', value: '' }])}
+            >
+              {t('world.filter')}
+            </Button>
+            {!readOnly && (
+              <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={add}>
+                {t('world.add', {
+                  type: typeName(schema.types.find((x) => x.id === (typeId === 'all' ? 'character' : typeId))),
+                })}
+              </Button>
+            )}
+          </header>
+          {rules.length > 0 && (
+            <div className="world-rules">
+              {rules.map((rule) => (
+                <RuleRow
+                  key={rule.id}
+                  rule={rule}
+                  fields={allFields}
+                  project={project}
+                  onChange={(next) => setRules(rules.map((r) => (r.id === rule.id ? next : r)))}
+                  onRemove={() => setRules(rules.filter((r) => r.id !== rule.id))}
+                  fieldById={fieldById}
+                />
+              ))}
+            </div>
+          )}
+          <div className="world-content">
+            {shown.length === 0 ? (
+              <EmptyState
+                title={Object.keys(entities).length ? t('world.nothingFound') : t('world.empty')}
+                text={Object.keys(entities).length ? t('world.nothingFoundHint') : t('world.emptyHint')}
+              />
+            ) : view === 'cards' ? (
+              <CardsView
+                project={project}
+                schema={schema}
+                list={shown}
+                selected={selected}
+                manual={manual && !readOnly}
+                ctx={ctx}
+                onSelect={setSelected}
+                onMove={move}
+              />
+            ) : (
+              <TableView
+                project={project}
+                schema={schema}
+                list={shown}
+                fields={fields}
+                selected={selected}
+                sort={sort}
+                manual={manual && !readOnly}
+                ctx={ctx}
+                onSort={(by) => setSort(sort.by === by ? { by, dir: sort.dir === 1 ? -1 : 1 } : { by, dir: 1 })}
+                onSelect={setSelected}
+                onMove={(moved, before) =>
+                  move(
+                    moved,
+                    before,
+                    shown.map((e) => e.id),
+                  )
+                }
+              />
+            )}
+          </div>
+        </div>
+      )}
 
       {current && <EntityPanel key={current.id} project={project} entity={current} onClose={() => setSelected(null)} />}
       {schemaOpen && (
@@ -639,7 +715,7 @@ function CardGroup({
       </h2>
       <div className="world-cards">
         {items.map((e) => {
-          const values = effectiveFields(schema, e.type)
+          const values = cardFields(schema, e)
             .map(({ field }) => ({ field, v: coerceValue(field, e.values[field.id]) }))
             .filter(
               ({ field, v }) =>

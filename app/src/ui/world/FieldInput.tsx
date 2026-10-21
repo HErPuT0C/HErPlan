@@ -1,14 +1,23 @@
 // Editors for the values of entity fields (F4-02), one per kind of field.
 
-import { ArrowUpRight, Plus, Trash, X } from 'lucide-react';
+import { ArrowUpRight, BookMarked, Plus, Trash, X } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 import type { JsonObject } from '../../core/project/types';
 import { useStore } from '../../core/useStore';
 import { t } from '../../i18n';
-import { openEntity } from '../../state/navigation';
+import { openCatalog, openEntity } from '../../state/navigation';
 import type { OpenProject } from '../../state/project';
 import { asEntity, listEntities, newEntity } from '../../story/entities';
-import { addTag, findCatalog, typesFile, type FieldDef } from '../../world/schema';
+import {
+  addCatalog,
+  addTag,
+  findCatalog,
+  typesFile,
+  updateField,
+  updateTag,
+  type FieldDef,
+  type FieldOwner,
+} from '../../world/schema';
 import { coerceValue, type FieldValue, type TableValue } from '../../world/values';
 import { Button, IconButton, Switch } from '../components';
 import { ImageField } from './ImageField';
@@ -20,6 +29,10 @@ export interface FieldInputProps {
   /** The entity being edited: it is not offered as a reference to itself. */
   self: string;
   onChange: (value: FieldValue) => void;
+  /** Where the field is defined, so the card can finish setting it up (the catalog of a tags field). */
+  owner?: FieldOwner;
+  /** Buttons next to the field's name (its menu on the card). */
+  tools?: ReactNode;
 }
 
 /** Entities a reference field may point at, for a select. */
@@ -43,14 +56,22 @@ function EntityLink({ project, id }: { project: OpenProject; id: string }) {
   );
 }
 
-export function FieldInput({ project, field, value: raw, self, onChange }: FieldInputProps) {
+export function FieldInput({ project, field, value: raw, self, onChange, owner, tools }: FieldInputProps) {
   const id = useId();
   const readOnly = project.readOnly;
   const value = coerceValue(field, raw);
-  const label = (
+  const name = (
     <label htmlFor={id} className="field-label">
       {field.label || t('schema.untitledField')}
     </label>
+  );
+  const label = tools ? (
+    <div className="world-field-head">
+      {name}
+      {tools}
+    </div>
+  ) : (
+    name
   );
   const frame = (control: ReactNode, extra = '') => (
     <div className={`field world-field ${extra}`} data-field={`value:${field.id}`}>
@@ -122,13 +143,14 @@ export function FieldInput({ project, field, value: raw, self, onChange }: Field
     }
     case 'bool':
       return (
-        <div className="field world-field" data-field={`value:${field.id}`}>
+        <div className="field world-field world-field-head" data-field={`value:${field.id}`}>
           <Switch
             label={field.label || t('schema.untitledField')}
             checked={value === true}
             disabled={readOnly}
             onChange={(on) => onChange(on)}
           />
+          {tools}
         </div>
       );
     case 'enum':
@@ -179,7 +201,9 @@ export function FieldInput({ project, field, value: raw, self, onChange }: Field
           value={value as string[]}
           self={self}
           onChange={onChange}
-          label={label}
+          owner={owner}
+          label={name}
+          tools={tools}
         />
       );
     case 'image':
@@ -317,37 +341,95 @@ function RefListInput({
   );
 }
 
-/** Tags from a catalog (0.4): chips, their descriptions under them, a new tag made right from the field. */
+/**
+ * Tags from a catalog (0.4): chips, their descriptions under them, a new tag made right from the field. Since
+ * 0.5 a description is written right here too (it is the tag's, so every card with the tag shows it), the
+ * catalog opens in the database, and a field without a catalog gets one from the card.
+ */
 function TagsInput({
   project,
   field,
   value,
   self,
   onChange,
+  owner,
   label,
+  tools,
 }: Omit<FieldInputProps, 'value'> & { value: string[]; label: ReactNode }) {
-  const types = useStore(project.store, (s) => s.types);
-  const catalog = findCatalog(typesFile({ types }), field.catalog);
+  const { store, readOnly } = project;
+  const types = useStore(store, (s) => s.types);
+  const schema = typesFile({ types });
+  const catalog = findCatalog(schema, field.catalog);
+  const [editing, setEditing] = useState<string | null>(null);
   if (!catalog) {
+    const setCatalog = (make: boolean, id = '') =>
+      owner &&
+      store.dispatch(t('schema.step.catalog'), (d) => {
+        const catalog = make ? addCatalog(d, field.label || t('schema.newCatalog')) : id;
+        updateField(d, owner, field.id, { catalog });
+      });
     return (
       <div className="field world-field" data-field={`value:${field.id}`}>
-        {label}
+        <div className="world-field-head">
+          {label}
+          {tools}
+        </div>
         <p className="muted small">{t('world.tags.noCatalog')}</p>
+        {!readOnly && owner && (
+          <div className="insp-actions">
+            {schema.catalogs.length > 0 && (
+              <select
+                className="input select"
+                value=""
+                aria-label={t('world.tags.pickCatalog')}
+                onChange={(e) => e.target.value && setCatalog(false, e.target.value)}
+              >
+                <option value="">{t('world.tags.pickCatalog')}</option>
+                {schema.catalogs.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name || t('story.untitled')}
+                  </option>
+                ))}
+              </select>
+            )}
+            <Button size="sm" icon={<Plus size={14} />} onClick={() => setCatalog(true)}>
+              {t('world.tags.newCatalog')}
+            </Button>
+          </div>
+        )}
       </div>
     );
   }
   const chosen = value.map((id) => catalog.tags.find((x) => x.id === id)).filter((x) => x !== undefined);
-  const create = (name: string) =>
-    project.store.dispatch(t('world.step.tag'), (d) => {
+  const create = (name: string) => {
+    let made: string | null = null;
+    store.dispatch(t('world.step.tag'), (d) => {
       const id = addTag(d, catalog.id, name);
       const owner = d.entities[self];
       if (!id || !owner) return;
+      made = id;
       const values = (owner.values && typeof owner.values === 'object' ? owner.values : {}) as JsonObject;
       if (!value.includes(id)) owner.values = { ...values, [field.id]: [...value, id] } as JsonObject;
     });
+    // A new tag asks for its description at once.
+    if (made && !catalog.tags.some((x) => x.id === made)) setEditing(made);
+  };
+  const describe = (tag: string, description: string) =>
+    store.dispatch(t('world.step.tag'), (d) => updateTag(d, catalog.id, tag, { description }), {
+      mergeKey: `tag:${tag}:description`,
+    });
   return (
     <div className="field world-field" data-field={`value:${field.id}`}>
-      {label}
+      <div className="world-field-head">
+        {label}
+        <IconButton
+          size="sm"
+          label={t('world.tags.openCatalog', { name: catalog.name || t('story.untitled') })}
+          icon={<BookMarked size={14} />}
+          onClick={() => openCatalog(catalog.id)}
+        />
+        {tools}
+      </div>
       <div className="imark-chips">
         {chosen.map((tag) => (
           <span
@@ -357,7 +439,7 @@ function TagsInput({
             style={tag.color ? { borderColor: tag.color } : undefined}
           >
             {tag.name || t('story.untitled')}
-            {!project.readOnly && (
+            {!readOnly && (
               <button
                 type="button"
                 className="chip-x"
@@ -369,7 +451,7 @@ function TagsInput({
             )}
           </span>
         ))}
-        {!project.readOnly && (
+        {!readOnly && (
           <ChipPicker
             label={t('world.tags.add')}
             options={catalog.tags
@@ -380,9 +462,42 @@ function TagsInput({
           />
         )}
       </div>
-      <Notes
-        notes={chosen.filter((x) => x.description.trim()).map((x) => ({ id: x.id, name: x.name, text: x.description }))}
-      />
+      {chosen.length > 0 && (
+        <ul className="world-notes small">
+          {chosen.map((tag) => (
+            <li key={tag.id} className="world-tag-note">
+              <strong>{tag.name || t('story.untitled')}</strong>
+              {editing === tag.id ? (
+                <>
+                  <textarea
+                    className="input textarea"
+                    rows={2}
+                    autoFocus
+                    value={tag.description}
+                    placeholder={t('schema.tagDescription')}
+                    aria-label={t('world.tags.description', { name: tag.name })}
+                    onChange={(e) => describe(tag.id, e.target.value)}
+                    onBlur={() => setEditing(null)}
+                    onKeyDown={(e) => e.key === 'Escape' && setEditing(null)}
+                  />
+                  <span className="muted">{t('world.tags.shared')}</span>
+                </>
+              ) : readOnly ? (
+                tag.description && <span className="muted"> — {tag.description}</span>
+              ) : (
+                <button
+                  type="button"
+                  className={['world-tag-describe', !tag.description && 'muted'].filter(Boolean).join(' ')}
+                  title={t('world.tags.editDescription')}
+                  onClick={() => setEditing(tag.id)}
+                >
+                  {tag.description ? `— ${tag.description}` : t('world.tags.addDescription')}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

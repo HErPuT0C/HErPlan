@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAtom } from '../../core/useStore';
-import { closeVariables, documentRequest, entityRequest, mapRequest, revealRequest } from '../../state/navigation';
+import {
+  assetRequest,
+  catalogRequest,
+  closeVariables,
+  documentRequest,
+  entityRequest,
+  mapRequest,
+  revealRequest,
+} from '../../state/navigation';
 import { t } from '../../i18n';
 import { platform } from '../../platform';
 import { closeProject, type OpenProject } from '../../state/project';
@@ -80,8 +88,10 @@ export function Workspace({ project }: { project: OpenProject }) {
       return story ? { ...s, active: story.id } : openTab(s, 'story');
     });
   }, [request, setTabs]);
-  // "Open this card" (Ctrl+click on a link to an entity): bring the database tab to the front.
-  const wanted = useAtom(entityRequest);
+  // "Open this card" (a link to an entity) or a catalog of tags: bring the database tab to the front.
+  const wantedEntity = useAtom(entityRequest);
+  const wantedCatalog = useAtom(catalogRequest);
+  const wanted = wantedEntity ?? wantedCatalog;
   useEffect(() => {
     if (!wanted) return;
     setTabs((s) => {
@@ -102,6 +112,16 @@ export function Workspace({ project }: { project: OpenProject }) {
     });
     documentRequest.set(null);
   }, [wantedDoc, setTabs]);
+  // "Show this file": bring the assets tab to the front.
+  const wantedAsset = useAtom(assetRequest);
+  useEffect(() => {
+    if (!wantedAsset) return;
+    setTabs((s) => {
+      if (s.tabs.find((tab) => tab.id === s.active)?.kind === 'assets') return s;
+      const assets = s.tabs.find((tab) => tab.kind === 'assets');
+      return assets ? { ...s, active: assets.id } : openTab(s, 'assets');
+    });
+  }, [wantedAsset, setTabs]);
   // "Show on the map": bring the map tab to the front.
   const wantedMap = useAtom(mapRequest);
   useEffect(() => {
@@ -118,8 +138,10 @@ export function Workspace({ project }: { project: OpenProject }) {
       closeVariables();
       revealRequest.set(null);
       entityRequest.set(null);
+      catalogRequest.set(null);
       documentRequest.set(null);
       mapRequest.set(null);
+      assetRequest.set(null);
     },
     [],
   );

@@ -1,9 +1,10 @@
 // One open document (F5-02, F5-03): its name, the formatting bar and the text. The text is TipTap with its own
 // undo (Ctrl+Z in the text never "comes back"); every pause in typing writes the document through the
-// self-checking Markdown save. Links to cards, story nodes and documents open with Ctrl+click.
+// self-checking Markdown save. Links to project objects open with a click, where the link leads (0.5).
 
 import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/react';
 import {
+  AtSign,
   Bold,
   Code,
   FileText,
@@ -23,12 +24,12 @@ import {
   Table as TableIcon,
   Underline,
   Undo2,
-  Variable,
-  Workflow,
-  Contact,
   FileDown,
   Palette,
   Type,
+  Check,
+  ExternalLink,
+  Trash,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../../core/useStore';
@@ -43,14 +44,19 @@ import { typesFile } from '../../world/schema';
 import { typeName } from '../world/typeNames';
 import { mentionExtension, type MentionItem } from './mention';
 import { getLocale, t, type MessageKey } from '../../i18n';
-import { openDocument, openEntity, revealInStory } from '../../state/navigation';
+import { openDocument } from '../../state/navigation';
 import { onFlushEdits } from '../../state/pendingEdits';
 import type { OpenProject } from '../../state/project';
 import { IconButton, Menu, toast, type MenuEntry } from '../components';
 import { PromptDialog, type PromptRequest } from '../canvas/PromptDialog';
 import { AssetPicker } from '../world/AssetPicker';
+import { useFileDrop } from '../useFileDrop';
+import { attach, attachmentContent } from './attachments';
 import { exportPdf } from './exportDocs';
-import { InsertPicker, type InsertKind } from './InsertPicker';
+import { openLink, placeLabel } from './places';
+import { linkTarget, placeKey, placesOf } from '../../documents/places';
+import { platform } from '../../platform';
+import { InsertPicker } from './InsertPicker';
 
 const COLOR_NAMES: Record<string, MessageKey> = {
   red: 'docs.color.red',
@@ -61,17 +67,11 @@ const COLOR_NAMES: Record<string, MessageKey> = {
   grey: 'docs.color.grey',
 };
 
+/** Files of the assets by project folder, offered by "@". */
+const assetFiles = new Map<string, string[]>();
+
 /** A pause in typing this long writes the document. */
 const SAVE_DELAY_MS = 400;
-
-export function openLink(kind: LinkKind, ref: string): void {
-  if (kind === 'ent') openEntity(ref);
-  else if (kind === 'doc') openDocument(ref);
-  else {
-    const [graph, node] = ref.split('/');
-    revealInStory({ graph, node, highlight: [node] });
-  }
-}
 
 export function DocumentView({ project, id }: { project: OpenProject; id: string }) {
   const { store, readOnly } = project;
@@ -92,7 +92,20 @@ export function DocumentView({ project, id }: { project: OpenProject; id: string
     store.refreshHistory(['documents', id, 'body']);
   };
 
-  // "@" offers cards, documents and story nodes by name.
+  // Files of the assets, for "@" (listed when a document opens).
+  useEffect(() => {
+    void platform()
+      .listAssets(project.dir)
+      .then((list) =>
+        assetFiles.set(
+          project.dir,
+          list.filter((f) => f.kind === 'file').map((f) => f.path),
+        ),
+      )
+      .catch(() => undefined);
+  }, [project.dir]);
+
+  // "@" offers cards, documents, story nodes and files by name.
   const mentionItems = (query: string): MentionItem[] => {
     const data = store.getState();
     const schema = typesFile(data);
@@ -119,6 +132,12 @@ export function DocumentView({ project, id }: { project: OpenProject; id: string
               hint: graphTitle(data, g.id),
             })),
         ),
+      ...(assetFiles.get(project.dir) ?? []).map((path) => ({
+        kind: 'asset' as const,
+        ref: path,
+        label: path.slice(path.lastIndexOf('/') + 1),
+        hint: t('docs.kind.asset'),
+      })),
     ];
     const hits = all.filter((x) => !q || searchKey(x.label).includes(q));
     return [
@@ -126,6 +145,40 @@ export function DocumentView({ project, id }: { project: OpenProject; id: string
       ...hits.filter((x) => !searchKey(x.label).startsWith(q)),
     ];
   };
+
+  const [linkMenu, setLinkMenu] = useState<{ x: number; y: number; pos: number } | null>(null);
+  const scroll = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<Editor | null>(null);
+
+  /** Copies the files into the attachments and puts them into the text at `at` (or where the cursor is). */
+  const attachHere = async (source: Parameters<typeof attach>[1], at: number | null) => {
+    const copied = await attach(project, source);
+    const ed = editorRef.current;
+    if (!copied.length || !ed || ed.isDestroyed) return;
+    assetFiles.set(project.dir, [...(assetFiles.get(project.dir) ?? []), ...copied]);
+    // Dropped on a paragraph or a heading: the files go after it rather than cut it in two, or in place of
+    // it when it is empty.
+    const $at = at === null ? null : ed.state.doc.resolve(at);
+    const block = !!$at && $at.parent.isTextblock && $at.depth > 0;
+    const where = !$at
+      ? ed.state.selection.to
+      : block && $at.parent.content.size === 0
+        ? { from: $at.before(), to: $at.after() }
+        : block
+          ? $at.after()
+          : $at.pos;
+    ed.chain().focus().insertContentAt(where, attachmentContent(copied)).run();
+  };
+  // Files from the explorer (desktop build): the platform tells where they were dropped.
+  const drop = useFileDrop(scroll, {
+    disabled: readOnly,
+    onPaths: (paths, point) => {
+      const ed = editorRef.current;
+      const at = ed && !ed.isDestroyed ? (ed.view.posAtCoords({ left: point.x, top: point.y })?.pos ?? null) : null;
+      void attachHere({ paths }, at);
+    },
+    onFiles: (files) => void attachHere({ files }, null),
+  });
 
   const editor = useEditor({
     extensions: documentExtensions([mentionExtension(mentionItems, t('docs.insert.none'))]),
@@ -138,14 +191,56 @@ export function DocumentView({ project, id }: { project: OpenProject; id: string
         lang: getLocale(),
         'aria-label': t('docs.text'),
       },
+      // Files dropped or pasted into the text go into the assets ("Document attachments") and into the text.
+      handleDrop: (view, event) => {
+        const files = [...(event.dataTransfer?.files ?? [])];
+        if (!files.length || readOnly) return false;
+        const at = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ?? null;
+        void attachHere({ files }, at);
+        return true;
+      },
+      handlePaste: (_view, event) => {
+        const data = event.clipboardData;
+        const files = [...(data?.files ?? [])];
+        // Text from Word or a browser may come with a picture of itself: the text wins.
+        if (!files.length || readOnly || data?.getData('text/html') || data?.getData('text/plain')) return false;
+        void attachHere({ files }, null);
+        return true;
+      },
       handleDOMEvents: {
-        // Ctrl+click on a link opens what it points at; a plain click only selects it, so it can be edited.
+        // A click on a link to a project object opens it where the link leads (0.5: a plain click, as the
+        // owner expected; Ctrl+click still works). A web link is text to edit: Ctrl+click opens it.
         click: (_view, e) => {
+          const target = e.target as HTMLElement;
+          const el = target.closest<HTMLElement>('[data-link]');
+          if (el) {
+            const [kind, ...rest] = (el.dataset.link ?? '').split(':');
+            openLink(store.getState(), kind as LinkKind, rest.join(':'), el.dataset.place ?? '');
+            e.preventDefault();
+            return true;
+          }
+          const a = target.closest<HTMLAnchorElement>('a[href]');
+          if (a && (e.ctrlKey || e.metaKey)) {
+            void platform()
+              .openUrl(a.href)
+              .catch(() => undefined);
+            e.preventDefault();
+            return true;
+          }
+          return false;
+        },
+        mouseover: (_view, e) => {
+          const a = (e.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
+          if (a) a.title = `${a.getAttribute('href')} — ${t('docs.link.webHint')}`;
+          return false;
+        },
+        // Right click on a link: open it, choose where it leads, or take it out.
+        contextmenu: (view, e) => {
           const el = (e.target as HTMLElement).closest<HTMLElement>('[data-link]');
-          if (!el || !(e.ctrlKey || e.metaKey)) return false;
-          const [kind, ...rest] = (el.dataset.link ?? '').split(':');
-          openLink(kind as LinkKind, rest.join(':'));
+          if (!el) return false;
           e.preventDefault();
+          const pos = view.posAtDOM(el, 0);
+          setLinkMenu({ x: e.clientX, y: e.clientY, pos });
           return true;
         },
       },
@@ -156,6 +251,10 @@ export function DocumentView({ project, id }: { project: OpenProject; id: string
     },
     onBlur: ({ editor: ed }) => save(ed),
   });
+
+  useEffect(() => {
+    editorRef.current = editor;
+  }, [editor]);
 
   // Ctrl+S, exports and closing the project take the text typed just now.
   useEffect(
@@ -200,13 +299,104 @@ export function DocumentView({ project, id }: { project: OpenProject; id: string
           onClick={() => void exportPdf(project, id)}
         />
       </header>
-      {editor && !readOnly && <Toolbar project={project} editor={editor} />}
-      <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor?.commands.focus('end')}>
+      {editor && !readOnly && <Toolbar project={project} editor={editor} doc={id} />}
+      <div
+        ref={scroll}
+        className={['doc-scroll', drop.over && 'doc-scroll-over'].filter(Boolean).join(' ')}
+        onClick={(e) => e.target === e.currentTarget && editor?.commands.focus('end')}
+        {...drop.dropProps}
+        // Drops on the text itself are the editor's (handleDrop); this takes those beside it.
+        onDrop={(e) => {
+          if (!e.defaultPrevented) drop.dropProps.onDrop(e);
+        }}
+      >
         <EditorContent editor={editor} className="doc-page" />
         <Backlinks project={project} id={id} />
       </div>
+      {linkMenu && editor && (
+        <LinkMenu
+          project={project}
+          editor={editor}
+          {...linkMenu}
+          readOnly={readOnly}
+          onClose={() => setLinkMenu(null)}
+        />
+      )}
     </div>
   );
+}
+
+/** The menu of a link to a project object: open it, choose which of the object's places it leads to, remove it. */
+function LinkMenu({
+  project,
+  editor,
+  x,
+  y,
+  pos,
+  readOnly,
+  onClose,
+}: {
+  project: OpenProject;
+  editor: Editor;
+  x: number;
+  y: number;
+  pos: number;
+  readOnly: boolean;
+  onClose: () => void;
+}) {
+  const node = editor.state.doc.nodeAt(pos);
+  if (!node || node.type.name !== 'objectLink') return null;
+  const { kind, ref, place } = node.attrs as { kind: LinkKind; ref: string; place: string };
+  const data = project.store.getState();
+  const places = placesOf(data, kind, ref);
+  const current = placeKey(linkTarget(data, kind, ref, place));
+  const setPlace = (next: string) =>
+    editor
+      .chain()
+      .command(({ tr }) => {
+        tr.setNodeMarkup(pos, undefined, { ...node.attrs, place: next });
+        return true;
+      })
+      .run();
+  const entries: MenuEntry[] = [
+    {
+      id: 'open',
+      label: t('docs.link.open'),
+      icon: <ExternalLink size={16} />,
+      onSelect: () => openLink(data, kind, ref, place),
+    },
+    ...(places.length > 1
+      ? [
+          { id: 'sep1', separator: true as const },
+          { id: 'title', label: t('docs.place.title'), disabled: true, onSelect: () => undefined },
+          ...places.map((p, i) => ({
+            id: `p:${placeKey(p)}`,
+            label: i === 0 ? `${placeLabel(data, p)} (${t('docs.place.own')})` : placeLabel(data, p),
+            icon: placeKey(p) === current ? <Check size={16} /> : <span />,
+            disabled: readOnly,
+            onSelect: () => void setPlace(i === 0 ? '' : placeKey(p)),
+          })),
+        ]
+      : []),
+    ...(readOnly
+      ? []
+      : [
+          { id: 'sep2', separator: true as const },
+          {
+            id: 'remove',
+            label: t('docs.link.remove'),
+            icon: <Trash size={16} />,
+            danger: true,
+            onSelect: () =>
+              editor
+                .chain()
+                .focus()
+                .deleteRange({ from: pos, to: pos + node.nodeSize })
+                .run(),
+          },
+        ]),
+  ];
+  return <Menu entries={entries} x={x} y={y} label={t('docs.place.title')} onClose={onClose} />;
 }
 
 function NameField({
@@ -242,7 +432,7 @@ function NameField({
   );
 }
 
-function Toolbar({ project, editor }: { project: OpenProject; editor: Editor }) {
+function Toolbar({ project, editor, doc }: { project: OpenProject; editor: Editor; doc: string }) {
   const state = useEditorState({
     editor,
     selector: ({ editor: e }) => ({
@@ -265,7 +455,7 @@ function Toolbar({ project, editor }: { project: OpenProject; editor: Editor }) 
       canRedo: e.can().redo(),
     }),
   });
-  const [picker, setPicker] = useState<InsertKind | null>(null);
+  const [picker, setPicker] = useState(false);
   const [images, setImages] = useState(false);
   const [prompt, setPrompt] = useState<PromptRequest | null>(null);
   const [tableMenu, setTableMenu] = useState<{ x: number; y: number } | null>(null);
@@ -384,17 +574,14 @@ function Toolbar({ project, editor }: { project: OpenProject; editor: Editor }) 
       />
       {button(t('docs.image'), <ImageIcon size={16} />, false, () => setImages(true))}
       <span className="doc-tool-sep" />
-      {button(t('docs.insert.entity'), <Contact size={16} />, false, () => setPicker('entity'))}
-      {button(t('docs.insert.field'), <Variable size={16} />, false, () => setPicker('field'))}
-      {button(t('docs.insert.node'), <Workflow size={16} />, false, () => setPicker('node'))}
-      {button(t('docs.insert.doc'), <FileText size={16} />, false, () => setPicker('doc'))}
+      {button(t('docs.insert.object'), <AtSign size={16} />, false, () => setPicker(true))}
 
       {picker && (
         <InsertPicker
           project={project}
-          kind={picker}
+          except={doc}
           onPick={(content) => chain().insertContent(content).insertContent(' ').run()}
-          onClose={() => setPicker(null)}
+          onClose={() => setPicker(false)}
         />
       )}
       {images && (
