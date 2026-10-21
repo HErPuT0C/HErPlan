@@ -18,6 +18,7 @@ import {
   refLabel,
   refNode,
   refOf,
+  REF_COLORS,
   REF_NODE,
   type MapRef,
   type MapRefKind,
@@ -36,9 +37,6 @@ import { IMAGE_EXT } from '../world/ImageField';
 import { typeName } from '../world/typeNames';
 import { MapContext, RefIcon, REF_KIND_NAMES } from './cards';
 import './map.css';
-
-/** Header colours by kind of object, so chapters, documents, cards and pictures tell apart at a glance. */
-const REF_COLORS: Record<MapRefKind, string> = { chapter: 'violet', document: 'blue', entity: 'green', asset: 'amber' };
 
 interface Item {
   ref: MapRef;

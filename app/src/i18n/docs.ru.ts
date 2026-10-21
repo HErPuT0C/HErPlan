@@ -85,6 +85,7 @@ export const docsRu = {
   'docs.step.emptyTrash': 'Очистить корзину',
   'docs.kind.doc': 'документ',
   'docs.kind.asset': 'файл ресурсов',
+  'docs.backlinkTask': 'Задача «{name}» ({board})',
   'docs.attachment': 'вложение',
   'docs.attached': 'Добавлено в документ и в ресурсы ({folder}): {count}',
   'docs.attachFailed': 'Не удалось добавить файл: {reason}',

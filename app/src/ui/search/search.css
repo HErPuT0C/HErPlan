@@ -1,0 +1,95 @@
+/* The project-wide search (F6-06) and the object picker of tasks. */
+
+.search-dialog {
+  margin-top: 8vh;
+}
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-muted);
+}
+.search-input {
+  flex: 1;
+  font-size: var(--fs-lg, 16px);
+}
+.search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(60vh, 520px);
+  margin-top: var(--space-2);
+  overflow-y: auto;
+}
+.search-none {
+  margin: var(--space-2) 4px;
+}
+.search-hit {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 4px 8px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.search-hit-active {
+  background: var(--surface-3);
+}
+.search-kind-icon {
+  flex: none;
+  color: var(--text-muted);
+}
+.search-hit-body {
+  flex: 1;
+  min-width: 0;
+}
+.search-hit-name,
+.search-hit-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.search-hit-text {
+  color: var(--text-muted);
+}
+.search-hit-where {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.search-mark {
+  border-radius: 2px;
+  background: var(--accent-soft);
+  color: inherit;
+}
+.search-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--space-2);
+}
+.search-kinds .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.search-kinds .chip[aria-checked='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.search-results button.search-hit {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.search-results button.search-hit:hover,
+.search-results button.search-hit:focus-visible {
+  background: var(--surface-3);
+}

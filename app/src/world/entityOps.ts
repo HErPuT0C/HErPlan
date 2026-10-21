@@ -9,6 +9,7 @@ import { allGraphs, asStory } from '../story/model';
 import { documentsLinkingTo } from '../documents/links';
 import { docName } from '../documents/model';
 import { listVariables } from '../story/variables';
+import { tasksLinkingTo } from '../tasks/model';
 import { cardFields, typesFile } from './schema';
 
 /** A relation as one entity sees it: its own (outgoing) or one another entity keeps about it. */
@@ -157,9 +158,13 @@ export type EntityUse =
   | { kind: 'variable'; variable: string; name: string }
   | { kind: 'value'; variable: string; name: string }
   | { kind: 'field'; entity: string; name: string; field: string }
-  | { kind: 'doc'; doc: string; name: string; count: number };
+  | { kind: 'doc'; doc: string; name: string; count: number }
+  | { kind: 'task'; task: string; name: string; board: string };
 
-/** Every place that refers to an entity: story nodes, dialogue speakers, variables, other entities' fields, documents. */
+/**
+ * Every place that refers to an entity: story nodes, dialogue speakers, variables, other entities' fields,
+ * documents, tasks.
+ */
 export function entityUses(data: ProjectData, id: string): EntityUse[] {
   const out: EntityUse[] = [];
   for (const g of allGraphs(data)) {
@@ -187,6 +192,9 @@ export function entityUses(data: ProjectData, id: string): EntityUse[] {
   }
   for (const { doc, count } of documentsLinkingTo(data, 'ent', id)) {
     out.push({ kind: 'doc', doc: doc.id, name: docName(doc.path), count });
+  }
+  for (const { board, task } of tasksLinkingTo(data, 'entity', id)) {
+    out.push({ kind: 'task', task: task.id, name: task.title, board: board.name });
   }
   return out;
 }

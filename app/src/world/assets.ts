@@ -1,12 +1,13 @@
 // The asset library's side of project data (F4-11, F4-12): where a file is used (entity pictures, image
 // fields, chapter pictures, the project cover, pictures and links to files in documents, cards of the project
-// map), keeping those references when a file or folder is renamed or moved, and folder colours in
-// data/assets.json.
+// map, links of tasks), keeping those references when a file or folder is renamed or moved, and folder colours
+// in data/assets.json.
 
 import type { JsonObject, ProjectData } from '../core/project/types';
 import { asDocument, docName, listDocuments } from '../documents/model';
 import { asEntity } from '../story/entities';
 import { allGraphs, asStory } from '../story/model';
+import { listBoards, moveTaskAssetLinks } from '../tasks/model';
 import { cardFields, typesFile } from './schema';
 
 export type AssetUse =
@@ -15,7 +16,8 @@ export type AssetUse =
   | { kind: 'field'; path: string; entity: string; name: string; field: string }
   | { kind: 'chapter'; path: string; graph: string; node: string; title: string }
   | { kind: 'document'; path: string; doc: string; name: string }
-  | { kind: 'map'; path: string; graph: string; node: string };
+  | { kind: 'map'; path: string; graph: string; node: string }
+  | { kind: 'task'; path: string; task: string; name: string };
 
 /** Pictures in Markdown: ![alt](path) or ![alt](<path with spaces>). */
 const IMAGE = /(!\[[^\]\n]*\]\()(<[^>\n]+>|[^)\s]+)((?:\s+"[^"\n]*")?\))/g;
@@ -107,6 +109,14 @@ export function assetUses(data: ProjectData, target: string): AssetUse[] {
       if (covers(target, path)) out.push({ kind: 'document', path, doc: doc.id, name: docName(doc.path) });
     }
   }
+  for (const board of listBoards(data)) {
+    for (const task of board.lists.flatMap((l) => l.tasks)) {
+      for (const l of task.links) {
+        if (l.kind === 'asset' && covers(target, l.id))
+          out.push({ kind: 'task', path: l.id, task: task.id, name: task.title });
+      }
+    }
+  }
   return out;
 }
 
@@ -150,6 +160,7 @@ export function moveAssetRefs(d: ProjectData, from: string, to: string): void {
     if (doc && [...imagesIn(doc.body), ...fileLinksIn(doc.body)].some((p) => covers(from, p)))
       raw.body = moveInText(doc.body, from, to);
   }
+  moveTaskAssetLinks(d, from, to);
   const folders = editableColors(d);
   for (const key of Object.keys(folders)) {
     if (!covers(from, key)) continue;

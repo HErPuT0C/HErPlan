@@ -66,3 +66,10 @@ export const assetRequest = atom<{ path: string; at: number } | null>(null);
 export function revealAsset(path: string): void {
   assetRequest.set({ path, at: performance.now() });
 }
+
+/** "Open this task" (where an object is used, the search): the tasks tab shows its board and opens it. */
+export const taskRequest = atom<{ id: string; at: number } | null>(null);
+
+export function openTask(id: string): void {
+  taskRequest.set({ id, at: performance.now() });
+}

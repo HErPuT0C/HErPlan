@@ -41,7 +41,7 @@ export const MODULES: Record<ModuleKind, ModuleInfo> = {
     icon: SquareKanban,
     title: 'module.tasks',
     description: 'module.tasks.description',
-    release: '0.5',
+    release: null,
   },
   assets: {
     kind: 'assets',

@@ -24,7 +24,7 @@ import { useAtom, useStore } from '../../core/useStore';
 import { formatBytes, formatDate, t, type MessageKey } from '../../i18n';
 import { platform } from '../../platform';
 import type { AssetEntry, PlatformError } from '../../platform/types';
-import { assetRequest, openDocument, openEntity, openMap, revealInStory } from '../../state/navigation';
+import { assetRequest, openDocument, openEntity, openMap, openTask, revealInStory } from '../../state/navigation';
 import type { OpenProject } from '../../state/project';
 import {
   assetUseCounts,
@@ -583,6 +583,8 @@ function usageText(u: AssetUse): string {
       return t('assets.use.document', { name: u.name });
     case 'map':
       return t('assets.use.map');
+    case 'task':
+      return t('assets.use.task', { name: u.name || t('story.untitled') });
   }
 }
 
@@ -613,6 +615,7 @@ function AssetDetails({
     else if (u.kind === 'chapter') revealInStory({ graph: u.graph, node: u.node, highlight: [u.node] });
     else if (u.kind === 'document') openDocument(u.doc);
     else if (u.kind === 'map') openMap(u.node);
+    else if (u.kind === 'task') openTask(u.task);
   };
   const row = (label: string, value: ReactNode) => (
     <div className="asset-prop">

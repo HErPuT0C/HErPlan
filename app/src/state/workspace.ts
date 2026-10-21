@@ -16,6 +16,8 @@ export interface WorkspaceTab {
   graph?: string;
   /** Documents tabs: the open document. */
   doc?: string;
+  /** Tasks tabs: the open board. */
+  board?: string;
 }
 
 export interface WorkspaceState {
@@ -36,11 +38,12 @@ export function parseWorkspace(text: string | null): WorkspaceState {
       : [];
     const active = tabs.some((tab) => tab.id === raw.active) ? (raw.active as string) : HOME;
     return {
-      tabs: tabs.map(({ id, kind, graph, doc }) => ({
+      tabs: tabs.map(({ id, kind, graph, doc, board }) => ({
         id,
         kind,
         ...(typeof graph === 'string' ? { graph } : {}),
         ...(typeof doc === 'string' ? { doc } : {}),
+        ...(typeof board === 'string' ? { board } : {}),
       })),
       active,
     };
@@ -104,4 +107,11 @@ export function setTabDoc(state: WorkspaceState, id: string, doc: string | null)
       return doc ? { ...rest, doc } : rest;
     }),
   };
+}
+
+/** Remembers the open board of a tasks tab. */
+export function setTabBoard(state: WorkspaceState, id: string, board: string): WorkspaceState {
+  const tab = state.tabs.find((t) => t.id === id);
+  if (!tab || tab.board === board) return state;
+  return { ...state, tabs: state.tabs.map((t) => (t.id === id ? { ...t, board } : t)) };
 }

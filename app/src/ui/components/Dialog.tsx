@@ -12,6 +12,7 @@ interface DialogProps {
   size?: 'sm' | 'md' | 'lg';
   /** Escape and a click outside close the dialog; off while an action is running. */
   dismissable?: boolean;
+  className?: string;
 }
 
 /** Modal dialog on the native <dialog>: focus stays inside, Escape works, the page behind is inert. */
@@ -19,7 +20,7 @@ export function Dialog(props: DialogProps) {
   return props.open ? <OpenDialog {...props} /> : null;
 }
 
-function OpenDialog({ onClose, title, children, footer, size = 'md', dismissable = true }: DialogProps) {
+function OpenDialog({ onClose, title, children, footer, size = 'md', dismissable = true, className }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const pressedOnBackdrop = useRef(false);
   const titleId = useId();
@@ -35,7 +36,7 @@ function OpenDialog({ onClose, title, children, footer, size = 'md', dismissable
   return (
     <dialog
       ref={ref}
-      className={`dialog dialog-${size}`}
+      className={['dialog', `dialog-${size}`, className].filter(Boolean).join(' ')}
       aria-labelledby={titleId}
       onCancel={(e) => {
         e.preventDefault();

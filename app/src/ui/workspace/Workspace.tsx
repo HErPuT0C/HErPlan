@@ -3,6 +3,7 @@ import { useAtom } from '../../core/useStore';
 import {
   assetRequest,
   catalogRequest,
+  taskRequest,
   closeVariables,
   documentRequest,
   entityRequest,
@@ -22,6 +23,7 @@ import {
   openTab,
   parseWorkspace,
   serializeWorkspace,
+  setTabBoard,
   setTabDoc,
   setTabGraph,
   WORKSPACE_FILE,
@@ -32,6 +34,7 @@ import { errorText } from '../errors';
 import { useHotkeys } from '../hotkeys';
 import { exportProject } from '../project/exportProject';
 import { HistoryDialog } from '../project/HistoryDialog';
+import { SearchPalette } from '../search/SearchPalette';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import { Dashboard } from './Dashboard';
 import { StoryEditor } from '../story/StoryEditor';
@@ -40,6 +43,7 @@ import { WorldEditor } from '../world/WorldEditor';
 import { AssetsEditor } from '../assets/AssetsEditor';
 import { DocumentsEditor } from '../documents/DocumentsEditor';
 import { MapEditor } from '../map/MapEditor';
+import { TasksEditor } from '../tasks/TasksEditor';
 import { ModulePlaceholder } from './ModulePlaceholder';
 import { ProjectHeader } from './ProjectHeader';
 import { TabStrip } from './TabStrip';
@@ -49,7 +53,7 @@ import './workspace.css';
 export function Workspace({ project }: { project: OpenProject }) {
   const { dashboardView } = useAtom(settings);
   const [tabs, setTabs] = useTabs(project);
-  const [dialog, setDialog] = useState<'history' | 'settings' | null>(null);
+  const [dialog, setDialog] = useState<'history' | 'settings' | 'search' | null>(null);
   const [closeError, setCloseError] = useState<string | null>(null);
 
   const close = async (discard = false) => {
@@ -74,6 +78,7 @@ export function Workspace({ project }: { project: OpenProject }) {
     nextTab: () => setTabs((s) => cycleTab(s, 1)),
     prevTab: () => setTabs((s) => cycleTab(s, -1)),
     settings: () => setDialog('settings'),
+    search: () => setDialog((d) => (d === 'search' ? null : 'search')),
   });
 
   const activeTab = tabs.tabs.find((tab) => tab.id === tabs.active);
@@ -112,6 +117,16 @@ export function Workspace({ project }: { project: OpenProject }) {
     });
     documentRequest.set(null);
   }, [wantedDoc, setTabs]);
+  // "Open this task": bring a tasks tab to the front.
+  const wantedTask = useAtom(taskRequest);
+  useEffect(() => {
+    if (!wantedTask) return;
+    setTabs((s) => {
+      if (s.tabs.find((tab) => tab.id === s.active)?.kind === 'tasks') return s;
+      const tasks = s.tabs.find((tab) => tab.kind === 'tasks');
+      return tasks ? { ...s, active: tasks.id } : openTab(s, 'tasks');
+    });
+  }, [wantedTask, setTabs]);
   // "Show this file": bring the assets tab to the front.
   const wantedAsset = useAtom(assetRequest);
   useEffect(() => {
@@ -142,6 +157,7 @@ export function Workspace({ project }: { project: OpenProject }) {
       documentRequest.set(null);
       mapRequest.set(null);
       assetRequest.set(null);
+      taskRequest.set(null);
     },
     [],
   );
@@ -150,6 +166,7 @@ export function Workspace({ project }: { project: OpenProject }) {
     <div className="workspace">
       <ProjectHeader
         project={project}
+        onSearch={() => setDialog('search')}
         onHistory={() => setDialog('history')}
         onExport={() => void exportProject(project)}
         onSettings={() => setDialog('settings')}
@@ -184,6 +201,13 @@ export function Workspace({ project }: { project: OpenProject }) {
           />
         ) : activeTab?.kind === 'assets' ? (
           <AssetsEditor key={activeTab.id} project={project} />
+        ) : activeTab?.kind === 'tasks' ? (
+          <TasksEditor
+            key={activeTab.id}
+            project={project}
+            board={activeTab.board ?? null}
+            onBoard={(board) => setTabs((s) => setTabBoard(s, activeTab.id, board))}
+          />
         ) : activeTab ? (
           <ModulePlaceholder key={activeTab.id} kind={activeTab.kind} />
         ) : (
@@ -192,6 +216,7 @@ export function Workspace({ project }: { project: OpenProject }) {
       </main>
       <VariablesPanel project={project} />
       <HistoryDialog project={project} open={dialog === 'history'} onClose={() => setDialog(null)} />
+      {dialog === 'search' && <SearchPalette project={project} onClose={() => setDialog(null)} />}
       <SettingsDialog open={dialog === 'settings'} onClose={() => setDialog(null)} project={project} />
       <Dialog
         open={closeError !== null}

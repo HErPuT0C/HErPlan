@@ -38,7 +38,7 @@ test('start screen: empty state, then a new project opens in the workspace', asy
   await expect(page.getByRole('status').filter({ hasText: 'Сохранено' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Модули' })).toBeVisible();
 
-  // The world cards live on the Database tab already; editors still to come explain when they arrive.
+  // The world cards live on the Database tab.
   await page.getByRole('button', { name: /База данных/ }).click();
   await expect(page.getByRole('navigation', { name: 'Типы' })).toBeVisible();
   await page.getByRole('button', { name: 'Персонаж', exact: true }).click();
@@ -46,7 +46,7 @@ test('start screen: empty state, then a new project opens in the workspace', asy
   // Two tabs of the same editor, then back to the start screen.
   await page.getByRole('button', { name: 'Открыть редактор' }).click();
   await page.getByRole('menuitem', { name: 'Задачи' }).click();
-  await expect(page.getByText('Этот редактор появится в версии 0.5.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Досок пока нет' })).toBeVisible();
   await page.getByRole('button', { name: 'Открыть редактор' }).click();
   await page.getByRole('menuitem', { name: 'Задачи' }).click();
   await expect(page.getByRole('tab', { name: 'Задачи 2' })).toBeVisible();

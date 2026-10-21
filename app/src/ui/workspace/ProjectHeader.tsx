@@ -1,4 +1,15 @@
-import { ArchiveRestore, Download, FolderSearch, ImagePlus, Redo2, Settings, Undo2, Variable, X } from 'lucide-react';
+import {
+  ArchiveRestore,
+  Download,
+  FolderSearch,
+  ImagePlus,
+  Redo2,
+  Search,
+  Settings,
+  Undo2,
+  Variable,
+  X,
+} from 'lucide-react';
 import { useStore } from '../../core/useStore';
 import { t } from '../../i18n';
 import { platform } from '../../platform';
@@ -12,6 +23,7 @@ import { SaveStatus } from './SaveStatus';
 
 interface ProjectHeaderProps {
   project: OpenProject;
+  onSearch: () => void;
   onHistory: () => void;
   onExport: () => void;
   onSettings: () => void;
@@ -19,7 +31,7 @@ interface ProjectHeaderProps {
 }
 
 /** Project header (FR-PRJ-03): cover, name, folder, save state, history, export, settings. */
-export function ProjectHeader({ project, onHistory, onExport, onSettings, onClose }: ProjectHeaderProps) {
+export function ProjectHeader({ project, onSearch, onHistory, onExport, onSettings, onClose }: ProjectHeaderProps) {
   const { store } = project;
   const name = useStore(store, (s) => s.meta.name);
   const cover = useStore(store, (s) => s.meta.cover);
@@ -98,6 +110,7 @@ export function ProjectHeader({ project, onHistory, onExport, onSettings, onClos
           onClick={() => store.redo()}
         />
         <span className="toolbar-sep" />
+        <IconButton label={t('search.open')} icon={<Search size={18} />} onClick={onSearch} />
         <IconButton label={t('var.title')} icon={<Variable size={18} />} onClick={() => openVariables()} />
         <IconButton label={t('history.title')} icon={<ArchiveRestore size={18} />} onClick={onHistory} />
         <IconButton label={t('export.button')} icon={<Download size={18} />} onClick={onExport} />

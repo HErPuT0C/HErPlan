@@ -225,6 +225,8 @@ export const worldRu = {
   'world.tags.editDescription': 'Изменить описание тега',
   'world.tags.addDescription': '+ описание',
   'world.tags.empty': 'Ничего не найдено',
+  'world.use.task': 'Задача «{name}» ({board})',
+  'assets.use.task': 'Задача «{name}»',
   'world.catalogs.none': 'Справочников пока нет: теги, черты, способности — заведите один раз и ставьте карточкам.',
   'world.step.tag': 'Тег',
   'world.step.newEntity': 'Новая карточка',

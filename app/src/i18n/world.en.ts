@@ -223,6 +223,8 @@ export const worldEn = {
   'world.tags.editDescription': "Edit the tag's description",
   'world.tags.addDescription': '+ description',
   'world.tags.empty': 'Nothing found',
+  'world.use.task': 'The task “{name}” ({board})',
+  'assets.use.task': 'The task “{name}”',
   'world.catalogs.none': 'No catalogs yet: tags, traits, abilities — make them once and put them on cards.',
   'world.step.tag': 'Tag',
   'world.step.newEntity': 'New card',

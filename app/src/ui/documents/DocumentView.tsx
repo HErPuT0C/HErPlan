@@ -29,6 +29,7 @@ import {
   Type,
   Check,
   ExternalLink,
+  SquareCheck,
   Trash,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -44,7 +45,8 @@ import { typesFile } from '../../world/schema';
 import { typeName } from '../world/typeNames';
 import { mentionExtension, type MentionItem } from './mention';
 import { getLocale, t, type MessageKey } from '../../i18n';
-import { openDocument } from '../../state/navigation';
+import { openDocument, openTask } from '../../state/navigation';
+import { tasksLinkingTo } from '../../tasks/model';
 import { onFlushEdits } from '../../state/pendingEdits';
 import type { OpenProject } from '../../state/project';
 import { IconButton, Menu, toast, type MenuEntry } from '../components';
@@ -627,17 +629,24 @@ function Toolbar({ project, editor, doc }: { project: OpenProject; editor: Edito
   );
 }
 
-/** Documents that link to this one (F5-04). */
+/** Documents and tasks that link to this one (F5-04, F6-04). */
 function Backlinks({ project, id }: { project: OpenProject; id: string }) {
   const documents = useStore(project.store, (s) => s.documents);
+  const boards = useStore(project.store, (s) => s.boards);
   const from = useMemo(() => documentsLinkingTo({ documents }, 'doc', id), [documents, id]);
-  if (!from.length) return null;
+  const tasks = useMemo(() => tasksLinkingTo({ boards }, 'document', id), [boards, id]);
+  if (!from.length && !tasks.length) return null;
   return (
     <section className="doc-backlinks doc-page" aria-label={t('docs.backlinks')}>
       <h3 className="insp-heading">{t('docs.backlinks')}</h3>
       {from.map(({ doc }) => (
         <button key={doc.id} type="button" className="entity-link doc-backlink" onClick={() => openDocument(doc.id)}>
           <FileText size={13} aria-hidden="true" /> {docName(doc.path)}
+        </button>
+      ))}
+      {tasks.map(({ task, board }) => (
+        <button key={task.id} type="button" className="entity-link doc-backlink" onClick={() => openTask(task.id)}>
+          <SquareCheck size={13} aria-hidden="true" /> {t('docs.backlinkTask', { name: task.title, board: board.name })}
         </button>
       ))}
     </section>

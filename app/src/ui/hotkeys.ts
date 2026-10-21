@@ -4,7 +4,7 @@
 import { useEffect, useRef } from 'react';
 import type { MessageKey } from '../i18n';
 
-export type HotkeyId = 'undo' | 'redo' | 'save' | 'closeTab' | 'nextTab' | 'prevTab' | 'settings';
+export type HotkeyId = 'undo' | 'redo' | 'save' | 'search' | 'closeTab' | 'nextTab' | 'prevTab' | 'settings';
 
 export interface HotkeyDef {
   id: HotkeyId;
@@ -18,6 +18,7 @@ export const HOTKEYS: readonly HotkeyDef[] = [
   { id: 'undo', keys: ['Ctrl+Z'], label: 'hotkey.undo', whileTyping: false },
   { id: 'redo', keys: ['Ctrl+Y', 'Ctrl+Shift+Z'], label: 'hotkey.redo', whileTyping: false },
   { id: 'save', keys: ['Ctrl+S'], label: 'hotkey.save', whileTyping: true },
+  { id: 'search', keys: ['Ctrl+K'], label: 'hotkey.search', whileTyping: true },
   { id: 'closeTab', keys: ['Ctrl+W'], label: 'hotkey.closeTab', whileTyping: true },
   { id: 'nextTab', keys: ['Ctrl+Tab'], label: 'hotkey.nextTab', whileTyping: true },
   { id: 'prevTab', keys: ['Ctrl+Shift+Tab'], label: 'hotkey.prevTab', whileTyping: true },

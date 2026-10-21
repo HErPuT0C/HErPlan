@@ -77,6 +77,12 @@ export function Menu({ entries, x, y, label, onClose, anchor }: MenuProps) {
     };
   }, [onClose, anchor]);
 
+  // Inside an open dialog the page behind it is inert: the menu goes into the dialog on top.
+  const [host] = useState<HTMLElement>(() => {
+    const dialogs = document.querySelectorAll<HTMLDialogElement>('dialog[open]');
+    return dialogs[dialogs.length - 1] ?? document.body;
+  });
+
   const move = (delta: number | 'first' | 'last') => {
     const items = [
       ...(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])') ?? []),
@@ -142,7 +148,7 @@ export function Menu({ entries, x, y, label, onClose, anchor }: MenuProps) {
         ),
       )}
     </div>,
-    document.body,
+    host,
   );
 }
 

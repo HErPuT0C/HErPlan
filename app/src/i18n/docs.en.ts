@@ -85,6 +85,7 @@ export const docsEn = {
   'docs.step.emptyTrash': 'Empty trash',
   'docs.kind.doc': 'document',
   'docs.kind.asset': 'asset file',
+  'docs.backlinkTask': 'The task “{name}” ({board})',
   'docs.attachment': 'attachment',
   'docs.attached': 'Added to the document and to the assets ({folder}): {count}',
   'docs.attachFailed': 'Could not add the file: {reason}',

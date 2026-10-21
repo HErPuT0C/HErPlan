@@ -1,7 +1,6 @@
 import { ChevronDown, ChevronRight, Eye, PenLine, Plus, Trash, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { searchKey } from '../../canvas/ops';
-import { newId } from '../../core/ids';
 import type { ProjectData } from '../../core/project/types';
 import { useAtom, useStore } from '../../core/useStore';
 import { t, type MessageKey } from '../../i18n';
@@ -10,6 +9,7 @@ import type { OpenProject } from '../../state/project';
 import { listEntities } from '../../story/entities';
 import { graphTitle } from '../../story/flow';
 import { markLabel } from '../../story/marks';
+import { LabelsManager } from '../tasks/LabelEditor';
 import { allGraphs, asStory, findNode } from '../../story/model';
 import {
   markMentions,
@@ -26,7 +26,6 @@ import {
   nameProblem,
   newVariable,
   VAR_TYPES,
-  type Label,
   type Variable,
   type VarScope,
   type VarType,
@@ -51,9 +50,8 @@ const NAME_PROBLEMS: Record<'empty' | 'invalid' | 'taken', MessageKey> = {
   taken: 'var.name.taken',
 };
 
-type FileShape = { variables?: Variable[]; labels?: Label[] };
+type FileShape = { variables?: Variable[] };
 const file = (d: ProjectData) => d.variables as FileShape;
-const NO_LABELS: Label[] = [];
 
 /** Changes one variable in a store recipe; a new name or owner is carried into every expression first. */
 export function changeVariable(d: ProjectData, id: string, patch: Partial<Variable>): void {
@@ -106,7 +104,7 @@ export function VariablesPanel({ project }: { project: OpenProject }) {
         idPrefix="vars"
       />
       <TabPanel idPrefix="vars" value={tab}>
-        {tab === 'variables' ? <VariableList project={project} focus={focus} /> : <LabelList project={project} />}
+        {tab === 'variables' ? <VariableList project={project} focus={focus} /> : <LabelsManager project={project} />}
       </TabPanel>
     </aside>
   );
@@ -504,76 +502,5 @@ function WhereUsed({ project, usage, mentions }: { project: OpenProject; usage: 
         </div>
       )}
     </>
-  );
-}
-
-function LabelList({ project }: { project: OpenProject }) {
-  const { store, readOnly } = project;
-  const labels = useStore(store, (s) => file(s).labels ?? NO_LABELS);
-  const [name, setName] = useState('');
-  const change = (id: string, patch: Partial<Label>, merge: string) =>
-    store.dispatch(
-      t('var.step.label'),
-      (d) => {
-        const l = (file(d).labels ?? []).find((x) => x.id === id);
-        if (l) Object.assign(l, patch);
-      },
-      { mergeKey: `label:${id}:${merge}` },
-    );
-  return (
-    <div className="vars">
-      <p className="muted small">{t('var.labelsHint')}</p>
-      {!readOnly && (
-        <form
-          className="vars-create"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!name.trim()) return;
-            const label: Label = { id: newId(), name: name.trim(), color: '#7656c9' };
-            store.dispatch(t('var.step.label'), (d) => {
-              (file(d).labels ??= []).push(label);
-            });
-            setName('');
-          }}
-        >
-          <TextField label={t('var.newLabel')} value={name} onChange={(e) => setName(e.target.value)} />
-          <Button type="submit" variant="primary" icon={<Plus size={16} />} disabled={!name.trim()}>
-            {t('var.add')}
-          </Button>
-        </form>
-      )}
-      {labels.map((l) => (
-        <div key={l.id} className="label-row">
-          <input
-            type="color"
-            className="label-color"
-            value={l.color}
-            disabled={readOnly}
-            aria-label={t('var.labelColor', { name: l.name })}
-            onChange={(e) => change(l.id, { color: e.target.value }, 'color')}
-          />
-          <input
-            className="input"
-            value={l.name}
-            disabled={readOnly}
-            aria-label={t('var.labelName')}
-            onChange={(e) => change(l.id, { name: e.target.value }, 'name')}
-          />
-          {!readOnly && (
-            <IconButton
-              size="sm"
-              label={t('var.deleteLabel')}
-              icon={<Trash size={14} />}
-              onClick={() =>
-                store.dispatch(t('var.step.label'), (d) => {
-                  const f = file(d);
-                  f.labels = (f.labels ?? []).filter((x) => x.id !== l.id);
-                })
-              }
-            />
-          )}
-        </div>
-      ))}
-    </div>
   );
 }

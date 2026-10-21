@@ -67,3 +67,30 @@ export function refNode(ref: MapRef, x: number, y: number, title: string): Graph
     ref,
   };
 }
+
+/** Header colours by kind of object, so chapters, documents, cards and pictures tell apart at a glance. */
+export const REF_COLORS: Record<MapRefKind, string> = {
+  chapter: 'violet',
+  document: 'blue',
+  entity: 'green',
+  asset: 'amber',
+};
+
+/**
+ * Puts a card for an object on the map (from the search, F6-06), below what is there; the map is made when
+ * the project has none yet. Returns the card's id.
+ */
+export function addToMap(d: ProjectData, ref: MapRef, title: string, mapName: string): string {
+  let g = mapGraph(d);
+  if (!g) {
+    g = newMapGraph(mapName);
+    d.graphs[g.id] = g as unknown as ProjectData['graphs'][string];
+    g = mapGraph(d)!;
+  }
+  const below = g.nodes.reduce((max, n) => Math.max(max, n.y + n.h), Number.NEGATIVE_INFINITY);
+  const left = g.nodes.length ? Math.min(...g.nodes.map((n) => n.x)) : 0;
+  const node = refNode(ref, left, Number.isFinite(below) ? below + 40 : 0, title);
+  node.color = REF_COLORS[ref.kind];
+  g.nodes.push(node);
+  return node.id;
+}
