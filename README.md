@@ -2,50 +2,64 @@
 
 **RU** · [EN](#english)
 
-HErPlan — бесплатный офлайн-редактор для геймдизайна под Windows. Сценарий, база игрового мира и документы живут в одном проекте и связаны ссылками.
+**HErPlan — бесплатный офлайн-редактор для геймдизайна под Windows.** Сюжет, герои и места, документы и задачи живут в одном проекте и связаны между собой. Всё хранится в обычной папке на вашем компьютере, интернет не нужен.
 
-> **Статус: в разработке (пре-альфа, версия 0.7).** Работают проекты (автосохранение, копии и история версий, восстановление после сбоя, экспорт и импорт .zip), редактор сценария (главы на холсте, диалоги, выборы, условия и эффекты, единый реестр переменных, чеховское ружьё и эффект бабочки, проверки проекта, тестовое прохождение, экспорт в JSON), база данных (свои типы, поля, наборы свойств, справочники, связи), документы в Markdown с живыми вставками и экспортом в PDF, карта проекта, задачи на досках, глобальный поиск Ctrl+K и библиотека ресурсов. Для знакомства — встроенный учебный проект и тур по возможностям (при первом запуске и в «Настройки → Обучение»). Ход работ — в [`PIPELINE.md`](PIPELINE.md).
+> Сейчас это ранняя версия: программа уже работает, но ещё дорабатывается. Если что-то пойдёт не так, откройте «Историю версий» в шапке проекта или нажмите Ctrl+Z.
 
-## Как попробовать
+## Что умеет
 
-**Релизы:** GitHub → **Releases** → `HErPlan-<версия>-setup.exe`. **Сборки между релизами:** GitHub → **Actions** → workflow **ci** → последний зелёный прогон на `main` → артефакт `HErPlan-<версия>-build<N>-installer` (в «О программе» видно «сборка N»). Установка — для текущего пользователя, права администратора не нужны, новая версия ставится поверх старой с сохранением настроек. Пока установщик не подписан, Windows может показать «Windows защитил ваш компьютер» → «Подробнее» → «Выполнить в любом случае».
+- **Сценарий.** Схема истории на холсте: главы, сцены, диалоги, выборы игрока, переменные и условия. Любую ветку можно пройти прямо в программе, а встроенные проверки найдут тупики и ошибки.
+- **Герои, места, предметы.** База данных с карточками: свои поля, свои типы, связи между карточками, картинки и теги.
+- **Документы.** Текстовые документы с картинками и ссылками на карточки героев и главы сюжета; экспорт в PDF и Markdown.
+- **Задачи.** Доски с колонками, списками дел, метками и ссылками на сюжет, героев и документы.
+- **Карта проекта.** Одна доска, на которой видно главы, документы, героев и заметки вместе.
+- **Поиск по всему проекту** (Ctrl+K), **библиотека картинок** и файлов.
+- **Ничего не теряется.** Автосохранение, резервные копии, история версий, восстановление после сбоя.
+- **Экспорт для движка.** Сюжет и данные сохраняются в открытый формат JSON.
+- **Интерфейс на русском и английском.**
 
-## Разработка
+## Попробовать
 
-```
-cd app
-npm ci
-npm run dev          # интерфейс в браузере (данные — в памяти браузера)
-npm run tauri dev    # настоящее окно с Rust-бэкендом
-npm test             # юнит-тесты; npm run e2e — сквозные тесты в Chromium
-cargo test --workspace   # из корня репозитория: Rust
-```
-
-## Что будет в первой версии
-
-- **Холст узлов** для сценария: главы и сцены, диалоги, выборы, переменные, условия и эффекты, приёмы «эффект бабочки» и «чеховское ружьё». Ветки можно проверить в режиме прохождения.
-- **База данных** персонажей, локаций, предметов и своих типов: типизированные поля, общие наборы свойств, связи между сущностями.
-- **Документы** в Markdown с живыми вставками из базы; экспорт в PDF и Markdown.
-- **Карта проекта**, **канбан**, **библиотека ресурсов**.
-- **Надёжное хранение:** проект — обычная папка на диске, автосохранение, резервные копии, восстановление после сбоя.
-- **Экспорт в JSON** по открытой схеме; после первой версии — импортёры для Unity и GameMaker.
-
-Подробные требования: [`docs/spec.md`](docs/spec.md). Архитектурные решения: [`docs/adr/`](docs/adr/). Формат проекта: [`docs/format/project-v1.md`](docs/format/project-v1.md), экспорт для движков: [`docs/format/export-v1.md`](docs/format/export-v1.md).
+1. Откройте раздел **Releases** справа на странице репозитория и скачайте `HErPlan-<версия>-setup.exe`.
+2. Запустите установщик. Права администратора не нужны, программа ставится только для вас, а новая версия встаёт поверх старой без потери данных.
+3. Если Windows покажет «Windows защитил ваш компьютер» — нажмите **Подробнее → Выполнить в любом случае**. Установщик пока не подписан сертификатом, поэтому Windows настороженно относится к любой новой программе.
+4. При первом запуске программа предложит **тур по возможностям** и **учебный проект «Последний фонарь»**: короткую готовую историю, на которой видно, как всё устроено. Тур можно пройти ещё раз в **Настройки → Обучение**.
 
 ## Лицензия
 
-[MIT](LICENSE). Форки приветствуются.
+[MIT](LICENSE): пользуйтесь, изменяйте и делитесь свободно.
+
+Если вы разработчик и хотите собрать программу из исходников, см. [`docs/development.md`](docs/development.md).
 
 ---
 
 ## English
 
-HErPlan is a free, offline game design editor for Windows. Story, game-world database and design documents live in one project and link to each other.
+**HErPlan is a free, offline game design editor for Windows.** Your story, characters and places, documents and tasks live in one project and link to each other. Everything is kept in an ordinary folder on your computer; no internet is needed.
 
-> **Status: in development (pre-alpha, version 0.7).** Projects work (autosave, backups and version history, crash recovery, .zip export and import), and so do the story editor (chapters on the canvas, dialogue, choices, conditions and effects, a single variable registry, Chekhov's guns and butterfly effects, project checks, a test playthrough, JSON export — [schema](docs/format/export-v1.md)), the world database (your own types, fields, property sets, tag catalogs, relations), Markdown documents with live embeds and PDF export, the project map, task boards, Ctrl+K search across the project and the asset library. To get to know it there is a built-in tutorial project and a feature tour (on first launch and in Settings → Learning). Progress is tracked in [`PIPELINE.md`](PIPELINE.md) (in Russian).
+> This is an early version: it already works, but it is still being polished. If something goes wrong, open **Version history** in the project header or press Ctrl+Z.
 
-To try it: GitHub → **Releases** → `HErPlan-<version>-setup.exe`; builds between releases are artifacts of the latest green **ci** run on `main`.
+### What it does
 
-Planned for the first version: a node canvas for branching stories with variables, conditions, effects and a playthrough mode; a typed database of characters, locations and items with relations; Markdown documents with live embeds and PDF/Markdown export; project map, kanban board and asset library; a plain project folder on disk with autosave, backups and crash recovery; JSON export with an open schema (Unity and GameMaker importers after 1.0).
+- **Story.** Draw your story on a canvas: chapters, scenes, dialogue, player choices, variables and conditions. Play any branch right in the app; built-in checks find dead ends and mistakes.
+- **Characters, places, items.** A database of cards with your own fields and types, relations between cards, pictures and tags.
+- **Documents.** Text documents with pictures and links to character cards and story chapters; export to PDF and Markdown.
+- **Tasks.** Boards with columns, checklists, labels and links to the story, characters and documents.
+- **Project map.** One board that shows chapters, documents, characters and notes together.
+- **Search across the whole project** (Ctrl+K) and an **asset library** for pictures and files.
+- **Nothing gets lost.** Autosave, backups, version history, crash recovery.
+- **Export for your engine.** The story and data are saved in an open JSON format.
+- **Russian and English interface.**
 
-License: [MIT](LICENSE). Forks are welcome.
+### Try it
+
+1. Open **Releases** on the right of this page and download `HErPlan-<version>-setup.exe`.
+2. Run the installer. No administrator rights are needed; it installs just for you, and a new version installs over the old one without losing your data.
+3. If Windows shows "Windows protected your PC", click **More info → Run anyway**. The installer is not signed with a certificate yet, so Windows is cautious about any new program.
+4. On first launch the app offers a **tour of its features** and the **tutorial project "The Last Lantern"**, a short ready-made story that shows how everything fits together. You can take the tour again in **Settings → Learning**.
+
+### License
+
+[MIT](LICENSE): use, change and share freely.
+
+If you are a developer and want to build from source, see [`docs/development.md`](docs/development.md).
