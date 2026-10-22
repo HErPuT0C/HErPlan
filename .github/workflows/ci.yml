@@ -1,7 +1,7 @@
 # HErPlan application: checks on every push; the Windows installer on main, on demand and for releases.
 # Releases are started by a person (agent sessions cannot push tags), either way:
-#   - GitHub → Releases → Draft a new release → Publish: the installer is built and attached to that release;
-#   - Actions → ci → Run workflow → tick "publish": a pre-release is created with the installer.
+#   - GitHub → Releases → Draft a new release → Publish: the installer and the portable .zip are built and attached;
+#   - Actions → ci → Run workflow → tick "publish": a pre-release is created with both.
 name: ci
 
 on:
