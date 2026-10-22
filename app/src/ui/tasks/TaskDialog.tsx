@@ -1,7 +1,7 @@
 // The window of one task (F6-02…F6-04): title, the list it is in, labels, description, a checklist with its
 // progress, links to objects of the project. Every change is saved at once and can be undone.
 
-import { ArrowDown, ArrowUp, Check, Link2, Plus, Settings2, Tag, Trash, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Link2, Plus, Settings2, Tag, Trash, X } from 'lucide-react';
 import { useState } from 'react';
 import type { ProjectData } from '../../core/project/types';
 import { useStore } from '../../core/useStore';
@@ -49,7 +49,9 @@ export function TaskDialog({ project, id, onClose }: { project: OpenProject; id:
     ...labels.map((l) => ({
       id: l.id,
       label: l.name || t('story.untitled'),
-      icon: task.labels.includes(l.id) ? <Check size={16} /> : <LabelChip label={l} compact />,
+      icon: <LabelChip label={l} compact />,
+      checked: task.labels.includes(l.id),
+      keepOpen: true,
       onSelect: () => change(t('tasks.step.edit'), (d) => toggleLabel(d, board.id, id, l.id)),
     })),
     ...(labels.length ? [{ id: 'sep', separator: true as const }] : []),

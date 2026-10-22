@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 import { Button, type ButtonVariant } from './Button';
 
 export type MenuEntry =
@@ -18,6 +18,10 @@ export type MenuEntry =
       shortcut?: string;
       danger?: boolean;
       disabled?: boolean;
+      /** A check box item: a tick at the end when true. */
+      checked?: boolean;
+      /** The menu stays open after the item is chosen (several check boxes in a row). */
+      keepOpen?: boolean;
       onSelect: () => void;
     }
   | { id: string; separator: true };
@@ -25,6 +29,8 @@ export type MenuEntry =
 type ActionEntry = Exclude<MenuEntry, { separator: true }>;
 
 const isAction = (e: MenuEntry): e is ActionEntry => !('separator' in e);
+
+const ITEMS = '[role^="menuitem"]:not([aria-disabled="true"])';
 
 interface MenuProps {
   entries: MenuEntry[];
@@ -51,9 +57,7 @@ export function Menu({ entries, x, y, label, onClose, anchor }: MenuProps) {
       visible: true,
     });
     // After the current event: a right mouse button press moves focus to the clicked element afterwards.
-    const frame = requestAnimationFrame(() =>
-      el.querySelector<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])')?.focus(),
-    );
+    const frame = requestAnimationFrame(() => el.querySelector<HTMLElement>(ITEMS)?.focus());
     return () => cancelAnimationFrame(frame);
   }, [x, y]);
 
@@ -84,9 +88,7 @@ export function Menu({ entries, x, y, label, onClose, anchor }: MenuProps) {
   });
 
   const move = (delta: number | 'first' | 'last') => {
-    const items = [
-      ...(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])') ?? []),
-    ];
+    const items = [...(ref.current?.querySelectorAll<HTMLElement>(ITEMS) ?? [])];
     if (items.length === 0) return;
     const index = items.indexOf(document.activeElement as HTMLElement);
     const next =
@@ -122,19 +124,20 @@ export function Menu({ entries, x, y, label, onClose, anchor }: MenuProps) {
         isAction(entry) ? (
           <div
             key={entry.id}
-            role="menuitem"
+            role={entry.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+            aria-checked={entry.checked}
             tabIndex={-1}
             aria-disabled={entry.disabled || undefined}
             className={['menu-item', entry.danger && 'menu-item-danger'].filter(Boolean).join(' ')}
             onClick={() => {
               if (entry.disabled) return;
-              onClose();
+              if (!entry.keepOpen) onClose();
               entry.onSelect();
             }}
             onKeyDown={(e) => {
               if ((e.key === 'Enter' || e.key === ' ') && !entry.disabled) {
                 e.preventDefault();
-                onClose();
+                if (!entry.keepOpen) onClose();
                 entry.onSelect();
               }
             }}
@@ -142,6 +145,7 @@ export function Menu({ entries, x, y, label, onClose, anchor }: MenuProps) {
             <span className="menu-icon">{entry.icon}</span>
             <span className="menu-label">{entry.label}</span>
             {entry.shortcut && <kbd className="menu-shortcut">{entry.shortcut}</kbd>}
+            {entry.checked && <Check size={14} className="menu-check" aria-hidden="true" />}
           </div>
         ) : (
           <div key={entry.id} role="separator" className="menu-separator" />

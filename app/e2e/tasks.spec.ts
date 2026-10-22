@@ -174,3 +174,54 @@ test('Ctrl+K finds anything in the project, names first; Enter opens it; a card 
   await expect(page.locator('.map-ref', { hasText: 'Глава 1. Мельница' })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('labels are put on a task and it goes to the trash right from the board, without opening it (0.7.1)', async ({
+  page,
+}) => {
+  const { errors } = await openSample(page, /Задачи/);
+  const todo = await newBoard(page, ['Напарники']);
+  const card = todo.locator('.task-card-wrap').filter({ hasText: 'Напарники' });
+  const labelsButton = card.getByRole('button', { name: 'Метки задачи «Напарники»' });
+  // The buttons show when the card is pointed at.
+  const tools = card.locator('.task-card-tools');
+  await page.mouse.move(0, 0);
+  await expect(tools).toHaveCSS('opacity', '0');
+  await card.hover();
+  await expect(tools).toHaveCSS('opacity', '1');
+
+  // No labels yet: the menu offers to make one.
+  await labelsButton.click();
+  await page.getByRole('menuitem', { name: 'Создать метку…' }).click();
+  const manager = page.getByRole('dialog', { name: 'Метки проекта' });
+  for (const name of ['Приоритет', 'Потом']) {
+    await manager.getByLabel('Новая метка').fill(name);
+    await manager.getByLabel('Новая метка').press('Enter');
+  }
+  await manager.getByRole('button', { name: 'Закрыть' }).click();
+
+  // Two labels in a row: the menu stays open; ticks show what is on.
+  await card.hover();
+  await labelsButton.click();
+  const menu = page.getByRole('menu', { name: 'Метки' });
+  await menu.getByRole('menuitemcheckbox', { name: 'Приоритет' }).click();
+  await menu.getByRole('menuitemcheckbox', { name: 'Потом' }).click();
+  await expect(menu.getByRole('menuitemcheckbox', { name: 'Приоритет' })).toHaveAttribute('aria-checked', 'true');
+  await shot(page, 'card-labels');
+  await expect(card.locator('.task-label')).toHaveText(['Приоритет', 'Потом']);
+  // Taken off again the same way; Escape closes the menu, the task window never opened.
+  await menu.getByRole('menuitemcheckbox', { name: 'Потом' }).click();
+  await expect(menu.getByRole('menuitemcheckbox', { name: 'Потом' })).toHaveAttribute('aria-checked', 'false');
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(card.locator('.task-label')).toHaveText(['Приоритет']);
+  await expect(page.getByRole('dialog', { name: 'Задача' })).toBeHidden();
+  await page.keyboard.press('Control+z');
+  await expect(card.locator('.task-label')).toHaveText(['Приоритет', 'Потом']);
+
+  // The trash from the card: the task goes, and comes back from the trash.
+  await card.hover();
+  await card.getByRole('button', { name: 'Задачу «Напарники» в корзину' }).click();
+  await expect(todo.locator('.task-card')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Корзина (1)' })).toBeVisible();
+  expect(errors).toEqual([]);
+});

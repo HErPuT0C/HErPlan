@@ -336,6 +336,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.menu-check {
+  flex: none;
+  color: var(--accent);
+}
 .menu-shortcut {
   color: var(--text-muted);
   font: var(--fs-xs) var(--font-ui);

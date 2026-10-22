@@ -71,6 +71,8 @@ export const ru = {
   'tasks.labels.manage': 'Настроить метки…',
   'tasks.labels.create': 'Создать метку…',
   'tasks.labels.remove': 'Снять метку «{name}»',
+  'tasks.card.labels': 'Метки задачи «{name}»',
+  'tasks.card.trash': 'Задачу «{name}» в корзину',
   'tasks.trash': 'Корзина ({count})',
   'tasks.trashTitle': 'Корзина доски «{board}»',
   'tasks.trashEmpty': 'Корзина пуста.',

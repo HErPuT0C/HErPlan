@@ -71,6 +71,8 @@ export const en: Record<MessageKey, string> = {
   'tasks.labels.manage': 'Set up labels…',
   'tasks.labels.create': 'Make a label…',
   'tasks.labels.remove': 'Take the label “{name}” off',
+  'tasks.card.labels': 'Labels of “{name}”',
+  'tasks.card.trash': 'Move “{name}” to the trash',
   'tasks.trash': 'Trash ({count})',
   'tasks.trashTitle': 'Trash of the board “{board}”',
   'tasks.trashEmpty': 'The trash is empty.',

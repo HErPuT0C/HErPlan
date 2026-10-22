@@ -77,6 +77,10 @@ test('a document: typed with formatting, a link to a card that follows its name,
     .getByRole('dialog')
     .getByRole('option', { name: /Карточка «Мира» в базе данных/ })
     .click();
+  // Typing goes on once the picker is gone and the text has its focus back.
+  await expect(page.getByRole('dialog')).toBeHidden();
+  await expect(page.locator('.doc-text .doc-link')).toHaveText('Мира');
+  await expect(text).toBeFocused();
   await page.keyboard.type('пришла ');
   await page.keyboard.press('Control+B');
   await page.keyboard.type('рано');

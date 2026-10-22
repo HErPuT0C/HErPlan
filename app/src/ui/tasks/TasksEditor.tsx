@@ -13,6 +13,7 @@ import {
   Pencil,
   Plus,
   RotateCcw,
+  Settings2,
   SquareKanban,
   Tag,
   Trash,
@@ -42,6 +43,8 @@ import {
   renameBoard,
   renameList,
   restoreTask,
+  toggleLabel,
+  trashTask,
   type Board,
   type Task,
   type TaskList,
@@ -230,6 +233,7 @@ export function TasksEditor({
               filter={filter}
               labelFilter={labelFilter}
               onOpen={setOpen}
+              onLabels={() => setLabelsOpen(true)}
               change={change}
             />
           </>
@@ -274,6 +278,7 @@ function BoardView({
   filter,
   labelFilter,
   onOpen,
+  onLabels,
   change,
 }: {
   project: OpenProject;
@@ -282,6 +287,7 @@ function BoardView({
   filter: string;
   labelFilter: string | null;
   onOpen: (id: string) => void;
+  onLabels: () => void;
   change: Change;
 }) {
   const { readOnly } = project;
@@ -391,6 +397,7 @@ function BoardView({
             visible={visible}
             drag={drag}
             onOpen={onOpen}
+            onLabels={onLabels}
             onStart={start}
             change={change}
           />
@@ -430,6 +437,7 @@ function ListColumn({
   visible,
   drag,
   onOpen,
+  onLabels,
   onStart,
   change,
 }: {
@@ -441,6 +449,7 @@ function ListColumn({
   visible: (task: Task) => boolean;
   drag: Drag | null;
   onOpen: (id: string) => void;
+  onLabels: () => void;
   onStart: (kind: 'task' | 'list', id: string) => (e: ReactPointerEvent) => void;
   change: Change;
 }) {
@@ -529,8 +538,12 @@ function ListColumn({
             <TaskCard
               task={task}
               labels={labels}
+              readOnly={readOnly}
               onOpen={() => onOpen(task.id)}
               onPointerDown={onStart('task', task.id)}
+              onToggleLabel={(label) => change(t('tasks.step.edit'), (d) => toggleLabel(d, board.id, task.id, label))}
+              onLabels={onLabels}
+              onTrash={() => change(t('tasks.step.trash'), (d) => trashTask(d, board.id, task.id))}
             />
           </div>
         ))}
@@ -581,45 +594,106 @@ function ListColumn({
   );
 }
 
+/** A task on the board. Pointing at it shows two buttons: its labels (a menu that stays open, so several can be
+ * put on in a row) and the trash; a click anywhere else opens the task. */
 function TaskCard({
   task,
   labels,
+  readOnly,
   onOpen,
   onPointerDown,
+  onToggleLabel,
+  onLabels,
+  onTrash,
 }: {
   task: Task;
   labels: ProjectLabel[];
+  readOnly: boolean;
   onOpen: () => void;
   onPointerDown: (e: ReactPointerEvent) => void;
+  onToggleLabel: (label: string) => void;
+  onLabels: () => void;
+  onTrash: () => void;
 }) {
+  const [labelMenu, setLabelMenu] = useState<{ x: number; y: number; anchor: HTMLElement } | null>(null);
+  const labelEntries: MenuEntry[] = [
+    ...labels.map((l) => ({
+      id: l.id,
+      label: l.name || t('story.untitled'),
+      icon: <LabelChip label={l} compact />,
+      checked: task.labels.includes(l.id),
+      keepOpen: true,
+      onSelect: () => onToggleLabel(l.id),
+    })),
+    ...(labels.length ? [{ id: 'sep', separator: true as const }] : []),
+    {
+      id: 'manage',
+      label: labels.length ? t('tasks.labels.manage') : t('tasks.labels.create'),
+      icon: <Settings2 size={16} />,
+      onSelect: onLabels,
+    },
+  ];
   const shown = task.labels.map((l) => labels.find((x) => x.id === l)).filter((x) => x !== undefined);
   const { done, total } = progress(task);
   return (
-    <button type="button" className="task-card" data-task={task.id} onClick={onOpen} onPointerDown={onPointerDown}>
-      {shown.length > 0 && (
-        <span className="task-card-labels">
-          {shown.map((l) => (
-            <LabelChip key={l.id} label={l} />
-          ))}
+    <div className={['task-card-wrap', labelMenu && 'task-card-wrap-menu'].filter(Boolean).join(' ')}>
+      <button type="button" className="task-card" data-task={task.id} onClick={onOpen} onPointerDown={onPointerDown}>
+        {shown.length > 0 && (
+          <span className="task-card-labels">
+            {shown.map((l) => (
+              <LabelChip key={l.id} label={l} />
+            ))}
+          </span>
+        )}
+        <span className="task-card-title">{task.title || t('story.untitled')}</span>
+        {(total > 0 || task.links.length > 0 || task.description.trim()) && (
+          <span className="task-card-foot muted small">
+            {task.description.trim() && <FileText size={12} aria-label={t('tasks.hasDescription')} />}
+            {total > 0 && (
+              <span className={done === total ? 'task-card-done' : undefined} title={t('tasks.checklist')}>
+                <CheckSquare size={12} aria-hidden="true" /> {t('tasks.progress', { done, total })}
+              </span>
+            )}
+            {task.links.length > 0 && (
+              <span title={t('tasks.links')}>
+                <Link2 size={12} aria-hidden="true" /> {task.links.length}
+              </span>
+            )}
+          </span>
+        )}
+      </button>
+      {!readOnly && (
+        <span className="task-card-tools">
+          <IconButton
+            size="sm"
+            label={t('tasks.card.labels', { name: task.title })}
+            icon={<Tag size={14} />}
+            aria-haspopup="menu"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              const anchor = e.currentTarget;
+              setLabelMenu((m) => (m ? null : { x: r.left, y: r.bottom + 4, anchor }));
+            }}
+          />
+          <IconButton
+            size="sm"
+            label={t('tasks.card.trash', { name: task.title })}
+            icon={<Trash size={14} />}
+            onClick={onTrash}
+          />
         </span>
       )}
-      <span className="task-card-title">{task.title || t('story.untitled')}</span>
-      {(total > 0 || task.links.length > 0 || task.description.trim()) && (
-        <span className="task-card-foot muted small">
-          {task.description.trim() && <FileText size={12} aria-label={t('tasks.hasDescription')} />}
-          {total > 0 && (
-            <span className={done === total ? 'task-card-done' : undefined} title={t('tasks.checklist')}>
-              <CheckSquare size={12} aria-hidden="true" /> {t('tasks.progress', { done, total })}
-            </span>
-          )}
-          {task.links.length > 0 && (
-            <span title={t('tasks.links')}>
-              <Link2 size={12} aria-hidden="true" /> {task.links.length}
-            </span>
-          )}
-        </span>
+      {labelMenu && (
+        <Menu
+          entries={labelEntries}
+          x={labelMenu.x}
+          y={labelMenu.y}
+          anchor={labelMenu.anchor}
+          label={t('tasks.labels')}
+          onClose={() => setLabelMenu(null)}
+        />
       )}
-    </button>
+    </div>
   );
 }
 
