@@ -1,6 +1,9 @@
 //! HErPlan desktop shell: window, commands exposed to the interface, wiring to the storage crate.
 
 mod commands;
+mod portable;
+
+use tauri::WebviewWindowBuilder;
 
 #[tauri::command]
 fn app_version(app: tauri::AppHandle) -> String {
@@ -16,6 +19,7 @@ pub fn run() {
             commands::settings_load,
             commands::settings_save,
             commands::default_projects_dir,
+            commands::portable_dir,
             commands::join_path,
             commands::path_status,
             commands::project_create,
@@ -45,6 +49,24 @@ pub fn run() {
             commands::system_info,
             commands::report_save,
         ])
+        // The window is made here rather than from the configuration: the portable build gives the web view a
+        // data folder of its own beside the program instead of the user's local application data.
+        .setup(|app| {
+            let config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|w| w.label == "main")
+                .cloned()
+                .expect("the main window is configured");
+            let mut window = WebviewWindowBuilder::from_config(app.handle(), &config)?;
+            if let Some(data) = portable::data_dir() {
+                window = window.data_directory(data.join("webview"));
+            }
+            window.build()?;
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("failed to start HErPlan");
 }

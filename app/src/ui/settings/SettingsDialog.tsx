@@ -1,5 +1,5 @@
 import { BookOpen, Bug, Check, ExternalLink, Gauge, GraduationCap, MessageSquare } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { BackupKeep } from '../../core/project/types';
 import { useAtom, useStore } from '../../core/useStore';
 import { LOCALES, t, type MessageKey } from '../../i18n';
@@ -301,9 +301,17 @@ function Learning({ onClose }: { onClose: () => void }) {
 function About() {
   const p = platform();
   const [reporting, setReporting] = useState(false);
+  const [portable, setPortable] = useState<string | null>(null);
+  useEffect(() => {
+    void p
+      .portableDir()
+      .then(setPortable)
+      .catch(() => setPortable(null));
+  }, [p]);
   return (
     <div className="about">
       <p>{versionText()}</p>
+      {portable && <p className="muted small">{t('settings.portable', { dir: portable })}</p>}
       <p className="muted">{t('settings.aboutText')}</p>
       <div className="about-actions">
         <Button icon={<MessageSquare size={16} />} onClick={() => void p.openUrl(`${ISSUES_URL}?labels=feedback`)}>

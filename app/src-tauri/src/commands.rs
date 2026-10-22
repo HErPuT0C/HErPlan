@@ -17,6 +17,8 @@ use tauri::ipc::{InvokeBody, Request};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::portable;
+
 type CommandResult<T> = Result<T, StorageError>;
 
 /// One disk operation at a time. On Windows a file being zipped by a backup cannot be replaced
@@ -44,23 +46,40 @@ fn absolute(path: &str) -> CommandResult<PathBuf> {
     storage::require_absolute(path)
 }
 
+/// Where the settings file lives: the user's settings folder, or `data\settings` of the portable build.
+fn settings_dir(app: &AppHandle) -> CommandResult<PathBuf> {
+    match portable::data_dir() {
+        Some(data) => Ok(data.join("settings")),
+        None => app.path().app_config_dir().map_err(shell_error),
+    }
+}
+
 #[tauri::command]
 pub async fn settings_load(app: AppHandle) -> CommandResult<Option<String>> {
-    let dir = app.path().app_config_dir().map_err(shell_error)?;
+    let dir = settings_dir(&app)?;
     blocking(move || storage::load_settings(&dir)).await
 }
 
 #[tauri::command]
 pub async fn settings_save(app: AppHandle, text: String) -> CommandResult<()> {
-    let dir = app.path().app_config_dir().map_err(shell_error)?;
+    let dir = settings_dir(&app)?;
     blocking(move || storage::save_settings(&dir, &text)).await
 }
 
-/// `Documents\HErPlan`; created only when a project is created there.
+/// `Documents\HErPlan` (`Projects` beside the portable build); created only when a project is created there.
 #[tauri::command]
 pub fn default_projects_dir(app: AppHandle) -> CommandResult<String> {
+    if let Some(dir) = portable::projects_dir() {
+        return Ok(dir.display().to_string());
+    }
     let documents = app.path().document_dir().map_err(shell_error)?;
     Ok(documents.join("HErPlan").display().to_string())
+}
+
+/// The folder of the portable build, or nothing when the program is installed.
+#[tauri::command]
+pub fn portable_dir() -> Option<String> {
+    portable::root().map(|r| r.display().to_string())
 }
 
 #[tauri::command]
@@ -317,17 +336,27 @@ pub fn system_info(app: AppHandle) -> BTreeMap<String, String> {
         ("webview".into(), webview),
         ("os".into(), os_info::get().to_string()),
         ("arch".into(), std::env::consts::ARCH.into()),
+        (
+            "build".into(),
+            if portable::root().is_some() {
+                "portable"
+            } else {
+                "installed"
+            }
+            .into(),
+        ),
     ])
 }
 
-/// Saves a bug report into a `reports` folder in the per-user data folder; the interface reveals it.
+/// Saves a bug report into a `reports` folder in the per-user data folder (in `data` of the portable build);
+/// the interface reveals it.
 #[tauri::command]
 pub async fn report_save(app: AppHandle, text: String) -> CommandResult<String> {
-    let dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(shell_error)?
-        .join("reports");
+    let dir = match portable::data_dir() {
+        Some(data) => data,
+        None => app.path().app_local_data_dir().map_err(shell_error)?,
+    }
+    .join("reports");
     blocking(move || storage::save_report(&dir, &text).map(|p| p.display().to_string())).await
 }
 

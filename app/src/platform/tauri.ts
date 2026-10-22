@@ -26,6 +26,10 @@ export class TauriPlatform implements Platform {
     return invoke('app_version');
   }
 
+  portableDir(): Promise<string | null> {
+    return invoke('portable_dir');
+  }
+
   loadSettings(): Promise<string | null> {
     return invoke('settings_load');
   }

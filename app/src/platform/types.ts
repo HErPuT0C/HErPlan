@@ -75,6 +75,8 @@ export interface Platform {
   readonly kind: 'tauri' | 'web';
 
   appVersion(): Promise<string>;
+  /** The folder of the portable build (data and projects beside the program), or null when installed. */
+  portableDir(): Promise<string | null>;
 
   /** Raw text of the application settings file, or null when there is none (or it was damaged). */
   loadSettings(): Promise<string | null>;

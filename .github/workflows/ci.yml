@@ -144,7 +144,7 @@ jobs:
         run: |
           npm ci
           npx tauri build
-      - name: Collect installer
+      - name: Collect installer and portable archive
         id: collect
         shell: pwsh
         run: |
@@ -153,6 +153,12 @@ jobs:
           $version = (Get-Content app/package.json -Raw | ConvertFrom-Json).version
           $name = if ($env:HERPLAN_BUILD) { "HErPlan-$version-build$($env:HERPLAN_BUILD)" } else { "HErPlan-$version" }
           Copy-Item $setup.FullName "dist-installer/$name-setup.exe"
+          # The portable build: the same program and portable.txt, which keeps its data beside it.
+          $portable = "portable/HErPlan"
+          New-Item -ItemType Directory -Force $portable | Out-Null
+          Copy-Item target/release/HErPlan.exe $portable
+          Copy-Item app/portable/portable.txt $portable
+          Compress-Archive -Path $portable -DestinationPath "dist-installer/$name-portable.zip"
           Get-ChildItem dist-installer | Format-Table Name, Length
           "name=$name" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
@@ -166,7 +172,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ inputs.tag }}" dist-installer/*.exe --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA `
+          gh release create "${{ inputs.tag }}" (Get-ChildItem dist-installer/*.exe, dist-installer/*.zip) --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA `
             --prerelease --title "HErPlan ${{ inputs.tag }}" `
             --notes "Сборка для проверки. Если Windows покажет предупреждение SmartScreen: «Подробнее» → «Выполнить в любом случае»."
       - name: Attach the installer to the release
@@ -176,9 +182,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
         run: |
-          gh release upload $env:TAG dist-installer/*.exe --clobber --repo $env:GITHUB_REPOSITORY
+          gh release upload $env:TAG (Get-ChildItem dist-installer/*.exe, dist-installer/*.zip) --clobber --repo $env:GITHUB_REPOSITORY
           $notes = gh release view $env:TAG --repo $env:GITHUB_REPOSITORY --json body --jq .body
-          $howto = "Установка: скачайте HErPlan-…-setup.exe ниже и запустите. Если Windows покажет «Windows защитил ваш компьютер»: «Подробнее» → «Выполнить в любом случае». Архивы Source code — исходный код, для установки они не нужны."
+          $howto = "Установка: скачайте HErPlan-…-setup.exe ниже и запустите. Без установки: HErPlan-…-portable.zip — распакуйте и запустите HErPlan.exe, данные и проекты хранятся рядом с программой (подробности — в portable.txt). Если Windows покажет «Windows защитил ваш компьютер»: «Подробнее» → «Выполнить в любом случае». Архивы Source code — исходный код, для установки они не нужны."
           if (-not ($notes -like "*setup.exe*")) {
             Set-Content -Path notes.md -Value ($howto + "`n`n" + $notes) -Encoding utf8
             gh release edit $env:TAG --notes-file notes.md --repo $env:GITHUB_REPOSITORY

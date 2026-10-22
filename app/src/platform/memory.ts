@@ -281,6 +281,10 @@ export class MemoryPlatform implements Platform {
     return __APP_VERSION__;
   }
 
+  async portableDir(): Promise<string | null> {
+    return null;
+  }
+
   async loadSettings(): Promise<string | null> {
     return storage()?.getItem(SETTINGS_KEY) ?? null;
   }

@@ -1,0 +1,31 @@
+HErPlan — портативная версия
+
+Пока этот файл лежит рядом с HErPlan.exe, программа ничего не пишет в папки пользователя:
+- настройки и служебные данные — в папке data рядом с программой;
+- новые проекты по умолчанию — в папке Projects рядом с программой (другую папку можно выбрать
+  в настройках или при создании проекта).
+Резервные копии и история версий хранятся внутри папки каждого проекта.
+
+Папку с программой можно переносить целиком, например на флешку. Обновление: замените HErPlan.exe
+новым из архива следующей версии, папки data и Projects не трогайте.
+Удалите этот файл — и программа будет работать как установленная, с данными в папках пользователя.
+
+Для работы нужен Microsoft Edge WebView2 Runtime. В Windows 11 он есть всегда, в Windows 10 обычно
+тоже. Если программа не запускается, установите его: https://developer.microsoft.com/microsoft-edge/webview2/
+
+---
+
+HErPlan — portable version
+
+While this file sits next to HErPlan.exe, the program writes nothing to the user's folders:
+- settings and its own data go to the data folder beside the program;
+- new projects go to the Projects folder beside the program by default (another folder can be
+  chosen in the settings or when a project is made).
+Backups and version history are kept inside each project's folder.
+
+The program's folder can be moved as a whole, to a USB stick for example. To update, replace
+HErPlan.exe with the one from the next version's archive and leave the data and Projects folders.
+Delete this file and the program works as an installed one, with its data in the user's folders.
+
+It needs the Microsoft Edge WebView2 Runtime: always present on Windows 11, usually on Windows 10.
+If the program does not start, install it: https://developer.microsoft.com/microsoft-edge/webview2/

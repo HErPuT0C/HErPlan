@@ -25,6 +25,8 @@
 3. Если Windows покажет «Windows защитил ваш компьютер» — нажмите **Подробнее → Выполнить в любом случае**. Установщик пока не подписан сертификатом, поэтому Windows настороженно относится к любой новой программе.
 4. При первом запуске программа предложит **тур по возможностям** и **учебный проект «Последний фонарь»**: короткую готовую историю, на которой видно, как всё устроено. Тур можно пройти ещё раз в **Настройки → Обучение**.
 
+**Без установки (портативная версия).** В том же релизе есть `HErPlan-<версия>-portable.zip`: распакуйте его куда угодно, хоть на флешку, и запустите `HErPlan.exe`. Настройки программа хранит в папке `data` рядом с собой, новые проекты по умолчанию в папке `Projects` там же. Для обновления замените `HErPlan.exe` новым. Подробности в файле `portable.txt` в архиве.
+
 ## Лицензия
 
 [MIT](LICENSE): пользуйтесь, изменяйте и делитесь свободно.
@@ -57,6 +59,8 @@
 2. Run the installer. No administrator rights are needed; it installs just for you, and a new version installs over the old one without losing your data.
 3. If Windows shows "Windows protected your PC", click **More info → Run anyway**. The installer is not signed with a certificate yet, so Windows is cautious about any new program.
 4. On first launch the app offers a **tour of its features** and the **tutorial project "The Last Lantern"**, a short ready-made story that shows how everything fits together. You can take the tour again in **Settings → Learning**.
+
+**Without installing (portable version).** The same release has `HErPlan-<version>-portable.zip`: unpack it anywhere, a USB stick included, and run `HErPlan.exe`. The program keeps its settings in a `data` folder beside it and new projects in a `Projects` folder there by default. To update, replace `HErPlan.exe` with the new one. See `portable.txt` in the archive for details.
 
 ### License
 

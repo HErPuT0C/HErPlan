@@ -186,7 +186,7 @@ export const en: Record<MessageKey, string> = {
   'welcome.text':
     'Would you like a short tour? We will open the tutorial project “The Last Lantern” — a small story with a script, a world database, documents and tasks — and show you around on it.',
   'welcome.hint':
-    'The tutorial project is an ordinary project in Documents\\HErPlan: change it or delete it. The tour can be taken again in the settings.',
+    'The tutorial project is an ordinary project in your projects folder (chosen in the settings): change it or delete it. The tour can be taken again in the settings.',
   'welcome.tour': 'Take the tour',
   'welcome.projectOnly': 'Just the tutorial project',
   'welcome.notNow': 'Not now',
@@ -407,6 +407,8 @@ export const en: Record<MessageKey, string> = {
   'settings.maxLineChars': 'Characters per line (soft limit)',
   'settings.limitsHint': 'Above the limit HErPlan highlights the line but never cuts anything.',
   'settings.aboutText': 'A game design editor. Open source under the MIT license. Works offline.',
+  'settings.portable':
+    'Portable version: settings are kept in the data folder, new projects in the Projects folder beside the program ({dir}).',
   'settings.feedback': 'Send feedback',
   'settings.reportBug': 'Report a bug',
   'settings.sourceCode': 'Source code',
