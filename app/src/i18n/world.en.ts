@@ -219,6 +219,8 @@ export const worldEn = {
   'world.tags.newCatalog': 'Make a catalog for this field',
   'world.tags.openCatalog': 'Open the catalog “{name}”',
   'world.tags.description': 'Description of the tag “{name}”',
+  'mention.openCard': 'Open the card “{name}”',
+  'mention.openTag': 'Open the catalog of the tag “{name}”',
   'world.tags.shared': 'The description is shared: every card with this tag shows it.',
   'world.tags.editDescription': "Edit the tag's description",
   'world.tags.addDescription': '+ description',

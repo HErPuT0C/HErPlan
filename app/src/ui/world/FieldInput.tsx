@@ -21,6 +21,7 @@ import {
 import { coerceValue, type FieldValue, type TableValue } from '../../world/values';
 import { Button, IconButton, Switch } from '../components';
 import { ImageField } from './ImageField';
+import { MentionText } from './MentionText';
 
 export interface FieldInputProps {
   project: OpenProject;
@@ -93,13 +94,15 @@ export function FieldInput({ project, field, value: raw, self, onChange, owner, 
       );
     case 'richtext':
       return frame(
-        <textarea
+        <MentionText
+          project={project}
           id={id}
-          className="input textarea world-long"
+          className="world-long"
+          label={field.label || t('schema.untitledField')}
           value={value as string}
           rows={3}
-          disabled={readOnly}
-          onChange={(e) => onChange(e.target.value)}
+          self={{ kind: 'entity', id: self, name: '' }}
+          onChange={onChange}
         />,
       );
     case 'number':
@@ -467,35 +470,25 @@ function TagsInput({
       {chosen.length > 0 && (
         <ul className="world-notes small">
           {chosen.map((tag) => (
-            <li key={tag.id} className="world-tag-note">
+            <li
+              key={tag.id}
+              className="world-tag-note"
+              title={readOnly ? undefined : `${t('world.tags.editDescription')}. ${t('world.tags.shared')}`}
+            >
               <strong>{tag.name || t('story.untitled')}</strong>
-              {editing === tag.id ? (
-                <>
-                  <textarea
-                    className="input textarea"
-                    rows={2}
-                    autoFocus
-                    value={tag.description}
-                    placeholder={t('schema.tagDescription')}
-                    aria-label={t('world.tags.description', { name: tag.name })}
-                    onChange={(e) => describe(tag.id, e.target.value)}
-                    onBlur={() => setEditing(null)}
-                    onKeyDown={(e) => e.key === 'Escape' && setEditing(null)}
-                  />
-                  <span className="muted">{t('world.tags.shared')}</span>
-                </>
-              ) : readOnly ? (
-                tag.description && <span className="muted"> — {tag.description}</span>
-              ) : (
-                <button
-                  type="button"
-                  className={['world-tag-describe', !tag.description && 'muted'].filter(Boolean).join(' ')}
-                  title={t('world.tags.editDescription')}
-                  onClick={() => setEditing(tag.id)}
-                >
-                  {tag.description ? `— ${tag.description}` : t('world.tags.addDescription')}
-                </button>
-              )}
+              {tag.description && <span className="muted"> — </span>}
+              <MentionText
+                project={project}
+                value={tag.description}
+                self={{ kind: 'tag', id: tag.id, catalog: catalog.id, name: tag.name }}
+                rows={1}
+                className="world-tag-text"
+                placeholder={readOnly ? '' : t('world.tags.addDescription')}
+                label={t('world.tags.description', { name: tag.name })}
+                autoFocus={editing === tag.id}
+                onDone={() => setEditing(null)}
+                onChange={(text) => describe(tag.id, text)}
+              />
             </li>
           ))}
         </ul>

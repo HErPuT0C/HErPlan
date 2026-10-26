@@ -11,6 +11,7 @@ import { errorText } from '../errors';
 import { IMAGE_FILTERS } from '../start/filters';
 import { useAsync } from '../useAsync';
 import { pastedName, useFileDrop } from '../useFileDrop';
+import { useAssetDropTarget } from '../assetDrag';
 import { AssetPicker } from './AssetPicker';
 
 export const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
@@ -101,6 +102,12 @@ export function ImageField({
     },
   });
 
+  // A picture dragged from the assets tab (0.7.3) becomes this picture as it is.
+  const assetOver = useAssetDropTarget(box, {
+    accepts: (path, folder) => !readOnly && !folder && IMAGE_EXT.test(path),
+    drop: (path) => onChange(path),
+  });
+
   const entries: MenuEntry[] = [
     { id: 'assets', label: t('image.fromAssets'), icon: <FolderOpen size={16} />, onSelect: () => setPicking(true) },
     { id: 'disk', label: t('image.fromDisk'), icon: <HardDrive size={16} />, onSelect: () => void fromDisk() },
@@ -127,7 +134,7 @@ export function ImageField({
   return (
     <div
       ref={box}
-      className={['image-field', large && 'image-field-large', drop.over && 'image-field-over']
+      className={['image-field', large && 'image-field-large', (drop.over || assetOver) && 'image-field-over']
         .filter(Boolean)
         .join(' ')}
       {...drop.dropProps}

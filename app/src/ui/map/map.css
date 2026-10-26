@@ -98,3 +98,10 @@
   color: var(--warning, #e5534b);
   font-style: italic;
 }
+.map-object-hint {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

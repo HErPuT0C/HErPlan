@@ -379,10 +379,11 @@ export function searchKey(text: string): string {
   return text.toLocaleLowerCase().replace(/ё/g, 'е');
 }
 
-export function findNodes(g: GraphDoc, query: string): string[] {
+/** Nodes whose title, text or comment (or `extra`: what the node stands for, on the map) has the query. */
+export function findNodes(g: GraphDoc, query: string, extra?: (node: GraphNode) => string): string[] {
   const q = searchKey(query.trim());
   if (!q) return [];
   return g.nodes
-    .filter((n) => searchKey([n.title, n.text ?? '', n.comment ?? ''].join('\n')).includes(q))
+    .filter((n) => searchKey([n.title, n.text ?? '', n.comment ?? '', extra?.(n) ?? ''].join('\n')).includes(q))
     .map((n) => n.id);
 }

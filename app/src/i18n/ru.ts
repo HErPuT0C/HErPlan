@@ -472,6 +472,7 @@ export const ru = {
   'canvas.searchCount': '{current} из {total}',
   'canvas.searchNext': 'Следующее совпадение (Enter)',
   'canvas.searchPrev': 'Предыдущее совпадение (Shift+Enter)',
+  'canvas.searchOpen': 'Открыть найденное (Ctrl+Enter)',
   'canvas.minimap': 'Мини-карта холста',
   'canvas.selected':
     '{count, plural, one {Выбран # узел} few {Выбрано # узла} many {Выбрано # узлов} other {Выбрано # узла}}',

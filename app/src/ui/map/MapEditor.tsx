@@ -6,7 +6,7 @@ import { Map as MapIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { searchKey } from '../../canvas/ops';
 import type { CanvasEngine } from '../../canvas/engine';
-import type { GraphDoc } from '../../canvas/model';
+import type { GraphDoc, GraphNode } from '../../canvas/model';
 import { useAtom, useStore } from '../../core/useStore';
 import type { ProjectData } from '../../core/project/types';
 import { docName, listDocuments } from '../../documents/model';
@@ -26,13 +26,15 @@ import {
 import { platform } from '../../platform';
 import { mapRequest, openDocument, openEntity, revealInStory } from '../../state/navigation';
 import type { OpenProject } from '../../state/project';
-import { listEntities } from '../../story/entities';
+import { asEntity, listEntities } from '../../story/entities';
 import { graphTitle } from '../../story/flow';
 import { allGraphs } from '../../story/model';
+import { entitySearchText } from '../../world/mentions';
 import { typesFile } from '../../world/schema';
 import { CanvasView, type CanvasExtensions } from '../canvas/CanvasView';
 import { EmptyState, Spinner, toast } from '../components';
 import { useAsync } from '../useAsync';
+import { useAssetDropTarget } from '../assetDrag';
 import { IMAGE_EXT } from '../world/ImageField';
 import { typeName } from '../world/typeNames';
 import { MapContext, RefIcon, REF_KIND_NAMES } from './cards';
@@ -42,6 +44,21 @@ interface Item {
   ref: MapRef;
   label: string;
   hint: string;
+  /** More to find it by than its name and hint: a card's description and fields (0.7.3). */
+  more?: string;
+}
+
+/** What a card of the map is found by in the canvas search besides its title: the object as it is now. */
+function mapNodeText(node: GraphNode, data: ProjectData): string {
+  const ref = refOf(node);
+  if (!ref) return '';
+  const label = refLabel(data, ref) ?? '';
+  if (ref.kind === 'entity') {
+    const e = asEntity(data.entities[ref.id]);
+    return e ? `${label}\n${entitySearchText(data, e)}` : label;
+  }
+  if (ref.kind === 'asset') return `${label}\n${ref.id.replace(/^assets\//, '')}`;
+  return label;
 }
 
 export function openRef(ref: MapRef, project: OpenProject): void {
@@ -109,6 +126,7 @@ function MapWorkspace({ project, graphId }: { project: OpenProject; graphId: str
         if (refLabel(store.getState(), ref) !== null) openRef(ref, project);
         return true;
       },
+      nodeText: mapNodeText,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [graphId, project],
@@ -173,10 +191,23 @@ function MapWorkspace({ project, graphId }: { project: OpenProject; graphId: str
     window.addEventListener('pointerup', up);
   };
 
+  // A picture dragged from the assets tab (0.7.3) goes onto the map where it is let go.
+  const assetOver = useAssetDropTarget(canvasBox, {
+    accepts: (path, folder) => !readOnly && !folder && IMAGE_EXT.test(path),
+    drop: (path, point) => {
+      if (!engine) return;
+      const item: Item = { ref: { kind: 'asset', id: path }, label: path.slice(path.lastIndexOf('/') + 1), hint: '' };
+      place(item, engine.worldAtClient(point.x, point.y));
+    },
+  });
+
   return (
     <div className="map" data-tour="map">
       <ObjectList project={project} onStart={startDrag} />
-      <div ref={canvasBox} className={['map-canvas', drag?.over && 'map-canvas-over'].filter(Boolean).join(' ')}>
+      <div
+        ref={canvasBox}
+        className={['map-canvas', (drag?.over || assetOver) && 'map-canvas-over'].filter(Boolean).join(' ')}
+      >
         <CanvasView project={project} graphId={graphId} cameraKey={`map:${graphId}`} ext={ext} onEngine={setEngine} />
       </div>
       {drag && (
@@ -214,14 +245,25 @@ function ObjectList({
         ref: { kind: 'entity', id: e.id },
         label: e.name || t('story.untitled'),
         hint: typeName(schema.types.find((x) => x.id === e.type)),
+        more: entitySearchText(data, e),
       })),
+      // A picture is found by the folders it is in, too (0.7.3).
       asset: (assets ?? [])
         .filter((a) => a.kind === 'file' && IMAGE_EXT.test(a.path))
-        .map((a) => ({ ref: { kind: 'asset', id: a.path }, label: a.path.split('/').pop() ?? a.path, hint: '' })),
+        .map((a) => ({
+          ref: { kind: 'asset', id: a.path },
+          label: a.path.split('/').pop() ?? a.path,
+          hint: a.path.split('/').slice(1, -1).join(' / '),
+        })),
     };
     return items;
   }, [data, assets, schema]);
   const q = searchKey(query);
+  /** Names that have the query first, then what has it in the description, fields or folders. */
+  const sorted = (list: Item[]) => [
+    ...list.filter((x) => searchKey(x.label).includes(q)),
+    ...list.filter((x) => !searchKey(x.label).includes(q)),
+  ];
   return (
     <nav className="map-objects" aria-label={t('map.objects')}>
       <input
@@ -235,7 +277,9 @@ function ObjectList({
       <p className="muted small">{t('map.hint')}</p>
       <div className="map-objects-list">
         {MAP_REF_KINDS.map((kind) => {
-          const shown = groups[kind].filter((x) => !q || searchKey(`${x.label} ${x.hint}`).includes(q));
+          const shown = q
+            ? sorted(groups[kind].filter((x) => searchKey(`${x.label} ${x.hint} ${x.more ?? ''}`).includes(q)))
+            : groups[kind];
           if (!shown.length) return null;
           return (
             <section key={kind} className="map-objects-group">
@@ -250,6 +294,7 @@ function ObjectList({
                 >
                   <RefIcon kind={kind} />
                   <span className="docs-item-name">{item.label}</span>
+                  {kind === 'asset' && item.hint && <span className="muted small map-object-hint">{item.hint}</span>}
                 </button>
               ))}
             </section>

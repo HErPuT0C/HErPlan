@@ -48,6 +48,7 @@ export function TabStrip({ state, onActivate, onOpen, onClose, onCloseOthers }: 
           aria-selected={state.active === HOME}
           tabIndex={state.active === HOME ? 0 : -1}
           className="doc-tab doc-tab-home"
+          data-drag-opens=""
           onClick={() => onActivate(HOME)}
         >
           <House size={16} aria-hidden="true" />
@@ -125,6 +126,8 @@ function DocTab({ title, tab, active, onActivate, onClose, onCloseOthers, onDupl
         tabIndex={active ? 0 : -1}
         className="doc-tab"
         title={title}
+        // A file of the assets held over the tab brings it to the front (0.7.3).
+        data-drag-opens=""
         onClick={onActivate}
         onAuxClick={(e) => {
           if (e.button === 1) onClose();

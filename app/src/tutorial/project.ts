@@ -269,8 +269,8 @@ export function tutorialProject(
     'character',
     N.nika,
     L(
-      'Ученица смотрителя маяка. Обещала зажечь лампу до полуночи, когда придёт «Альбатрос».',
-      'The lighthouse keeper’s apprentice. She promised to light the lamp before midnight, when the Albatross arrives.',
+      'Ученица смотрителя маяка, её учитель — Ян. Обещала зажечь лампу до полуночи, когда придёт «Альбатрос». Смелая — и это ей пригодится.',
+      'The lighthouse keeper’s apprentice; her teacher is Yan. She promised to light the lamp before midnight, when the Albatross arrives. Brave, and she will need it.',
     ),
     { 'f-role': ROLES.hero, 'f-age': 15, 'f-traits': [brave, kind], 'f-health': 10, 'f-speed': 70 },
     asset(PORTRAITS, 'nika.svg'),

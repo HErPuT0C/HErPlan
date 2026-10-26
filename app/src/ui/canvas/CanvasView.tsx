@@ -19,7 +19,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from
 import type { Camera } from '../../canvas/camera';
 import { CanvasEngine, type GraphHooks, type HitTarget, type PulledEdge, type StepKey } from '../../canvas/engine';
 import { creatableKinds, kindOf } from '../../canvas/kinds';
-import type { GraphDoc } from '../../canvas/model';
+import type { GraphDoc, GraphNode } from '../../canvas/model';
+import type { ProjectData } from '../../core/project/types';
 import { createNode, groupNodes, insertNodeIntoEdge, setNodeProps } from '../../canvas/ops';
 import { t, type MessageKey } from '../../i18n';
 import type { OpenProject } from '../../state/project';
@@ -85,6 +86,8 @@ export interface CanvasExtensions {
   insertKind?: string;
   /** A plot link dragged from a card (see CanvasCallbacks.onLink). */
   onLink?: (from: string, key: string, to: string) => void;
+  /** More text the canvas search finds a node by, and an "Open" in it (the map, 0.7.3). */
+  nodeText?: (node: GraphNode, data: ProjectData) => string;
 }
 
 /** A graph on the canvas (FR-CNV-*): WebGL below, DOM nodes above, panels on top. */
@@ -571,6 +574,8 @@ export function CanvasView({
                 engine={engine}
                 store={project.store}
                 graphId={graphId}
+                nodeText={ext?.nodeText}
+                onOpen={ext?.nodeText ? ext.onOpenNode : undefined}
                 onClose={() => {
                   setSearching(false);
                   root.current?.focus();

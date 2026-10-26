@@ -75,6 +75,7 @@ import { ValueInput } from '../story/ValueInput';
 import { useDraft } from '../useDraft';
 import { EntityLink, FieldInput } from './FieldInput';
 import { ImageField } from './ImageField';
+import { MentionText } from './MentionText';
 import { FieldEditor } from './SchemaDialog';
 import { FIELD_KIND_NAMES, typeName } from './typeNames';
 
@@ -414,13 +415,14 @@ export function EntityPanel({
               </label>
               {blockTools('description')}
             </div>
-            <textarea
+            <MentionText
+              project={project}
               id={`desc-${entity.id}`}
-              className="input textarea world-long"
+              className="world-long"
+              label={t('world.description')}
               value={entity.description}
-              rows={2}
-              disabled={readOnly}
-              onChange={(e) => edit(t('world.step.edit'), (x) => void (x.description = e.target.value), 'description')}
+              self={{ kind: 'entity', id: entity.id, name: entity.name }}
+              onChange={(text) => edit(t('world.step.edit'), (x) => void (x.description = text), 'description')}
             />
           </div>
         )}

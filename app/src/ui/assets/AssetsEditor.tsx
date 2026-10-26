@@ -43,7 +43,7 @@ import { PromptDialog, type PromptRequest } from '../canvas/PromptDialog';
 import { errorText } from '../errors';
 import { useAsync } from '../useAsync';
 import { useFileDrop } from '../useFileDrop';
-import { usePointerDrag } from '../usePointerDrag';
+import { startAssetDrag, useAssetDropTarget, type AssetDropTarget } from '../assetDrag';
 import { IMAGE_EXT } from '../world/ImageField';
 import './assets.css';
 
@@ -78,12 +78,22 @@ function Thumb({ project, path, size }: { project: OpenProject; path: string; si
   );
 }
 
-export function AssetsEditor({ project }: { project: OpenProject }) {
+export function AssetsEditor({
+  project,
+  folder: openFolder,
+  onFolder,
+}: {
+  project: OpenProject;
+  /** The folder open in this tab (kept by the tab, so it stays open when the tab is left and come back to). */
+  folder: string | null;
+  onFolder: (folder: string) => void;
+}) {
   const { store, readOnly, dir } = project;
   const data = useStore(store, (s) => s);
   const [version, setVersion] = useState(0);
   const entries = useAsync(() => platform().listAssets(dir), [dir, version], null as AssetEntry[] | null);
-  const [folder, setFolder] = useState(ROOT);
+  const folder = openFolder ?? ROOT;
+  const setFolder = onFolder;
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [prompt, setPrompt] = useState<PromptRequest | null>(null);
@@ -103,6 +113,8 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
       refresh();
     }, 0);
     return () => clearTimeout(timer);
+    // The tab's setter is a new function each time; the request alone starts this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wanted]);
   const counts = useMemo(() => assetUseCounts(data), [data]);
   const colors = folderColors(data);
@@ -169,9 +181,11 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
       if (current === from || current.startsWith(`${from}/`)) setFolder(to + current.slice(from.length));
     });
 
-  // A file dragged onto a folder in the tree moves there.
-  const moving = usePointerDrag('data-drop-folder', (from, folder) => {
-    if (parentOf(from) !== folder) void move(from, `${folder}/${baseName(from)}`);
+  // A file or a folder dragged onto a folder — in the tree, among the files, in the path above — moves there
+  // (0.7.3: the files and folders among the files take it too, and folders are dragged as well).
+  const into = (folder: string): AssetDropTarget => ({
+    accepts: (from) => !readOnly && from !== folder && !folder.startsWith(`${from}/`) && parentOf(from) !== folder,
+    drop: (from) => void move(from, `${folder}/${baseName(from)}`),
   });
 
   const remove = (path: string, isFolder: boolean) => {
@@ -345,6 +359,27 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
       ],
     });
 
+  const emptyMenu = (): MenuEntry[] => [
+    {
+      id: 'new',
+      label: t('assets.newFolder'),
+      icon: <FolderPlus size={16} />,
+      disabled: readOnly,
+      onSelect: () => newFolder(),
+    },
+    { id: 'sep', separator: true },
+    { id: 'upload', label: t('assets.upload'), icon: <Upload size={16} />, disabled: readOnly, onSelect: upload },
+    {
+      id: 'uploadFolder',
+      label: t('assets.uploadFolder'),
+      icon: <FolderUp size={16} />,
+      disabled: readOnly,
+      onSelect: uploadFolder,
+    },
+    { id: 'sep2', separator: true },
+    { id: 'reveal', label: t('assets.reveal'), icon: <FolderOpen size={16} />, onSelect: () => void reveal(current) },
+  ];
+
   const reveal = async (path: string) => {
     try {
       await platform().revealInExplorer(await platform().joinPath(dir, ...path.split('/')));
@@ -364,7 +399,15 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
 
   return (
     <div className="assets" data-tour="assets">
-      <nav className="assets-tree" aria-label={t('assets.folders')}>
+      <nav
+        className="assets-tree"
+        aria-label={t('assets.folders')}
+        onContextMenu={(m) => {
+          if (m.defaultPrevented) return;
+          m.preventDefault();
+          folderMenu(ROOT, m.clientX, m.clientY);
+        }}
+      >
         <FolderRow
           path={ROOT}
           label={t('module.assets')}
@@ -374,7 +417,7 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
           readOnly={readOnly}
           onOpen={setFolder}
           onMenu={folderMenu}
-          movingOver={moving.dragged !== null && moving.over === ROOT}
+          target={into(ROOT)}
           onDropPaths={(paths) => void importPaths(paths, ROOT)}
           onDropFiles={(files) => void importFiles(files, ROOT)}
         />
@@ -389,7 +432,7 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
             readOnly={readOnly}
             onOpen={setFolder}
             onMenu={folderMenu}
-            movingOver={moving.dragged !== null && moving.over === path}
+            target={into(path)}
             onDropPaths={(paths) => void importPaths(paths, path)}
             onDropFiles={(files) => void importFiles(files, path)}
           />
@@ -402,9 +445,9 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
             {current.split('/').map((part, i, all) => {
               const path = all.slice(0, i + 1).join('/');
               return (
-                <button key={path} type="button" className="story-crumb-btn" onClick={() => setFolder(path)}>
+                <Crumb key={path} target={into(path)} onClick={() => setFolder(path)}>
                   {i === 0 ? t('module.assets') : part}
-                </button>
+                </Crumb>
               );
             })}
           </nav>
@@ -438,6 +481,12 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
           ref={main}
           className={['assets-content', drop.over && 'assets-content-over'].filter(Boolean).join(' ')}
           {...drop.dropProps}
+          // Right click on an empty place: a new folder here, files or a folder from the disk (0.7.3).
+          onContextMenu={(m) => {
+            if (m.defaultPrevented || (m.target as HTMLElement).closest('.asset-item')) return;
+            m.preventDefault();
+            setMenu({ x: m.clientX, y: m.clientY, entries: emptyMenu() });
+          }}
         >
           {entries === null ? (
             <Spinner />
@@ -450,31 +499,25 @@ export function AssetsEditor({ project }: { project: OpenProject }) {
             <div className="assets-grid">
               {shown.map((e) =>
                 e.kind === 'folder' ? (
-                  <button
+                  <FolderTile
                     key={e.path}
-                    type="button"
-                    className="asset-item asset-item-folder"
-                    onClick={() => {
+                    path={e.path}
+                    color={colors[e.path] ?? null}
+                    readOnly={readOnly}
+                    target={into(e.path)}
+                    onOpen={() => {
                       setFolder(e.path);
                       setQuery('');
                     }}
-                    onContextMenu={(m) => {
-                      m.preventDefault();
-                      folderMenu(e.path, m.clientX, m.clientY);
-                    }}
-                  >
-                    <span className="asset-thumb" style={{ color: colors[e.path] ?? undefined }}>
-                      <Folder size={40} aria-hidden="true" />
-                    </span>
-                    <span className="asset-name">{baseName(e.path)}</span>
-                  </button>
+                    onMenu={folderMenu}
+                  />
                 ) : (
                   <button
                     key={e.path}
                     type="button"
                     className={['asset-item', selected === e.path && 'asset-item-selected'].filter(Boolean).join(' ')}
                     title={e.path}
-                    {...(readOnly ? {} : moving.handle(e.path))}
+                    onPointerDown={readOnly ? undefined : (p) => startAssetDrag(e.path, false, p)}
                     onClick={() => setSelected(e.path)}
                     onDoubleClick={() => openFile(e.path)}
                     onContextMenu={(m) => {
@@ -525,7 +568,7 @@ function FolderRow({
   readOnly,
   onOpen,
   onMenu,
-  movingOver,
+  target,
   onDropPaths,
   onDropFiles,
 }: {
@@ -537,22 +580,23 @@ function FolderRow({
   readOnly: boolean;
   onOpen: (path: string) => void;
   onMenu: (path: string, x: number, y: number) => void;
-  /** A file of the library is being dragged over this folder. */
-  movingOver: boolean;
+  /** Files and folders of the library dropped here move into this folder. */
+  target: AssetDropTarget;
   onDropPaths: (paths: string[]) => void;
   onDropFiles: (files: File[]) => void;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
   const drop = useFileDrop(ref, { disabled: readOnly, onPaths: onDropPaths, onFiles: onDropFiles });
+  const movingOver = useAssetDropTarget(ref, target);
   return (
     <button
       ref={ref}
       type="button"
       className={['schema-item', (movingOver || drop.over) && 'assets-tree-over'].filter(Boolean).join(' ')}
-      data-drop-folder={path}
       aria-current={current === path ? 'true' : undefined}
       style={{ paddingLeft: 8 + depth * 16 }}
       onClick={() => onOpen(path)}
+      onPointerDown={readOnly || path === ROOT ? undefined : (e) => startAssetDrag(path, true, e)}
       onContextMenu={(e) => {
         e.preventDefault();
         onMenu(path, e.clientX, e.clientY);
@@ -565,6 +609,60 @@ function FolderRow({
         <Folder size={14} aria-hidden="true" style={{ color: color ?? undefined }} />
       )}
       {label}
+    </button>
+  );
+}
+
+/** A folder among the files: opens on a click, is dragged, takes files and folders dropped on it. */
+function FolderTile({
+  path,
+  color,
+  readOnly,
+  target,
+  onOpen,
+  onMenu,
+}: {
+  path: string;
+  color: string | null;
+  readOnly: boolean;
+  target: AssetDropTarget;
+  onOpen: () => void;
+  onMenu: (path: string, x: number, y: number) => void;
+}) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const over = useAssetDropTarget(ref, target);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      className={['asset-item', 'asset-item-folder', over && 'asset-drop-over'].filter(Boolean).join(' ')}
+      onClick={onOpen}
+      onPointerDown={readOnly ? undefined : (e) => startAssetDrag(path, true, e)}
+      onContextMenu={(m) => {
+        m.preventDefault();
+        onMenu(path, m.clientX, m.clientY);
+      }}
+    >
+      <span className="asset-thumb" style={{ color: color ?? undefined }}>
+        <Folder size={40} aria-hidden="true" />
+      </span>
+      <span className="asset-name">{baseName(path)}</span>
+    </button>
+  );
+}
+
+/** A folder of the path above the files: opens it, takes files and folders dropped on it. */
+function Crumb({ target, onClick, children }: { target: AssetDropTarget; onClick: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const over = useAssetDropTarget(ref, target);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      className={['story-crumb-btn', over && 'asset-drop-over'].filter(Boolean).join(' ')}
+      onClick={onClick}
+    >
+      {children}
     </button>
   );
 }

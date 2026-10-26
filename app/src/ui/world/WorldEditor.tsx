@@ -124,7 +124,16 @@ function matches(e: WorldEntity, f: FieldDef, rule: Rule, ctx: ValueTextContext)
   }
 }
 
-export function WorldEditor({ project }: { project: OpenProject }) {
+export function WorldEditor({
+  project,
+  entity: openEntityId,
+  onEntity,
+}: {
+  project: OpenProject;
+  /** The card open in this tab (kept by the tab, so it stays open when the tab is left and come back to). */
+  entity: string | null;
+  onEntity: (id: string | null) => void;
+}) {
   const { store, readOnly } = project;
   const entities = useStore(store, (s) => s.entities);
   const types = useStore(store, (s) => s.types);
@@ -136,7 +145,8 @@ export function WorldEditor({ project }: { project: OpenProject }) {
   const [view, setViewState] = useState<View>(savedView);
   const [sort, setSort] = useState<Sort>({ by: 'manual', dir: 1 });
   const [rules, setRules] = useState<Rule[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const selected = openEntityId;
+  const setSelected = onEntity;
   const [schemaOpen, setSchemaOpen] = useState(false);
   // A catalog of tags open in place of the cards (0.5); null — the cards.
   const [chosenCatalog, setCatalog] = useState<string | null>(null);
@@ -178,6 +188,8 @@ export function WorldEditor({ project }: { project: OpenProject }) {
       );
     }, 0);
     return () => clearTimeout(timer);
+    // The tab's setter is a new function each time; the request alone starts this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request, store]);
 
   // "Open the catalog" from a tags field of a card.

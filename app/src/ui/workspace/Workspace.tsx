@@ -25,6 +25,7 @@ import {
   parseWorkspace,
   serializeWorkspace,
   setTabBoard,
+  setTabPlace,
   setTabDoc,
   setTabGraph,
   WORKSPACE_FILE,
@@ -201,7 +202,12 @@ export function Workspace({ project }: { project: OpenProject }) {
             onGraph={(graph) => setTabs((s) => setTabGraph(s, activeTab.id, graph))}
           />
         ) : activeTab?.kind === 'database' ? (
-          <WorldEditor key={activeTab.id} project={project} />
+          <WorldEditor
+            key={activeTab.id}
+            project={project}
+            entity={activeTab.entity ?? null}
+            onEntity={(entity) => setTabs((s) => setTabPlace(s, activeTab.id, 'entity', entity))}
+          />
         ) : activeTab?.kind === 'map' ? (
           <MapEditor key={activeTab.id} project={project} />
         ) : activeTab?.kind === 'documents' ? (
@@ -212,7 +218,12 @@ export function Workspace({ project }: { project: OpenProject }) {
             onDoc={(doc) => setTabs((s) => setTabDoc(s, activeTab.id, doc))}
           />
         ) : activeTab?.kind === 'assets' ? (
-          <AssetsEditor key={activeTab.id} project={project} />
+          <AssetsEditor
+            key={activeTab.id}
+            project={project}
+            folder={activeTab.folder ?? null}
+            onFolder={(folder) => setTabs((s) => setTabPlace(s, activeTab.id, 'folder', folder))}
+          />
         ) : activeTab?.kind === 'tasks' ? (
           <TasksEditor
             key={activeTab.id}

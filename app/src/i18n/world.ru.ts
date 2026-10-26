@@ -221,6 +221,8 @@ export const worldRu = {
   'world.tags.newCatalog': 'Создать справочник для этого поля',
   'world.tags.openCatalog': 'Открыть справочник «{name}»',
   'world.tags.description': 'Описание тега «{name}»',
+  'mention.openCard': 'Открыть карточку «{name}»',
+  'mention.openTag': 'Открыть справочник тега «{name}»',
   'world.tags.shared': 'Описание общее: оно видно у всех карточек с этим тегом.',
   'world.tags.editDescription': 'Изменить описание тега',
   'world.tags.addDescription': '+ описание',

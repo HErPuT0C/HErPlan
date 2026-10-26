@@ -199,6 +199,8 @@ test('a catalog of tags with descriptions; tags put on a card from the field, a 
   await dialog.getByLabel('Название справочника').fill('Черты');
   await dialog.getByLabel('Добавить тег').fill('ловкий');
   await dialog.getByRole('button', { name: 'Добавить тег' }).click();
+  // The description shows its names as links until it is clicked to edit (0.7.3).
+  await dialog.getByLabel('Описание тега').click();
   await dialog.getByLabel('Описание тега').fill('уклоняется от первой атаки');
   // "Character" gets a field with tags from the catalog.
   await dialog.getByRole('button', { name: 'Персонаж', exact: true }).click();

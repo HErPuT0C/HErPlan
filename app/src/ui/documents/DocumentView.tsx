@@ -54,6 +54,7 @@ import { PromptDialog, type PromptRequest } from '../canvas/PromptDialog';
 import { AssetPicker } from '../world/AssetPicker';
 import { useFileDrop } from '../useFileDrop';
 import { attach, attachmentContent } from './attachments';
+import { useAssetDropTarget } from '../assetDrag';
 import { exportPdf } from './exportDocs';
 import { openLink, placeLabel } from './places';
 import { linkTarget, placeKey, placesOf } from '../../documents/places';
@@ -155,9 +156,14 @@ export function DocumentView({ project, id }: { project: OpenProject; id: string
   /** Copies the files into the attachments and puts them into the text at `at` (or where the cursor is). */
   const attachHere = async (source: Parameters<typeof attach>[1], at: number | null) => {
     const copied = await attach(project, source);
-    const ed = editorRef.current;
-    if (!copied.length || !ed || ed.isDestroyed) return;
+    if (!copied.length) return;
     assetFiles.set(project.dir, [...(assetFiles.get(project.dir) ?? []), ...copied]);
+    placeFiles(copied, at);
+  };
+  /** Files of the assets into the text: pictures as pictures, other files as links to them. */
+  const placeFiles = (paths: string[], at: number | null) => {
+    const ed = editorRef.current;
+    if (!paths.length || !ed || ed.isDestroyed) return;
     // Dropped on a paragraph or a heading: the files go after it rather than cut it in two, or in place of
     // it when it is empty.
     const $at = at === null ? null : ed.state.doc.resolve(at);
@@ -169,17 +175,22 @@ export function DocumentView({ project, id }: { project: OpenProject; id: string
         : block
           ? $at.after()
           : $at.pos;
-    ed.chain().focus().insertContentAt(where, attachmentContent(copied)).run();
+    ed.chain().focus().insertContentAt(where, attachmentContent(paths)).run();
+  };
+  const posAt = (point: { x: number; y: number }) => {
+    const ed = editorRef.current;
+    return ed && !ed.isDestroyed ? (ed.view.posAtCoords({ left: point.x, top: point.y })?.pos ?? null) : null;
   };
   // Files from the explorer (desktop build): the platform tells where they were dropped.
   const drop = useFileDrop(scroll, {
     disabled: readOnly,
-    onPaths: (paths, point) => {
-      const ed = editorRef.current;
-      const at = ed && !ed.isDestroyed ? (ed.view.posAtCoords({ left: point.x, top: point.y })?.pos ?? null) : null;
-      void attachHere({ paths }, at);
-    },
+    onPaths: (paths, point) => void attachHere({ paths }, posAt(point)),
     onFiles: (files) => void attachHere({ files }, null),
+  });
+  // A file dragged from the assets tab (0.7.3): it is in the assets already, so it goes into the text as is.
+  const assetOver = useAssetDropTarget(scroll, {
+    accepts: (_path, folder) => !readOnly && !!doc && !folder,
+    drop: (path, point) => placeFiles([path], posAt(point)),
   });
 
   const editor = useEditor({
@@ -304,7 +315,7 @@ export function DocumentView({ project, id }: { project: OpenProject; id: string
       {editor && !readOnly && <Toolbar project={project} editor={editor} doc={id} />}
       <div
         ref={scroll}
-        className={['doc-scroll', drop.over && 'doc-scroll-over'].filter(Boolean).join(' ')}
+        className={['doc-scroll', (drop.over || assetOver) && 'doc-scroll-over'].filter(Boolean).join(' ')}
         onClick={(e) => e.target === e.currentTarget && editor?.commands.focus('end')}
         {...drop.dropProps}
         // Drops on the text itself are the editor's (handleDrop); this takes those beside it.

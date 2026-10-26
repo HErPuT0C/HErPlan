@@ -470,6 +470,7 @@ export const en: Record<MessageKey, string> = {
   'canvas.searchCount': '{current} of {total}',
   'canvas.searchNext': 'Next match (Enter)',
   'canvas.searchPrev': 'Previous match (Shift+Enter)',
+  'canvas.searchOpen': 'Open the match (Ctrl+Enter)',
   'canvas.minimap': 'Canvas mini-map',
   'canvas.selected': '{count, plural, one {# node selected} other {# nodes selected}}',
   'canvas.selectionTools': 'Selection actions',

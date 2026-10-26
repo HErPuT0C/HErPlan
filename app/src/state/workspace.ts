@@ -18,6 +18,10 @@ export interface WorkspaceTab {
   doc?: string;
   /** Tasks tabs: the open board. */
   board?: string;
+  /** Database tabs: the open card (0.7.3: it stays open when the tab is left and come back to). */
+  entity?: string;
+  /** Assets tabs: the open folder (0.7.3). */
+  folder?: string;
 }
 
 export interface WorkspaceState {
@@ -38,12 +42,14 @@ export function parseWorkspace(text: string | null): WorkspaceState {
       : [];
     const active = tabs.some((tab) => tab.id === raw.active) ? (raw.active as string) : HOME;
     return {
-      tabs: tabs.map(({ id, kind, graph, doc, board }) => ({
+      tabs: tabs.map(({ id, kind, graph, doc, board, entity, folder }) => ({
         id,
         kind,
         ...(typeof graph === 'string' ? { graph } : {}),
         ...(typeof doc === 'string' ? { doc } : {}),
         ...(typeof board === 'string' ? { board } : {}),
+        ...(typeof entity === 'string' ? { entity } : {}),
+        ...(typeof folder === 'string' ? { folder } : {}),
       })),
       active,
     };
@@ -105,6 +111,26 @@ export function setTabDoc(state: WorkspaceState, id: string, doc: string | null)
       const rest = { ...t };
       delete rest.doc;
       return doc ? { ...rest, doc } : rest;
+    }),
+  };
+}
+
+/** Remembers the open card of a database tab or the open folder of an assets tab (null: none). */
+export function setTabPlace(
+  state: WorkspaceState,
+  id: string,
+  key: 'entity' | 'folder',
+  value: string | null,
+): WorkspaceState {
+  const tab = state.tabs.find((t) => t.id === id);
+  if (!tab || (tab[key] ?? null) === value) return state;
+  return {
+    ...state,
+    tabs: state.tabs.map((t) => {
+      if (t.id !== id) return t;
+      const rest = { ...t };
+      delete rest[key];
+      return value ? { ...rest, [key]: value } : rest;
     }),
   };
 }

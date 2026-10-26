@@ -74,17 +74,42 @@
 .world-tag-note > .textarea {
   flex-basis: 100%;
 }
-.world-tag-describe {
-  padding: 0 2px;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
+/* A description with the names of cards and tags as links (0.7.3), shown until it is clicked to edit. */
+.mention-view {
+  height: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   cursor: text;
 }
-.world-tag-describe:hover {
-  text-decoration: underline dotted;
+.mention-view[aria-readonly='true'] {
+  cursor: default;
+}
+.mention-placeholder {
+  color: var(--text-muted);
+}
+.mention-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.mention-link.mention-tag {
+  text-decoration-style: dashed;
+}
+.mention-link:hover {
+  text-decoration-thickness: 2px;
+}
+.world-tag-note > .world-tag-text.mention-view {
+  flex: 1 1 auto;
+  min-height: 0 !important;
+  padding: 0 2px;
+  border-color: transparent;
+  background: none;
 }
 .schema-item {
   display: flex;

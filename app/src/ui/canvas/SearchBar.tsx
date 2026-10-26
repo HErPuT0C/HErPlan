@@ -1,7 +1,7 @@
-import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, ExternalLink, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { CanvasEngine } from '../../canvas/engine';
-import type { GraphDoc } from '../../canvas/model';
+import type { GraphDoc, GraphNode } from '../../canvas/model';
 import { findNodes } from '../../canvas/ops';
 import type { ProjectData } from '../../core/project/types';
 import type { Store } from '../../core/store';
@@ -14,17 +14,28 @@ export function SearchBar({
   engine,
   store,
   graphId,
+  nodeText,
+  onOpen,
   onClose,
 }: {
   engine: CanvasEngine;
   store: Store<ProjectData>;
   graphId: string;
+  /** More text to find a node by (the map: the name and contents of the object a card shows). */
+  nodeText?: (node: GraphNode, data: ProjectData) => string;
+  /** Opens what the found node stands for (Ctrl+Enter); true when it did. */
+  onOpen?: (id: string) => boolean;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState('');
   const [position, setPosition] = useState(0);
   const graph = useStore(store, (s) => s.graphs[graphId] as unknown as GraphDoc | undefined);
-  const results = useMemo(() => (graph ? findNodes(graph, query) : []), [graph, query]);
+  // The objects behind the map's cards change apart from the graph (a card renamed in the database).
+  const data = useStore(store, (s) => (nodeText ? s : null));
+  const results = useMemo(
+    () => (graph ? findNodes(graph, query, nodeText && data ? (n) => nodeText(n, data) : undefined) : []),
+    [graph, query, nodeText, data],
+  );
   const current = results.length ? results[Math.min(position, results.length - 1)] : null;
 
   useEffect(() => {
@@ -55,7 +66,8 @@ export function SearchBar({
         onKeyDown={(e) => {
           e.stopPropagation();
           if (e.key === 'Escape') onClose();
-          if (e.key === 'Enter') step(e.shiftKey ? -1 : 1);
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && onOpen && current) onOpen(current);
+          else if (e.key === 'Enter') step(e.shiftKey ? -1 : 1);
         }}
       />
       <span className="canvas-search-count muted small" aria-live="polite">
@@ -80,6 +92,15 @@ export function SearchBar({
         onClick={() => step(1)}
         disabled={!results.length}
       />
+      {onOpen && (
+        <IconButton
+          size="sm"
+          label={t('canvas.searchOpen')}
+          icon={<ExternalLink size={16} />}
+          onClick={() => current && onOpen(current)}
+          disabled={!current}
+        />
+      )}
       <IconButton size="sm" label={t('common.close')} icon={<X size={16} />} onClick={onClose} />
     </div>
   );

@@ -53,6 +53,7 @@ import {
 } from '../../world/schema';
 import { Button, Checkbox, Dialog, IconButton } from '../components';
 import { FIELD_KIND_NAMES, typeName } from './typeNames';
+import { MentionText } from './MentionText';
 
 type Selected = { kind: 'type' | 'set' | 'relations' | 'catalog'; id: string };
 
@@ -819,14 +820,14 @@ export function CatalogEditor({
                   </span>
                 )}
               </div>
-              <textarea
-                className="input textarea schema-tag-description"
-                rows={2}
+              <MentionText
+                project={project}
+                className="schema-tag-description"
                 value={tag.description}
+                self={{ kind: 'tag', id: tag.id, catalog: id, name: tag.name }}
                 placeholder={t('schema.tagDescription')}
-                aria-label={t('schema.tagDescription')}
-                disabled={readOnly}
-                onChange={(e) => edit(tag.id, { description: e.target.value }, 'description')}
+                label={t('schema.tagDescription')}
+                onChange={(text) => edit(tag.id, { description: text }, 'description')}
               />
               {cards.length > 0 && (
                 <div className="schema-tag-cards small">
