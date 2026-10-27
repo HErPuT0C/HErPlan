@@ -772,6 +772,8 @@ export function tutorialProject(
     level: addDocument(data, L('Уровни', 'Levels'), L('Каменная лестница', 'The stone stairs')),
   };
   const ent = (id: string) => `[[ent:${id}|${String(data.entities[id].name)}]]`;
+  // In a table the bar of a link is written "\|": a bare one would end the cell.
+  const cell = (id: string) => ent(id).replace('|', '\\|');
   const node = (graph: string, id: string, label: string) => `[[node:${graph}/${id}|${label}]]`;
   const doc = (id: string, label: string) => `[[doc:${id}|${label}]]`;
   const live = (id: string, f: string) => `{{ent:${id}.${f}}}`;
@@ -844,9 +846,9 @@ This is the HErPlan tutorial project — a short story, “The Last Lantern”. 
 
 | Герой | Роль | Возраст |
 | --- | --- | --- |
-| ${ent('tut-nika')} | ${live('tut-nika', 'f-role')} | ${live('tut-nika', 'f-age')} |
-| ${ent('tut-yan')} | ${live('tut-yan', 'f-role')} | ${live('tut-yan', 'f-age')} |
-| ${ent('tut-vela')} | ${live('tut-vela', 'f-role')} | ${live('tut-vela', 'f-age')} |
+| ${cell('tut-nika')} | ${live('tut-nika', 'f-role')} | ${live('tut-nika', 'f-age')} |
+| ${cell('tut-yan')} | ${live('tut-yan', 'f-role')} | ${live('tut-yan', 'f-age')} |
+| ${cell('tut-vela')} | ${live('tut-vela', 'f-role')} | ${live('tut-vela', 'f-age')} |
 
 В таблице — живые значения полей карточек: поменяйте возраст в карточке, и он поменяется здесь.
 
@@ -876,9 +878,9 @@ A small narrative adventure that takes one night. The keeper's apprentice ${ent(
 
 | Character | Role | Age |
 | --- | --- | --- |
-| ${ent('tut-nika')} | ${live('tut-nika', 'f-role')} | ${live('tut-nika', 'f-age')} |
-| ${ent('tut-yan')} | ${live('tut-yan', 'f-role')} | ${live('tut-yan', 'f-age')} |
-| ${ent('tut-vela')} | ${live('tut-vela', 'f-role')} | ${live('tut-vela', 'f-age')} |
+| ${cell('tut-nika')} | ${live('tut-nika', 'f-role')} | ${live('tut-nika', 'f-age')} |
+| ${cell('tut-yan')} | ${live('tut-yan', 'f-role')} | ${live('tut-yan', 'f-age')} |
+| ${cell('tut-vela')} | ${live('tut-vela', 'f-role')} | ${live('tut-vela', 'f-age')} |
 
 The table shows live values of the cards' fields: change an age on a card and it changes here.
 

@@ -31,6 +31,8 @@ import {
   ExternalLink,
   SquareCheck,
   Trash,
+  SeparatorHorizontal,
+  FileType,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../../core/useStore';
@@ -54,8 +56,10 @@ import { PromptDialog, type PromptRequest } from '../canvas/PromptDialog';
 import { AssetPicker } from '../world/AssetPicker';
 import { useFileDrop } from '../useFileDrop';
 import { attach, attachmentContent } from './attachments';
+import { SelectionHeading } from './editing';
+import { Pages } from './pages';
 import { useAssetDropTarget } from '../assetDrag';
-import { exportPdf } from './exportDocs';
+import { exportDocx, exportPdf } from './exportDocs';
 import { openLink, placeLabel } from './places';
 import { linkTarget, placeKey, placesOf } from '../../documents/places';
 import { platform } from '../../platform';
@@ -194,7 +198,7 @@ export function DocumentView({ project, id }: { project: OpenProject; id: string
   });
 
   const editor = useEditor({
-    extensions: documentExtensions([mentionExtension(mentionItems, t('docs.insert.none'))]),
+    extensions: documentExtensions([mentionExtension(mentionItems, t('docs.insert.none')), Pages, SelectionHeading]),
     content: parseMarkdown(doc?.body ?? ''),
     editable: !readOnly,
     editorProps: {
@@ -203,7 +207,12 @@ export function DocumentView({ project, id }: { project: OpenProject; id: string
         spellcheck: 'true',
         lang: getLocale(),
         'aria-label': t('docs.text'),
+        // The page break's caption in the text (CSS shows it, see documents.css).
+        style: `--doc-break-label: "${t('docs.pageBreak.label')}"`,
       },
+      // The line being typed stays well above the bottom of the window (0.7.4: it went down to the very edge).
+      scrollThreshold: { top: 80, right: 0, bottom: Math.round(window.innerHeight * 0.3), left: 0 },
+      scrollMargin: { top: 80, right: 0, bottom: Math.round(window.innerHeight * 0.3), left: 0 },
       // Files dropped or pasted into the text go into the assets ("Document attachments") and into the text.
       handleDrop: (view, event) => {
         const files = [...(event.dataTransfer?.files ?? [])];
@@ -310,6 +319,12 @@ export function DocumentView({ project, id }: { project: OpenProject; id: string
           label={t('docs.export.pdf')}
           icon={<FileDown size={16} />}
           onClick={() => void exportPdf(project, id)}
+        />
+        <IconButton
+          size="sm"
+          label={t('docs.export.docx')}
+          icon={<FileType size={16} />}
+          onClick={() => void exportDocx(project, id)}
         />
       </header>
       {editor && !readOnly && <Toolbar project={project} editor={editor} doc={id} />}
@@ -539,9 +554,9 @@ function Toolbar({ project, editor, doc }: { project: OpenProject; editor: Edito
       {button(t('docs.redo'), <Redo2 size={16} />, false, () => chain().redo().run(), !state.canRedo)}
       <span className="doc-tool-sep" />
       {button(t('docs.paragraph'), <Pilcrow size={16} />, false, () => chain().setParagraph().run())}
-      {button(t('docs.h1'), <Heading1 size={16} />, state.h1, () => chain().toggleHeading({ level: 1 }).run())}
-      {button(t('docs.h2'), <Heading2 size={16} />, state.h2, () => chain().toggleHeading({ level: 2 }).run())}
-      {button(t('docs.h3'), <Heading3 size={16} />, state.h3, () => chain().toggleHeading({ level: 3 }).run())}
+      {button(t('docs.h1'), <Heading1 size={16} />, state.h1, () => chain().headingOfSelection(1).run())}
+      {button(t('docs.h2'), <Heading2 size={16} />, state.h2, () => chain().headingOfSelection(2).run())}
+      {button(t('docs.h3'), <Heading3 size={16} />, state.h3, () => chain().headingOfSelection(3).run())}
       <span className="doc-tool-sep" />
       {button(t('docs.bold'), <Bold size={16} />, state.bold, () => chain().toggleBold().run())}
       {button(t('docs.italic'), <Italic size={16} />, state.italic, () => chain().toggleItalic().run())}
@@ -573,6 +588,7 @@ function Toolbar({ project, editor, doc }: { project: OpenProject; editor: Edito
       {button(t('docs.ordered'), <ListOrdered size={16} />, state.ordered, () => chain().toggleOrderedList().run())}
       {button(t('docs.quote'), <Quote size={16} />, state.quote, () => chain().toggleBlockquote().run())}
       {button(t('docs.rule'), <Minus size={16} />, false, () => chain().setHorizontalRule().run())}
+      {button(t('docs.pageBreak'), <SeparatorHorizontal size={16} />, false, () => chain().setPageBreak().run())}
       <IconButton
         size="sm"
         label={state.table ? t('docs.table.menu') : t('docs.table.insert')}

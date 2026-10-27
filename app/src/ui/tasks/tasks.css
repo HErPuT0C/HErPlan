@@ -408,3 +408,9 @@
 .task-check-add .input {
   flex: 1;
 }
+
+/* A symbol may be an emoji (0.7.4): the colour emoji fonts of Windows and others after the text font. */
+.task-label-symbol,
+.label-symbol {
+  font-family: var(--font-ui), 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji';
+}

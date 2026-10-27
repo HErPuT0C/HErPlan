@@ -6,7 +6,9 @@ import { obsidianExport } from './exportMarkdown';
 import { fieldText, linkLabel } from './lookups';
 import { parseMarkdown } from './markdown';
 import { addDocument } from './model';
+import { renderDocx, type DocxInput } from './docx';
 import { pdfDefinition, renderPdf, type PdfInput } from './pdf';
+import JSZip from 'jszip';
 
 const words = {
   cards: 'Карточки',
@@ -66,6 +68,15 @@ describe('PDF of a document (F5-07)', () => {
     expect(JSON.stringify(content)).not.toContain('image');
   });
 
+  it('a page break starts a new page; one at the very end leaves no empty page (0.7.4)', async () => {
+    const def = pdfDefinition(input('# Один\n\nтекст\n\n<!-- pagebreak -->\n\n# Два\n\n<!-- pagebreak -->\n'));
+    const breaks = (def.content as Record<string, unknown>[]).filter((b) => b.pageBreak === 'after');
+    expect(breaks).toHaveLength(1);
+    const bytes = await renderPdf(input('Раз\n\n<!-- pagebreak -->\n\nДва\n\n<!-- pagebreak -->\n\nТри\n'));
+    const pages = new TextDecoder('latin1').decode(bytes).match(/\/Type \/Page\b/g) ?? [];
+    expect(pages).toHaveLength(3);
+  }, 30_000);
+
   it('draws a real PDF with Cyrillic text, a table and a list', async () => {
     const bytes = await renderPdf(
       input(
@@ -75,4 +86,52 @@ describe('PDF of a document (F5-07)', () => {
     expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe('%PDF-');
     expect(bytes.length).toBeGreaterThan(5000);
   }, 30_000);
+});
+
+describe('Word of a document (0.7.4)', () => {
+  const data = sampleProject();
+  // A one-pixel PNG.
+  const png = Uint8Array.from(
+    atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=='),
+    (c) => c.charCodeAt(0),
+  );
+  const input = (markdown: string): DocxInput => ({
+    title: 'Диздок',
+    doc: parseMarkdown(markdown),
+    page: ['Страница ', ' из ', ''],
+    pictures: new Map([['assets/a.png', { data: png, type: 'png', width: 1, height: 1 }]]),
+    label: (kind, ref) => linkLabel(data, kind, ref),
+    field: (entity, field) => fieldText(data, entity, field),
+  });
+
+  it('headings Word knows, formatting, lists, a table, a picture, a web link, page breaks; links print their names', async () => {
+    const md = [
+      '# Мельница',
+      '**Жирный** и *курсив*, <u>подчёркнутый</u>, ~~зачёркнутый~~, `код`, [сайт](https://example.com) и [[ent:ent-mira|старое]]: {{ent:ent-mira.name}}',
+      '- раз\n- два\n  1. вложенный',
+      '| Кто | Роль |\n| --- | --- |\n| Мира | Травница |',
+      '![карта](assets/a.png)',
+      '<!-- pagebreak -->',
+      '## Вторая страница',
+      '> Цитата',
+      '<!-- pagebreak -->',
+    ].join('\n\n');
+    const bytes = await renderDocx(input(md));
+    expect(new TextDecoder().decode(bytes.slice(0, 2))).toBe('PK');
+    const xml = (await (await JSZip.loadAsync(bytes)).file('word/document.xml')?.async('string')) ?? '';
+    expect(xml).toContain('w:val="Heading1"');
+    expect(xml).toContain('w:val="Heading2"');
+    expect(xml).toContain('<w:b/>');
+    expect(xml).toContain('<w:i/>');
+    expect(xml).toContain('<w:strike/>');
+    expect(xml).toContain('Consolas');
+    expect(xml).toContain('Мира');
+    expect(xml).not.toContain('старое');
+    expect(xml).toContain('<w:tbl>');
+    expect(xml).toContain('<w:numPr>');
+    expect(xml).toContain('<w:drawing>');
+    expect(xml).toContain('w:hyperlink');
+    // One page break: the one at the very end is left out.
+    expect(xml.match(/w:type="page"/g)).toHaveLength(1);
+  });
 });

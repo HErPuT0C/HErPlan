@@ -14,7 +14,8 @@ export interface DocLink {
   place?: string;
 }
 
-const LINK = /\[\[(ent|node|doc|asset):([^|\]\n]+)(?:\|[^|\]\n]*)?(?:\|([^|\]\n]+))?\]\]/g;
+// In a table cell the bars are written "\|" (a bare one would end the cell): the backslash is not the reference's.
+const LINK = /\[\[(ent|node|doc|asset):([^|\]\n\\]+)(?:\\?\|[^|\]\n]*?)?(?:\\?\|([^|\]\n\\]+))?\]\]/g;
 const FIELD = /\{\{ent:([^.}\s]+)\.([^}\s]+)\}\}/g;
 const HTML_LINK = /data-link="(ent|node|doc|asset):([^"]+)"(?: data-place="([^"]+)")?/g;
 const HTML_FIELD = /data-field="([^".]+)\.([^"]+)"/g;

@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { listEntities } from '../story/entities';
 import { tutorialProject } from '../tutorial/project';
-import { entitySearchText, findMentions, mentionIndex, mentionTargets, type MentionTarget } from './mentions';
+import {
+  entitySearchText,
+  findMentions,
+  mentionIndex,
+  mentionOptions,
+  mentionQuery,
+  mentionTargets,
+  type MentionTarget,
+} from './mentions';
 
 const { data } = tutorialProject('ru', '0.7.3', new Date('2026-10-26T10:00:00Z'));
 const index = mentionIndex(mentionTargets(data));
@@ -45,5 +53,20 @@ describe('names of cards and tags in descriptions (0.7.3)', () => {
     expect(text).toContain('Ученица смотрителя');
     expect(text).toContain('Смелая');
     expect(text).toContain('15');
+  });
+
+  it('"@" offers cards and tags, fewer with each letter, names that start with it first (0.7.4)', () => {
+    expect(mentionQuery('Её учит @я', 10)).toEqual({ start: 8, query: 'я' });
+    expect(mentionQuery('@', 1)).toEqual({ start: 0, query: '' });
+    // An address is not a mention; nor is "@" with a space after it.
+    expect(mentionQuery('mail@host', 9)).toBeNull();
+    expect(mentionQuery('@ник а', 6)).toBeNull();
+    const targets = mentionTargets(data);
+    const names = (q: string) => mentionOptions(targets, q).map((x) => x.name);
+    expect(names('')).toHaveLength(8);
+    expect(names('ни')[0]).toBe('Ника');
+    expect(names('смел')).toEqual(['Смелая']);
+    expect(names('я')[0]).toBe('Ян');
+    expect(mentionOptions(targets, 'ника', { kind: 'entity', id: 'tut-nika', name: 'Ника' })).toEqual([]);
   });
 });

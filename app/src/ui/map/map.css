@@ -105,3 +105,32 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* A picture of the objects list, shown bigger while pointed at (0.7.4). */
+.map-preview {
+  position: fixed;
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 260px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-popup);
+  pointer-events: none;
+}
+.map-preview img {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--surface-1, transparent);
+}
+.map-preview span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

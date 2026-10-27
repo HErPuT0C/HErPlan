@@ -1,19 +1,39 @@
 // A description that links the names in it (0.7.3): read, it shows the names of cards and tags of the
 // project as links (a click opens the card or the catalog); a click anywhere else, or Tab into it, turns it
 // into the plain text box with the caret where the click was. The text itself stays plain.
+// 0.7.4: "@" in the text box offers the cards and tags, fewer with each letter typed; Enter, Tab or a click
+// puts the whole name in place of "@…".
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { useStore } from '../../core/useStore';
 import { t } from '../../i18n';
 import { openCatalog, openEntity } from '../../state/navigation';
 import type { OpenProject } from '../../state/project';
-import { findMentions, mentionIndex, mentionTargets, type MentionTarget } from '../../world/mentions';
+import {
+  findMentions,
+  mentionIndex,
+  mentionOptions,
+  mentionQuery,
+  mentionTargets,
+  type MentionTarget,
+} from '../../world/mentions';
+import { typesFile } from '../../world/schema';
+import { typeName } from './typeNames';
 
-/** The names to look for, made again only when cards or catalogs change. */
+/** The names to look for and to offer after "@", made again only when cards or catalogs change. */
 export function useMentionIndex(project: OpenProject) {
   const entities = useStore(project.store, (s) => s.entities);
   const types = useStore(project.store, (s) => s.types);
-  return useMemo(() => mentionIndex(mentionTargets({ entities, types })), [entities, types]);
+  return useMemo(() => {
+    const targets = mentionTargets({ entities, types });
+    const schema = typesFile({ types });
+    // What each name is, for the list after "@": the type of a card, the catalog of a tag.
+    const hint = (x: MentionTarget) =>
+      x.kind === 'entity'
+        ? typeName(schema.types.find((ty) => ty.id === (entities[x.id] as { type?: string } | undefined)?.type))
+        : t('mention.tagOf', { catalog: schema.catalogs.find((c) => c.id === x.catalog)?.name ?? '' });
+    return { index: mentionIndex(targets), targets, hint };
+  }, [entities, types]);
 }
 
 export function openMention(target: MentionTarget): void {
@@ -62,8 +82,10 @@ export function MentionText({
   autoFocus?: boolean;
 }) {
   const readOnly = project.readOnly;
-  const index = useMentionIndex(project);
+  const { index, targets, hint } = useMentionIndex(project);
   const [editing, setEditing] = useState(autoFocus && !readOnly);
+  const [suggest, setSuggest] = useState<{ start: number; query: string } | null>(null);
+  const [active, setActive] = useState(0);
   const caret = useRef<number | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const view = useRef<HTMLDivElement>(null);
@@ -84,26 +106,92 @@ export function MentionText({
   }, [editing]);
 
   const classes = ['input', 'textarea', className].filter(Boolean).join(' ');
-  if (editing)
+  if (editing) {
+    const options = suggest ? mentionOptions(targets, suggest.query, self) : [];
+    const look = (el: HTMLTextAreaElement) => {
+      const found = mentionQuery(el.value, el.selectionStart);
+      setSuggest(found);
+      if (found?.query !== suggest?.query) setActive(0);
+    };
+    const pick = (target: MentionTarget) => {
+      const el = box.current;
+      if (!el || !suggest) return;
+      const end = el.selectionStart;
+      const text = `${value.slice(0, suggest.start)}${target.name} ${value.slice(end)}`;
+      const at = suggest.start + target.name.length + 1;
+      onChange(text);
+      setSuggest(null);
+      requestAnimationFrame(() => box.current?.setSelectionRange(at, at));
+    };
+    const listId = `${id ?? 'mention'}-options`;
     return (
-      <textarea
-        ref={box}
-        id={id}
-        className={classes}
-        value={value}
-        rows={rows}
-        placeholder={placeholder}
-        aria-label={label}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={() => {
-          setEditing(false);
-          onDone?.();
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') box.current?.blur();
-        }}
-      />
+      <div className={['mention-edit', className && `${className}-wrap`].filter(Boolean).join(' ')}>
+        <textarea
+          ref={box}
+          id={id}
+          className={classes}
+          value={value}
+          rows={rows}
+          placeholder={placeholder}
+          aria-label={label}
+          aria-autocomplete="list"
+          aria-controls={options.length ? listId : undefined}
+          aria-activedescendant={options.length ? `${listId}-${Math.min(active, options.length - 1)}` : undefined}
+          onChange={(e) => {
+            onChange(e.target.value);
+            look(e.target);
+          }}
+          onSelect={(e) => look(e.currentTarget)}
+          onBlur={() => {
+            setSuggest(null);
+            setEditing(false);
+            onDone?.();
+          }}
+          onKeyDown={(e) => {
+            if (options.length) {
+              const keys: Record<string, () => void> = {
+                ArrowDown: () => setActive((a) => (a + 1) % options.length),
+                ArrowUp: () => setActive((a) => (a - 1 + options.length) % options.length),
+                Enter: () => pick(options[Math.min(active, options.length - 1)]),
+                Tab: () => pick(options[Math.min(active, options.length - 1)]),
+                Escape: () => setSuggest(null),
+              };
+              const run = keys[e.key];
+              if (run) {
+                e.preventDefault();
+                e.stopPropagation();
+                run();
+                return;
+              }
+            }
+            if (e.key === 'Escape') box.current?.blur();
+          }}
+        />
+        {options.length > 0 && (
+          <ul className="mention-options" role="listbox" id={listId} aria-label={t('mention.options')}>
+            {options.map((x, i) => (
+              <li
+                key={`${x.kind}:${x.id}`}
+                id={`${listId}-${i}`}
+                role="option"
+                aria-selected={i === Math.min(active, options.length - 1)}
+                className="mention-option"
+                // The text box keeps the focus.
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pick(x);
+                }}
+                onMouseEnter={() => setActive(i)}
+              >
+                <span className="mention-option-name">{x.name}</span>
+                <span className="muted small">{hint(x)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     );
+  }
 
   const edit = (e: ReactMouseEvent) => {
     if (readOnly || (e.target as HTMLElement).closest('.mention-link')) return;

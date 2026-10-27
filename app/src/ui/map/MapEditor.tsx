@@ -229,6 +229,8 @@ function ObjectList({
 }) {
   const data = useStore(project.store, (s) => s);
   const [query, setQuery] = useState('');
+  // A picture pointed at in the list shows itself beside the list (0.7.4).
+  const [preview, setPreview] = useState<{ path: string; top: number; left: number } | null>(null);
   const assets = useAsync(() => platform().listAssets(project.dir), [project.dir], null);
   const schema = useMemo(() => typesFile(data), [data]);
   const groups = useMemo(() => {
@@ -290,7 +292,16 @@ function ObjectList({
                   type="button"
                   className="schema-item map-object"
                   title={item.hint || item.label}
-                  onPointerDown={onStart(item)}
+                  onPointerDown={(e) => {
+                    setPreview(null);
+                    onStart(item)(e);
+                  }}
+                  onMouseEnter={(e) => {
+                    if (kind !== 'asset' || document.documentElement.dataset.dragging !== undefined) return;
+                    const r = e.currentTarget.getBoundingClientRect();
+                    setPreview({ path: item.ref.id, top: r.top, left: r.right + 8 });
+                  }}
+                  onMouseLeave={() => setPreview(null)}
                 >
                   <RefIcon kind={kind} />
                   <span className="docs-item-name">{item.label}</span>
@@ -301,7 +312,34 @@ function ObjectList({
           );
         })}
       </div>
+      {preview && <PicturePreview project={project} {...preview} />}
     </nav>
+  );
+}
+
+/** A picture of the list, bigger, beside it while it is pointed at. */
+function PicturePreview({
+  project,
+  path,
+  top,
+  left,
+}: {
+  project: OpenProject;
+  path: string;
+  top: number;
+  left: number;
+}) {
+  const url = useAsync(() => platform().assetUrl(project.dir, path), [project.dir, path], '');
+  if (!url) return null;
+  return (
+    <div
+      className="map-preview"
+      style={{ top: Math.max(8, Math.min(top - 40, window.innerHeight - 260)), left }}
+      aria-hidden="true"
+    >
+      <img src={url} alt="" draggable={false} />
+      <span className="muted small">{path.replace(/^assets\//, '')}</span>
+    </div>
   );
 }
 

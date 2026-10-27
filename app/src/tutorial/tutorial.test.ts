@@ -77,6 +77,18 @@ describe.each<Locale>(['ru', 'en'])('the tutorial project (F7-05), %s', (locale)
     expect(listLabels(data).map((l) => l.pattern)).toEqual(['stripes', 'dots', 'grid', 'waves']);
   });
 
+  it('tables of its documents have their columns: a link in a cell does not split it (0.7.4)', () => {
+    for (const doc of listDocuments(data)) {
+      const parsed = parseMarkdown(doc.body);
+      for (const table of (parsed.content ?? []).filter((b) => b.type === 'table')) {
+        const widths = (table.content ?? []).map((row) => row.content?.length);
+        expect(new Set(widths).size, doc.path).toBe(1);
+        // A link split by the cell would be left as text with "[[" in it.
+        expect(JSON.stringify(table), doc.path).not.toContain('[[');
+      }
+    }
+  });
+
   it('documents are written and read back by the Markdown save without a change', () => {
     for (const doc of listDocuments(data)) {
       const parsed = parseMarkdown(doc.body);

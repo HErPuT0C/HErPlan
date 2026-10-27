@@ -14,6 +14,7 @@ import {
   type MarkdownToken,
 } from '@tiptap/core';
 import { DOMParser as PmDOMParser, Node as PmNode, type Schema } from '@tiptap/pm/model';
+import { TextSelection } from '@tiptap/pm/state';
 import Bold from '@tiptap/extension-bold';
 import Italic from '@tiptap/extension-italic';
 import Link from '@tiptap/extension-link';
@@ -408,6 +409,74 @@ const ProjectImage = Image.extend({
   },
 });
 
+// ---------- pages ----------
+
+/** How a page break is written: an HTML comment, which Obsidian and other readers do not show. */
+export const PAGE_BREAK_MARKDOWN = '<!-- pagebreak -->';
+
+declare module '@tiptap/core' {
+  interface Commands<ReturnType> {
+    pageBreak: { setPageBreak: () => ReturnType };
+  }
+}
+
+/**
+ * A page break (0.7.4): what comes after it starts a new page in the editor's pages, in the PDF and in Word.
+ * Ctrl+Enter puts one where the cursor is.
+ */
+export const PageBreak = Node.create({
+  name: 'pageBreak',
+  // Ctrl+Enter is a line break too (HardBreak): the page break comes first.
+  priority: 200,
+  group: 'block',
+  atom: true,
+  selectable: true,
+  parseHTML() {
+    return [{ tag: 'div[data-page-break]' }];
+  },
+  renderHTML() {
+    return ['div', { 'data-page-break': '', class: 'doc-page-break', contenteditable: 'false' }];
+  },
+  addCommands() {
+    return {
+      // The cursor goes on after the break (left selected, the break was replaced by the next letter typed).
+      setPageBreak:
+        () =>
+        ({ chain, state }) => {
+          // Not inside a table: it would be cut in two.
+          const $from = state.selection.$from;
+          for (let d = $from.depth; d > 0; d--) if ($from.node(d).type.name === 'table') return false;
+          return chain()
+            .insertContent({ type: 'pageBreak' })
+            .command(({ tr, state }) => {
+              const pos = tr.selection.to;
+              // Not put in (inside a table cell, which holds one line): nothing more to do.
+              if (tr.doc.resolve(pos).nodeBefore?.type.name !== 'pageBreak') return true;
+              const next = tr.doc.resolve(pos).nodeAfter;
+              if (!next?.isTextblock) tr.insert(pos, state.schema.nodes.paragraph.create());
+              tr.setSelection(TextSelection.create(tr.doc, pos + 1));
+              return true;
+            })
+            .run();
+        },
+    };
+  },
+  addKeyboardShortcuts() {
+    return { 'Mod-Enter': () => this.editor.commands.setPageBreak() };
+  },
+  markdownTokenizer: {
+    name: 'pageBreak',
+    level: 'block',
+    start: (src: string) => src.indexOf('<!--'),
+    tokenize(src: string) {
+      const m = /^<!--\s*pagebreak\s*-->[ \t]*(?:\n+|$)/.exec(src);
+      return m ? ({ type: 'pageBreak', raw: m[0] } as MarkdownToken) : undefined;
+    },
+  },
+  parseMarkdown: (_token, h) => h.createNode('pageBreak'),
+  renderMarkdown: () => PAGE_BREAK_MARKDOWN,
+});
+
 // ---------- empty blocks ----------
 
 /**
@@ -458,6 +527,7 @@ export function documentExtensions(extra: AnyExtension[] = []): AnyExtension[] {
     TableHeader.extend({ content: 'paragraph' }),
     TableCell.extend({ content: 'paragraph' }),
     ProjectImage.configure({ inline: false, allowBase64: false }),
+    PageBreak,
     ObjectLink,
     LiveField,
     Markdown,

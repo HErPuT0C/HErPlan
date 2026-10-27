@@ -24,6 +24,19 @@ function roundTrip(...blocks: JSONContent[]) {
 }
 
 describe('the self-checking Markdown save (F5-10)', () => {
+  it('keeps page breaks as an HTML comment, between any blocks and at the ends (0.7.4)', () => {
+    const brk: JSONContent = { type: 'pageBreak' };
+    const h = (t: string): JSONContent => ({ type: 'heading', attrs: { level: 1 }, content: [text(t)] });
+    expect(roundTrip(h('Глава'), p(text('Раз')), brk, h('Вторая'), brk, p(text('Два')))).toBe(
+      '# Глава\n\nРаз\n\n<!-- pagebreak -->\n\n# Вторая\n\n<!-- pagebreak -->\n\nДва\n',
+    );
+    roundTrip(brk, p(text('после')));
+    roundTrip(p(text('до')), brk);
+    roundTrip({ type: 'bulletList', content: [{ type: 'listItem', content: [p(text('пункт'))] }] }, brk, brk);
+    // Other comments are left as they were.
+    expect(parseMarkdown('<!-- note -->\n\nтекст').content?.some((b) => b.type === 'pageBreak')).toBe(false);
+  });
+
   it('writes ordinary Markdown when it reads back the same', () => {
     expect(roundTrip(p(text('Мира', 'bold'), text(' пришла к '), text('мельнице', 'italic')))).toBe(
       '**Мира** пришла к *мельнице*\n',

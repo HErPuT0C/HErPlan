@@ -25,7 +25,9 @@ type Pdf = Record<string, unknown>;
 const ACCENT = '#1d5fd1';
 const MUTED = '#5b6270';
 const LINE = '#c4c9d2';
-const PAGE_WIDTH = 515; // A4 (595) minus the margins
+/** Margins of 2 cm, as the editor's sheets (0.7.4). */
+const MARGIN = 57;
+const PAGE_WIDTH = 595 - 2 * MARGIN; // A4 minus the margins
 
 function runs(nodes: JSONContent[] | undefined, input: PdfInput): Pdf[] {
   const out: Pdf[] = [];
@@ -130,6 +132,9 @@ function block(n: JSONContent, input: PdfInput): Pdf | null {
         canvas: [{ type: 'line', x1: 0, y1: 0, x2: PAGE_WIDTH, y2: 0, lineWidth: 0.5, lineColor: LINE }],
         margin: [0, 8, 0, 8],
       };
+    // A page break (0.7.4): what follows starts a new page.
+    case 'pageBreak':
+      return { text: '', pageBreak: 'after' };
     case 'image': {
       const data = input.images.get(String(n.attrs?.src ?? ''));
       return data ? { image: data, fit: [PAGE_WIDTH, 360], alignment: 'center', margin: [0, 6, 0, 10] } : null;
@@ -142,11 +147,13 @@ function block(n: JSONContent, input: PdfInput): Pdf | null {
 /** The description of the PDF for pdfmake (a plain object; tested without drawing it). */
 export function pdfDefinition(input: PdfInput): Pdf {
   const body = blocks(input.doc.content, input);
+  // A page break at the very end would leave an empty page.
+  while (body.at(-1)?.pageBreak) body.pop();
   const headings = body.filter((b) => b.tocItem).length;
   return {
     info: { title: input.title, creator: 'HErPlan' },
     pageSize: 'A4',
-    pageMargins: [40, 50, 40, 56],
+    pageMargins: [MARGIN, MARGIN, MARGIN, MARGIN],
     defaultStyle: { font: 'Roboto', fontSize: 10.5, lineHeight: 1.3 },
     styles: {
       h1: { fontSize: 20, bold: true, margin: [0, 14, 0, 8] },

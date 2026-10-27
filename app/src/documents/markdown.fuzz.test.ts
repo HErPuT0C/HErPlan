@@ -106,7 +106,7 @@ export function fuzz(runs: number, steps: number, trace?: (line: string) => void
           chain.toggleMark(m, attrs).run();
           ops.push(`mark ${m} ${a}-${b}`);
         } else if (op === 'block') {
-          const k = pick(['h1', 'h2', 'bullet', 'ordered', 'quote', 'para']);
+          const k = pick(['h1', 'h2', 'bullet', 'ordered', 'quote', 'para', 'page']);
           const c = chain as unknown as Record<string, (x?: unknown) => { run: () => boolean }>;
           const blocks: Record<string, () => { run: () => boolean }> = {
             h1: () => c.toggleHeading({ level: 1 }),
@@ -115,6 +115,7 @@ export function fuzz(runs: number, steps: number, trace?: (line: string) => void
             ordered: () => c.toggleOrderedList(),
             quote: () => c.toggleBlockquote(),
             para: () => c.setParagraph(),
+            page: () => c.setPageBreak(),
           };
           blocks[k]().run();
           ops.push(`block ${k} @${a}`);

@@ -43,6 +43,19 @@ export function normalizeColor(text: string): string | null {
   return HEX.test(full) ? full.toLowerCase() : null;
 }
 
+/**
+ * The symbol of a label: at most two characters as a person sees them (0.7.4: an emoji made of several code
+ * points — a skin tone, "👨‍💻", a flag — is one character and is kept whole).
+ */
+export function labelSymbol(text: string): string {
+  const parts = Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text.trim()));
+  return parts
+    .slice(0, 2)
+    .map((p) => p.segment)
+    .join('')
+    .trim();
+}
+
 export function listLabels(data: Pick<ProjectData, 'variables'>): ProjectLabel[] {
   const raw = (data.variables as { labels?: unknown }).labels;
   return (Array.isArray(raw) ? raw : [])
@@ -52,7 +65,7 @@ export function listLabels(data: Pick<ProjectData, 'variables'>): ProjectLabel[]
       name: typeof l.name === 'string' ? l.name : '',
       color: (typeof l.color === 'string' && normalizeColor(l.color)) || '#8a8f98',
       pattern: LABEL_PATTERNS.includes(l.pattern as LabelPattern) ? (l.pattern as LabelPattern) : 'none',
-      symbol: typeof l.symbol === 'string' ? l.symbol.slice(0, 2) : '',
+      symbol: typeof l.symbol === 'string' ? labelSymbol(l.symbol) : '',
     }));
 }
 
@@ -80,7 +93,7 @@ export function updateLabel(
     if (!color) delete patch.color;
     else patch.color = color;
   }
-  if (patch.symbol !== undefined) patch.symbol = [...patch.symbol.trim()].slice(0, 2).join('');
+  if (patch.symbol !== undefined) patch.symbol = labelSymbol(patch.symbol);
   Object.assign(l, patch);
 }
 

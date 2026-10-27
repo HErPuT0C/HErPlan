@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { JsonObject } from '../core/project/types';
 import { allFiles } from '../core/project/files';
 import { sampleProject } from '../story/sample';
-import { addLabel, deleteLabel, listLabels, normalizeColor, textOn, updateLabel } from './labels';
+import { addLabel, deleteLabel, labelSymbol, listLabels, normalizeColor, textOn, updateLabel } from './labels';
 import {
   addBoard,
   addCheck,
@@ -165,6 +165,10 @@ describe('tasks (F6)', () => {
     const gone = produce(labelled, (d) => deleteLabel(d, label));
     expect(listLabels(gone)).toEqual([]);
     expect(findTask(gone, t)!.task.labels).toEqual([]);
+    // Emoji of several code points are one character each (0.7.4).
+    expect(labelSymbol('👨‍💻👍🏽 и ещё')).toBe('👨‍💻👍🏽');
+    expect(labelSymbol('🇷🇺!')).toBe('🇷🇺!');
+    expect(labelSymbol('  Б ')).toBe('Б');
     expect(normalizeColor('#ABC')).toBe('#aabbcc');
     expect(textOn('#ffffff')).toBe('#14161a');
     expect(textOn('#14161a')).toBe('#ffffff');

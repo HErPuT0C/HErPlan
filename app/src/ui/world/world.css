@@ -104,6 +104,44 @@
 .mention-link:hover {
   text-decoration-thickness: 2px;
 }
+.mention-edit {
+  position: relative;
+}
+.world-tag-note > .mention-edit {
+  flex-basis: 100%;
+}
+.mention-options {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 2px);
+  left: 0;
+  min-width: 240px;
+  max-width: 100%;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-popup);
+}
+.mention-option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+}
+.mention-option[aria-selected='true'] {
+  background: var(--surface-3);
+}
+.mention-option-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .world-tag-note > .world-tag-text.mention-view {
   flex: 1 1 auto;
   min-height: 0 !important;

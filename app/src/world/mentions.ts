@@ -2,6 +2,7 @@
 // catalog shows that name as a link to it. Nothing is stored: the names are found in the plain text each
 // time, so a renamed card is found under its new name and a deleted one is no longer a link.
 
+import { searchKey } from '../canvas/ops';
 import type { ProjectData } from '../core/project/types';
 import { listEntities, type WorldEntity } from '../story/entities';
 import { typesFile } from './schema';
@@ -102,4 +103,26 @@ export function entitySearchText(data: Pick<ProjectData, 'entities' | 'types'>, 
   Object.values(e.values).forEach(add);
   for (const r of e.relations) parts.push(r.label, names.get(r.to.id) ?? '', r.description);
   return parts.filter(Boolean).join('\n');
+}
+
+/** "@" and what is typed after it, up to the caret: the start of "@" and the query, or null. */
+export function mentionQuery(text: string, caret: number): { start: number; query: string } | null {
+  const m = /(^|[\s([«"„'])@([^\s@]{0,40})$/u.exec(text.slice(0, caret));
+  return m ? { start: caret - m[2].length - 1, query: m[2] } : null;
+}
+
+/** Cards and tags for "@query": names that start with it first, at most eight. */
+export function mentionOptions(
+  targets: readonly MentionTarget[],
+  query: string,
+  self?: MentionTarget,
+): MentionTarget[] {
+  const q = searchKey(query);
+  const hits = targets.filter(
+    (x) => !(self && x.kind === self.kind && x.id === self.id) && (!q || searchKey(x.name).includes(q)),
+  );
+  return [
+    ...hits.filter((x) => searchKey(x.name).startsWith(q)),
+    ...hits.filter((x) => !searchKey(x.name).startsWith(q)),
+  ].slice(0, 8);
 }

@@ -165,7 +165,6 @@ function LabelRow({ project, label, uses }: { project: OpenProject; label: Proje
         <input
           className="input label-symbol"
           value={label.symbol}
-          maxLength={4}
           placeholder="★"
           disabled={readOnly}
           aria-label={t('labels.symbol')}
