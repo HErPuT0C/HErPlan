@@ -23,6 +23,7 @@ import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table
 import Image from '@tiptap/extension-image';
 import { Markdown, MarkdownManager } from '@tiptap/markdown';
 import Heading from '@tiptap/extension-heading';
+import { ListItem } from '@tiptap/extension-list';
 import Paragraph from '@tiptap/extension-paragraph';
 import StarterKit from '@tiptap/starter-kit';
 
@@ -500,6 +501,32 @@ const KeptHeading = Heading.extend({
   },
 });
 
+// ---------- list items ----------
+
+const LISTS = new Set(['bulletList', 'orderedList']);
+
+/**
+ * A list item writes a blank line before every block in it but a list (the stock writer does so before
+ * paragraphs only): with "- one\n  ## heading" the reader takes the list as tight and reads the lines after the
+ * heading differently — inline HTML in them lost its marks (found by the fuzzer, 0.7.4).
+ */
+const KeptListItem = ListItem.extend({
+  renderMarkdown(node, h, ctx) {
+    const children = node.content ?? [];
+    // Blocks after the first are written as the stock writer writes paragraphs (with a blank line before),
+    // each still by its own writer.
+    const apart = {
+      ...node,
+      content: children.map((c, i) => (i > 0 && !LISTS.has(String(c.type)) ? { ...c, type: 'paragraph' } : c)),
+    };
+    const writer = Object.assign(Object.create(h) as typeof h, {
+      renderChild: (_child: JSONContent, index: number) => h.renderChildren([children[index]]),
+    });
+    const stock = ListItem.config.renderMarkdown as (n: JSONContent, w: typeof h, c: typeof ctx) => string;
+    return stock.call(this, apart, writer, ctx);
+  },
+});
+
 // ---------- the schema ----------
 
 /** Everything a document can hold, the same for the editor and for reading and writing files. */
@@ -513,7 +540,9 @@ export function documentExtensions(extra: AnyExtension[] = []): AnyExtension[] {
       link: false,
       paragraph: false,
       heading: false,
+      listItem: false,
     }),
+    KeptListItem,
     KeptParagraph,
     KeptHeading,
     SafeBold,

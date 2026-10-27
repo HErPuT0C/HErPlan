@@ -36,6 +36,19 @@ describe('the self-checking Markdown save (F5-10)', () => {
     // A heading in a list item with lines after it (found by the fuzzer).
     const item = (...content: JSONContent[]): JSONContent => ({ type: 'listItem', content });
     roundTrip({ type: 'bulletList', content: [item(p(text('раз')), h('заг'), p(text('два'))), item(p(text('три')))] });
+    // …with marks that only inline HTML keeps (a link right after bold text): a blank line before the heading
+    // makes the list loose, so they are read back too.
+    const written = roundTrip({
+      type: 'bulletList',
+      content: [
+        item(
+          p(text('раз')),
+          h('заг'),
+          p(text('ё', 'italic'), text('щ', 'bold'), link('ent-mira', 'bold'), text(' хвост', 'strike')),
+        ),
+      ],
+    });
+    expect(written).toContain('\n\n  # заг');
     // Other comments are left as they were.
     expect(parseMarkdown('<!-- note -->\n\nтекст').content?.some((b) => b.type === 'pageBreak')).toBe(false);
   });
