@@ -118,11 +118,10 @@ test('documents: a heading of the selected words, A4 sheets with a page break, W
   await page.keyboard.press('Control+Enter');
   await page.keyboard.type('Вторая страница');
   await expect(page.locator('.doc-text .doc-page-break')).toHaveCount(1);
-  const top = await page.evaluate(() => {
-    const root = document.querySelector('.doc-text')!.getBoundingClientRect().top;
-    const p = [...document.querySelectorAll('.doc-text > p')].find((x) => x.textContent === 'Вторая страница')!;
-    return p.getBoundingClientRect().top - root;
-  });
+  const second = page.locator('.doc-text p').filter({ hasText: 'Вторая страница' });
+  await expect(second).toHaveCount(1);
+  const sheet = (await page.locator('.doc-text').boundingBox())!;
+  const top = (await second.boundingBox())!.y - sheet.y;
   // The second sheet's text starts 1123 + 24 + 76 px from the top of the first.
   expect(top).toBeGreaterThanOrEqual(1223 - 2);
   expect(top).toBeLessThan(1223 + 40);
