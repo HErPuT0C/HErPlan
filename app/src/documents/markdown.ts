@@ -422,7 +422,8 @@ declare module '@tiptap/core' {
 
 /**
  * A page break (0.7.4): what comes after it starts a new page in the editor's pages, in the PDF and in Word.
- * Ctrl+Enter puts one where the cursor is.
+ * Ctrl+Enter puts one where the cursor is; in a list or a quote, after it (Markdown cannot keep one inside a
+ * list item: what follows it in the item would be read differently).
  */
 export const PageBreak = Node.create({
   name: 'pageBreak',
@@ -446,8 +447,9 @@ export const PageBreak = Node.create({
           // Not inside a table: it would be cut in two.
           const $from = state.selection.$from;
           for (let d = $from.depth; d > 0; d--) if ($from.node(d).type.name === 'table') return false;
+          const inside = $from.depth > 1 && $from.node(1).type.name !== 'paragraph';
           return chain()
-            .insertContent({ type: 'pageBreak' })
+            .insertContentAt(inside ? $from.after(1) : state.selection, { type: 'pageBreak' })
             .command(({ tr, state }) => {
               const pos = tr.selection.to;
               // Not put in (inside a table cell, which holds one line): nothing more to do.
@@ -671,9 +673,39 @@ function markdown(): MarkdownManager {
   return (manager ??= safeInline(marksOnEmbeds(new MarkdownManager({ extensions: documentExtensions() }))));
 }
 
+/** Nodes of a line, as opposed to blocks: they live in a paragraph or a heading. */
+const INLINE = new Set(['text', 'objectLink', 'liveField', 'hardBreak']);
+
+/**
+ * In a list item whose lines are not apart (a "tight" list), the reader gives the lines after a heading as bare
+ * text instead of a paragraph (found by the fuzzer, 0.7.4): such text goes back into a paragraph.
+ */
+function wrapLines(node: JSONContent): JSONContent {
+  if (!node.content) return node;
+  const content = node.content.map(wrapLines);
+  if (node.type !== 'listItem' && node.type !== 'blockquote') return { ...node, content };
+  const out: JSONContent[] = [];
+  for (const child of content) {
+    if (!INLINE.has(String(child.type))) {
+      out.push(child);
+      continue;
+    }
+    const last = out.at(-1);
+    if (last?.type === 'paragraph' && last.wrapped) last.content = [...(last.content ?? []), child];
+    else out.push({ type: 'paragraph', wrapped: true, content: [child] } as JSONContent);
+  }
+  for (const b of out) delete (b as { wrapped?: boolean }).wrapped;
+  return { ...node, content: out };
+}
+
+/** Markdown → the editor's document as read, before empty paragraphs are made empty. */
+function read(text: string): JSONContent {
+  return wrapLines(markdown().parse(text));
+}
+
 /** Markdown (without front matter) → the editor's document. */
 export function parseMarkdown(text: string): JSONContent {
-  const doc = emptyParagraphs(markdown().parse(text));
+  const doc = emptyParagraphs(read(text));
   return doc.content?.length ? doc : { type: 'doc', content: [{ type: 'paragraph' }] };
 }
 
@@ -873,7 +905,7 @@ export function writeMarkdown(doc: JSONContent): Written {
       return known.text;
     }
     let text = apart(serialize([block], false).replace(/^\n+/, ''));
-    const safe = !same(markdown().parse(text).content ?? [], [block]);
+    const safe = !same(read(text).content ?? [], [block]);
     if (safe) {
       safeBlocks++;
       text = apart(serialize([block], true).replace(/^\n+/, ''));
@@ -883,7 +915,7 @@ export function writeMarkdown(doc: JSONContent): Written {
     return text;
   });
   const text = parts.join('\n\n');
-  const back = markdown().parse(text).content ?? [];
+  const back = read(text).content ?? [];
   return { text: text.endsWith('\n') || !text ? text : `${text}\n`, exact: same(back, blocks), safeBlocks };
 }
 
@@ -915,5 +947,5 @@ function headerRow(block: JSONContent): JSONContent {
 
 /** For tests: is the text read back as this document. */
 export function readsBackAs(text: string, doc: JSONContent): boolean {
-  return same(markdown().parse(text).content ?? [], doc.content ?? []);
+  return same(read(text).content ?? [], doc.content ?? []);
 }

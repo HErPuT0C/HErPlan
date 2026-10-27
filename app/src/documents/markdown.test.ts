@@ -33,6 +33,9 @@ describe('the self-checking Markdown save (F5-10)', () => {
     roundTrip(brk, p(text('после')));
     roundTrip(p(text('до')), brk);
     roundTrip({ type: 'bulletList', content: [{ type: 'listItem', content: [p(text('пункт'))] }] }, brk, brk);
+    // A heading in a list item with lines after it (found by the fuzzer).
+    const item = (...content: JSONContent[]): JSONContent => ({ type: 'listItem', content });
+    roundTrip({ type: 'bulletList', content: [item(p(text('раз')), h('заг'), p(text('два'))), item(p(text('три')))] });
     // Other comments are left as they were.
     expect(parseMarkdown('<!-- note -->\n\nтекст').content?.some((b) => b.type === 'pageBreak')).toBe(false);
   });

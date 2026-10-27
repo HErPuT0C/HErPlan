@@ -41,3 +41,32 @@ describe('a heading made from a selection (0.7.4)', () => {
     for (const e of [start, end, cursor]) e.destroy();
   });
 });
+
+describe('a page break (0.7.4)', () => {
+  const make = (content: JSONContent[]) =>
+    new Editor({ extensions: documentExtensions([SelectionHeading]), content: { type: 'doc', content } });
+  const para = (t: string): JSONContent => ({ type: 'paragraph', content: [{ type: 'text', text: t }] });
+
+  it('cuts a paragraph where the cursor is and leaves the cursor after it', () => {
+    const e = make([para('раздва')]);
+    e.chain().setTextSelection(4).setPageBreak().run();
+    e.commands.insertContent('Х');
+    expect((e.getJSON().content ?? []).map((b) => b.type)).toEqual(['paragraph', 'pageBreak', 'paragraph']);
+    expect(e.getText()).toContain('Хдва');
+    e.destroy();
+  });
+
+  it('in a list goes after the list; in a table it is not put', () => {
+    const list = make([
+      { type: 'bulletList', content: [{ type: 'listItem', content: [para('пункт')] }] },
+      para('после'),
+    ]);
+    list.chain().setTextSelection(4).setPageBreak().run();
+    expect((list.getJSON().content ?? []).map((b) => b.type)).toEqual(['bulletList', 'pageBreak', 'paragraph']);
+    const table = make([]);
+    table.commands.insertTable({ rows: 2, cols: 2 });
+    expect(table.commands.setPageBreak()).toBe(false);
+    expect(JSON.stringify(table.getJSON())).not.toContain('pageBreak');
+    for (const e of [list, table]) e.destroy();
+  });
+});
