@@ -98,7 +98,7 @@ test('search finds folders by name and keeps them in the tree', async ({ page })
   // The folder and the file inside it are found.
   await expect(page.locator('.asset-item-folder', { hasText: 'Персонажи' })).toBeVisible();
   await expect(page.locator('.asset-item', { hasText: 'mira.png' })).toBeVisible();
-  await page.locator('.asset-item-folder', { hasText: 'Персонажи' }).click();
+  await page.locator('.asset-item-folder', { hasText: 'Персонажи' }).dblclick();
   await expect(page.getByRole('searchbox', { name: 'Поиск папок и файлов' })).toHaveValue('');
   await expect(page.locator('.asset-item', { hasText: 'mira.png' })).toBeVisible();
   expect(errors).toEqual([]);

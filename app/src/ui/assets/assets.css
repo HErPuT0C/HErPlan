@@ -127,3 +127,21 @@
     width: 170px;
   }
 }
+
+/* Several picked at once (0.7.5): the frame drawn with the mouse, the count in the bar. */
+.assets-frame {
+  position: fixed;
+  z-index: 50;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  pointer-events: none;
+}
+.assets-picked {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.assets-content:focus {
+  outline: none;
+}

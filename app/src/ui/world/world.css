@@ -106,6 +106,14 @@
 }
 .mention-edit {
   position: relative;
+  min-width: 0;
+}
+/* The text box fills the width and wraps its lines; only its height follows the text (0.7.5: in the wrapper
+   added for "@" it took the width of its text and grew sideways). */
+.mention-edit > textarea {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
 }
 .world-tag-note > .mention-edit {
   flex-basis: 100%;

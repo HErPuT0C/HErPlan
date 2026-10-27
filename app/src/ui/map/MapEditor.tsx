@@ -194,10 +194,20 @@ function MapWorkspace({ project, graphId }: { project: OpenProject; graphId: str
   // A picture dragged from the assets tab (0.7.3) goes onto the map where it is let go.
   const assetOver = useAssetDropTarget(canvasBox, {
     accepts: (path, folder) => !readOnly && !folder && IMAGE_EXT.test(path),
-    drop: (path, point) => {
+    // Several picked pictures go side by side (0.7.5).
+    drop: (_path, point, group) => {
       if (!engine) return;
-      const item: Item = { ref: { kind: 'asset', id: path }, label: path.slice(path.lastIndexOf('/') + 1), hint: '' };
-      place(item, engine.worldAtClient(point.x, point.y));
+      const at = engine.worldAtClient(point.x, point.y);
+      group
+        .filter((g) => !g.folder && IMAGE_EXT.test(g.path))
+        .forEach((g, i) => {
+          const item: Item = {
+            ref: { kind: 'asset', id: g.path },
+            label: g.path.slice(g.path.lastIndexOf('/') + 1),
+            hint: '',
+          };
+          place(item, { x: at.x + i * 230, y: at.y });
+        });
     },
   });
 

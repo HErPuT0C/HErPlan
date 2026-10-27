@@ -71,7 +71,7 @@ test('assets: a folder from a right click on an empty place; files and folders d
   // A file onto a folder among the files, then back onto the path above.
   await drag(page, tile(page, 'cover.svg'), () => tile(page, 'Арт'));
   await expect(tile(page, 'cover.svg')).toHaveCount(0);
-  await tile(page, 'Арт').click();
+  await tile(page, 'Арт').dblclick();
   await expect(tile(page, 'cover.svg')).toBeVisible();
   await shot(page, 'f1-assets-folder');
   await drag(page, tile(page, 'cover.svg'), () =>
@@ -104,7 +104,7 @@ test('a file from the assets into a document, onto a card picture and onto the m
   await expect(page.locator('.map-ref').first()).toBeVisible();
   const onMap = await page.locator('.map-ref-asset').count();
   await openModule(page, 'Ресурсы');
-  await tile(page, 'Места').click();
+  await tile(page, 'Места').dblclick();
   await expect(page.locator('.assets-crumbs')).toContainText('Места');
 
   // Into the document: the picture goes into the text where it is let go.

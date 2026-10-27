@@ -18,7 +18,16 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import { searchKey } from '../../canvas/ops';
 import { useAtom, useStore } from '../../core/useStore';
 import { formatBytes, formatDate, t, type MessageKey } from '../../i18n';
@@ -43,7 +52,8 @@ import { PromptDialog, type PromptRequest } from '../canvas/PromptDialog';
 import { errorText } from '../errors';
 import { useAsync } from '../useAsync';
 import { useFileDrop } from '../useFileDrop';
-import { startAssetDrag, useAssetDropTarget, type AssetDropTarget } from '../assetDrag';
+import { startAssetDrag, useAssetDropTarget, type AssetDropTarget, type DraggedAsset } from '../assetDrag';
+import { clickPick, framePick, keepShown, keyPick, NONE, pickAll, type Picked } from './selection';
 import { IMAGE_EXT } from '../world/ImageField';
 import './assets.css';
 
@@ -95,6 +105,12 @@ export function AssetsEditor({
   const folder = openFolder ?? ROOT;
   const setFolder = onFolder;
   const [selected, setSelected] = useState<string | null>(null);
+  // Several files and folders picked at once (0.7.5); the panel on the right shows a file picked alone.
+  const [picked, setPicked] = useState<Picked>(NONE);
+  const setPick = (next: Picked) => {
+    setPicked(next);
+    setSelected(next.paths.length === 1 ? next.paths[0] : null);
+  };
   const [query, setQuery] = useState('');
   const [prompt, setPrompt] = useState<PromptRequest | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null);
@@ -109,7 +125,7 @@ export function AssetsEditor({
       assetRequest.set(null);
       setQuery('');
       setFolder(parentOf(wanted.path));
-      setSelected(wanted.path);
+      setPick({ paths: [wanted.path], anchor: wanted.path, focus: wanted.path });
       refresh();
     }, 0);
     return () => clearTimeout(timer);
@@ -144,6 +160,59 @@ export function AssetsEditor({
     return folders.filter((path) => keep.has(path));
   }, [folders, q]);
 
+  // What is picked, of what is shown (another folder or a search leaves the rest out).
+  const order = useMemo(() => shown.map((e) => e.path), [shown]);
+  const pick = keepShown(order, picked);
+  const isPicked = (path: string) => pick.paths.includes(path);
+  const folderSet = new Set(folders);
+  /** The picked ones as dragged together, when the one pressed is among them. */
+  const groupOf = (path: string, folder: boolean): DraggedAsset[] =>
+    isPicked(path) && pick.paths.length > 1
+      ? pick.paths.map((p) => ({ path: p, folder: folderSet.has(p) }))
+      : [{ path, folder }];
+  const clickItem = (path: string, e: ReactMouseEvent) =>
+    setPick(clickPick(order, pick, path, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey }));
+  /** Right click on one of several picked: what is done to all of them. */
+  const pickedMenu = (path: string, x: number, y: number): boolean => {
+    if (!isPicked(path) || pick.paths.length < 2) return false;
+    const paths = pick.paths;
+    setMenu({
+      x,
+      y,
+      entries: [
+        {
+          id: 'move',
+          label: t('assets.movePicked', { count: paths.length }),
+          icon: <FolderInput size={16} />,
+          disabled: readOnly,
+          onSelect: () =>
+            setMenu({
+              x,
+              y,
+              entries: [ROOT, ...folders]
+                .filter((f) => paths.some((p) => fits(p, f)))
+                .map((f) => ({
+                  id: `to:${f}`,
+                  label: f === ROOT ? t('module.assets') : `${'  '.repeat(f.split('/').length - 2)}${baseName(f)}`,
+                  icon: <Folder size={16} style={{ color: colors[f] ?? undefined }} />,
+                  onSelect: () => void moveMany(paths, f),
+                })),
+            }),
+        },
+        { id: 'sep', separator: true },
+        {
+          id: 'delete',
+          label: t('assets.deletePicked', { count: paths.length }),
+          icon: <Trash size={16} />,
+          danger: true,
+          disabled: readOnly,
+          onSelect: () => removeMany(paths),
+        },
+      ],
+    });
+    return true;
+  };
+
   /** Runs a disk operation, reports a failure, and lists the library again. */
   const run = async (job: () => Promise<unknown>) => {
     setBusy(true);
@@ -169,23 +238,39 @@ export function AssetsEditor({
     });
 
   /** Renames or moves on disk, then points the project's references at the new place. */
-  const move = (from: string, to: string) =>
+  const moveOne = async (from: string, to: string) => {
+    if (from === to) return;
+    await platform().assetMove(dir, from, to);
+    // Undo cannot move the file back, so the references follow it outside the undo history.
+    store.dispatch(t('assets.step.move'), (d) => moveAssetRefs(d, from, to), { history: false });
+    store.rewriteHistory((text) => moveInText(text, from, to));
+    if (selected && (selected === from || selected.startsWith(`${from}/`)))
+      setSelected(to + selected.slice(from.length));
+    if (current === from || current.startsWith(`${from}/`)) setFolder(to + current.slice(from.length));
+  };
+  const move = (from: string, to: string) => run(() => moveOne(from, to));
+  /** Can `from` go into `folder` (not into itself, nor into a folder inside it, nor where it already is). */
+  const fits = (from: string, folder: string) =>
+    from !== folder && !folder.startsWith(`${from}/`) && parentOf(from) !== folder;
+  /** Several picked files and folders into one folder (0.7.5); those that cannot go are left. */
+  const moveMany = (paths: readonly string[], folder: string) =>
     run(async () => {
-      if (from === to) return;
-      await platform().assetMove(dir, from, to);
-      // Undo cannot move the file back, so the references follow it outside the undo history.
-      store.dispatch(t('assets.step.move'), (d) => moveAssetRefs(d, from, to), { history: false });
-      store.rewriteHistory((text) => moveInText(text, from, to));
-      if (selected && (selected === from || selected.startsWith(`${from}/`)))
-        setSelected(to + selected.slice(from.length));
-      if (current === from || current.startsWith(`${from}/`)) setFolder(to + current.slice(from.length));
+      for (const from of paths) if (fits(from, folder)) await moveOne(from, `${folder}/${baseName(from)}`);
+      setPick(NONE);
     });
 
   // A file or a folder dragged onto a folder — in the tree, among the files, in the path above — moves there
   // (0.7.3: the files and folders among the files take it too, and folders are dragged as well).
   const into = (folder: string): AssetDropTarget => ({
-    accepts: (from) => !readOnly && from !== folder && !folder.startsWith(`${from}/`) && parentOf(from) !== folder,
-    drop: (from) => void move(from, `${folder}/${baseName(from)}`),
+    accepts: (from) => !readOnly && fits(from, folder),
+    // The picked ones go together (0.7.5).
+    drop: (from, _point, group) =>
+      void (group.length > 1
+        ? moveMany(
+            group.map((g) => g.path),
+            folder,
+          )
+        : move(from, `${folder}/${baseName(from)}`)),
   });
 
   const remove = (path: string, isFolder: boolean) => {
@@ -206,6 +291,39 @@ export function AssetsEditor({
       if (isFolder) store.dispatch(t('assets.step.color'), (d) => forgetFolder(d, path), { history: false });
       if (selected && (selected === path || selected.startsWith(`${path}/`))) setSelected(null);
       if (current === path || current.startsWith(`${path}/`)) setFolder(parentOf(path));
+    });
+  };
+
+  /** The picked files and folders to the Recycle Bin at once (0.7.5), after one question. */
+  const removeMany = (paths: readonly string[]) => {
+    if (!paths.length) return;
+    const data = store.getState();
+    const used = paths.filter((p) => assetUses(data, p).length > 0).length;
+    const question = used
+      ? t('assets.deleteManyUsed', { count: paths.length, used })
+      : t('assets.deleteMany', { count: paths.length });
+    if (!window.confirm(question)) return;
+    void run(async () => {
+      const refused: string[] = [];
+      for (const path of paths) {
+        try {
+          await platform().assetDelete(dir, path);
+        } catch (e) {
+          if ((e as PlatformError).code !== 'io') throw e;
+          refused.push(path);
+        }
+      }
+      // No Recycle Bin on that drive: one clear second "yes" for all of them.
+      if (refused.length && window.confirm(t('assets.deleteManyForever', { count: refused.length })))
+        for (const path of refused) await platform().assetDelete(dir, path, true);
+      const folderPaths = new Set(folders);
+      store.dispatch(
+        t('assets.step.color'),
+        (d) => paths.filter((p) => folderPaths.has(p)).forEach((p) => forgetFolder(d, p)),
+        { history: false },
+      );
+      setPick(NONE);
+      toast({ kind: 'success', text: t('assets.deleted', { count: paths.length - refused.length }) }, 2000);
     });
   };
 
@@ -262,7 +380,8 @@ export function AssetsEditor({
       .catch((x) => toast({ kind: 'error', text: errorText(x) }));
   /** Right click on a file: open it, show it in the explorer, rename, move to another folder, delete. */
   const fileMenu = (path: string, x: number, y: number) => {
-    setSelected(path);
+    if (pickedMenu(path, x, y)) return;
+    setPick({ paths: [path], anchor: path, focus: path });
     setMenu({
       x,
       y,
@@ -298,6 +417,7 @@ export function AssetsEditor({
   };
 
   const folderMenu = (path: string, x: number, y: number) =>
+    pickedMenu(path, x, y) ||
     setMenu({
       x,
       y,
@@ -395,6 +515,89 @@ export function AssetsEditor({
     onFiles: (files) => void importFiles(files, current),
   });
 
+  // The keyboard among the files (0.7.5): arrows move, Shift or Ctrl with them stretch what is picked, Ctrl+A
+  // picks all, Delete puts the picked ones in the Recycle Bin, Enter opens, Escape lets go.
+  const focusItem = (path: string | null) =>
+    path && main.current?.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`)?.focus();
+  const columns = () => {
+    const items = [...(main.current?.querySelector('.assets-grid')?.children ?? [])] as HTMLElement[];
+    const first = items[0]?.offsetTop;
+    const n = items.findIndex((el) => el.offsetTop !== first);
+    return n < 0 ? Math.max(1, items.length) : Math.max(1, n);
+  };
+  const onKeys = (e: ReactKeyboardEvent) => {
+    if ((e.target as HTMLElement).closest('input, textarea, select')) return;
+    const steps: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: columns(), ArrowUp: -columns() };
+    const done = () => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    if (e.key in steps) {
+      done();
+      const next = keyPick(order, pick, steps[e.key], e.shiftKey || e.ctrlKey || e.metaKey);
+      setPick(next);
+      focusItem(next.focus);
+    } else if ((e.ctrlKey || e.metaKey) && e.code === 'KeyA') {
+      done();
+      setPick(pickAll(order));
+    } else if (e.key === 'Delete' && pick.paths.length && !readOnly) {
+      done();
+      if (pick.paths.length === 1) remove(pick.paths[0], folderSet.has(pick.paths[0]));
+      else removeMany(pick.paths);
+    } else if (e.key === 'Escape' && pick.paths.length) {
+      done();
+      setPick(NONE);
+    } else if (e.key === 'Enter' && pick.focus) {
+      done();
+      if (folderSet.has(pick.focus)) {
+        setFolder(pick.focus);
+        setQuery('');
+      } else openFile(pick.focus);
+    }
+  };
+
+  // A frame drawn with the mouse from an empty place picks what it touches (Ctrl or Shift: adds to it); a
+  // click on an empty place lets go of what was picked.
+  const [frame, setFrame] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const startFrame = (e: ReactPointerEvent) => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest('.asset-item, button, input, a')) return;
+    const before = pick;
+    const add = e.ctrlKey || e.metaKey || e.shiftKey;
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    let moved = false;
+    main.current?.focus({ preventScroll: true });
+    const move = (m: PointerEvent) => {
+      if (!moved && Math.hypot(m.clientX - x0, m.clientY - y0) < 4) return;
+      moved = true;
+      m.preventDefault();
+      const r = {
+        left: Math.min(x0, m.clientX),
+        top: Math.min(y0, m.clientY),
+        width: Math.abs(m.clientX - x0),
+        height: Math.abs(m.clientY - y0),
+      };
+      setFrame(r);
+      const touched = [...(main.current?.querySelectorAll<HTMLElement>('[data-path]') ?? [])]
+        .filter((el) => {
+          const b = el.getBoundingClientRect();
+          return b.right >= r.left && b.left <= r.left + r.width && b.bottom >= r.top && b.top <= r.top + r.height;
+        })
+        .map((el) => el.dataset.path!);
+      setPick(framePick(order, before, touched, add));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      setFrame(null);
+      if (!moved && !add) setPick(NONE);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  };
+
   const file = selected ? (entries ?? []).find((e) => e.path === selected && e.kind === 'file') : undefined;
 
   return (
@@ -475,12 +678,28 @@ export function AssetsEditor({
               </Button>
             </>
           )}
+          {pick.paths.length > 1 && (
+            <span className="assets-picked">
+              <span className="muted small">{t('assets.picked', { count: pick.paths.length })}</span>
+              {!readOnly && (
+                <IconButton
+                  size="sm"
+                  label={t('assets.deletePicked', { count: pick.paths.length })}
+                  icon={<Trash size={16} />}
+                  onClick={() => removeMany(pick.paths)}
+                />
+              )}
+            </span>
+          )}
           {busy && <Spinner />}
         </header>
         <div
           ref={main}
           className={['assets-content', drop.over && 'assets-content-over'].filter(Boolean).join(' ')}
+          tabIndex={-1}
           {...drop.dropProps}
+          onPointerDown={startFrame}
+          onKeyDown={onKeys}
           // Right click on an empty place: a new folder here, files or a folder from the disk (0.7.3).
           onContextMenu={(m) => {
             if (m.defaultPrevented || (m.target as HTMLElement).closest('.asset-item')) return;
@@ -504,7 +723,10 @@ export function AssetsEditor({
                     path={e.path}
                     color={colors[e.path] ?? null}
                     readOnly={readOnly}
+                    picked={isPicked(e.path)}
                     target={into(e.path)}
+                    group={() => groupOf(e.path, true)}
+                    onPick={(m) => clickItem(e.path, m)}
                     onOpen={() => {
                       setFolder(e.path);
                       setQuery('');
@@ -515,10 +737,14 @@ export function AssetsEditor({
                   <button
                     key={e.path}
                     type="button"
-                    className={['asset-item', selected === e.path && 'asset-item-selected'].filter(Boolean).join(' ')}
+                    className={['asset-item', isPicked(e.path) && 'asset-item-selected'].filter(Boolean).join(' ')}
                     title={e.path}
-                    onPointerDown={readOnly ? undefined : (p) => startAssetDrag(e.path, false, p)}
-                    onClick={() => setSelected(e.path)}
+                    data-path={e.path}
+                    aria-pressed={isPicked(e.path)}
+                    onPointerDown={
+                      readOnly ? undefined : (p) => startAssetDrag(e.path, false, p, groupOf(e.path, false))
+                    }
+                    onClick={(m) => clickItem(e.path, m)}
                     onDoubleClick={() => openFile(e.path)}
                     onContextMenu={(m) => {
                       m.preventDefault();
@@ -544,7 +770,7 @@ export function AssetsEditor({
           project={project}
           entry={file}
           folders={[ROOT, ...folders]}
-          onClose={() => setSelected(null)}
+          onClose={() => setPick(NONE)}
           onRename={() => rename(file.path)}
           onMove={(to) => void move(file.path, `${to}/${baseName(file.path)}`)}
           onDelete={() => remove(file.path, false)}
@@ -555,6 +781,7 @@ export function AssetsEditor({
         <Menu entries={menu.entries} x={menu.x} y={menu.y} label={t('assets.folders')} onClose={() => setMenu(null)} />
       )}
       <PromptDialog request={prompt} onClose={() => setPrompt(null)} />
+      {frame && <div className="assets-frame" style={frame} aria-hidden="true" />}
     </div>
   );
 }
@@ -613,19 +840,28 @@ function FolderRow({
   );
 }
 
-/** A folder among the files: opens on a click, is dragged, takes files and folders dropped on it. */
+/**
+ * A folder among the files: picked by a click (as files are, 0.7.5), opened by a double click; dragged (with
+ * the other picked ones), takes files and folders dropped on it.
+ */
 function FolderTile({
   path,
   color,
   readOnly,
+  picked,
   target,
+  group,
+  onPick,
   onOpen,
   onMenu,
 }: {
   path: string;
   color: string | null;
   readOnly: boolean;
+  picked: boolean;
   target: AssetDropTarget;
+  group: () => DraggedAsset[];
+  onPick: (e: ReactMouseEvent) => void;
   onOpen: () => void;
   onMenu: (path: string, x: number, y: number) => void;
 }) {
@@ -635,9 +871,14 @@ function FolderTile({
     <button
       ref={ref}
       type="button"
-      className={['asset-item', 'asset-item-folder', over && 'asset-drop-over'].filter(Boolean).join(' ')}
-      onClick={onOpen}
-      onPointerDown={readOnly ? undefined : (e) => startAssetDrag(path, true, e)}
+      className={['asset-item', 'asset-item-folder', picked && 'asset-item-selected', over && 'asset-drop-over']
+        .filter(Boolean)
+        .join(' ')}
+      data-path={path}
+      aria-pressed={picked}
+      onClick={onPick}
+      onDoubleClick={onOpen}
+      onPointerDown={readOnly ? undefined : (e) => startAssetDrag(path, true, e, group())}
       onContextMenu={(m) => {
         m.preventDefault();
         onMenu(path, m.clientX, m.clientY);

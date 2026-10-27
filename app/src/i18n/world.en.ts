@@ -318,6 +318,16 @@ export const worldEn = {
   'assets.imported': '{count, plural, one {# file added} other {# files added}}',
   'assets.usedTimes': '{count, plural, one {used once} other {used # times}}',
   'assets.deleteFile': 'Move “{name}” to the Recycle Bin?',
+  'assets.dragMany': '{name} and {count} more',
+  'assets.deleteMany': 'Move the picked items ({count}) to the Recycle Bin?',
+  'assets.deleteManyUsed':
+    'Move the picked items ({count}) to the Recycle Bin? {used} of them are used in the project; links to them will lose their pictures.',
+  'assets.deleteManyForever':
+    'The Recycle Bin does not take some of the files (a network drive, for example): {count}. Delete them for good?',
+  'assets.deletePicked': 'Delete the picked items ({count})',
+  'assets.movePicked': 'Move the picked items ({count}) to…',
+  'assets.picked': 'Picked: {count}',
+  'assets.deleted': 'To the Recycle Bin: {count}',
   'assets.deleteFolder': 'Move the folder “{name}” with everything in it to the Recycle Bin?',
   'assets.deleteUsed':
     '“{name}” is used in the project ({count}). Move it to the Recycle Bin anyway? Places that show it will be left without a picture.',

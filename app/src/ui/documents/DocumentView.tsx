@@ -194,7 +194,12 @@ export function DocumentView({ project, id }: { project: OpenProject; id: string
   // A file dragged from the assets tab (0.7.3): it is in the assets already, so it goes into the text as is.
   const assetOver = useAssetDropTarget(scroll, {
     accepts: (_path, folder) => !readOnly && !!doc && !folder,
-    drop: (path, point) => placeFiles([path], posAt(point)),
+    // Several picked files go in together (0.7.5).
+    drop: (_path, point, group) =>
+      placeFiles(
+        group.filter((g) => !g.folder).map((g) => g.path),
+        posAt(point),
+      ),
   });
 
   const editor = useEditor({

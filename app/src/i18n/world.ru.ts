@@ -322,6 +322,16 @@ export const worldRu = {
   'assets.usedTimes':
     '{count, plural, one {используется # раз} few {используется # раза} many {используется # раз} other {используется # раза}}',
   'assets.deleteFile': 'Переместить «{name}» в корзину?',
+  'assets.dragMany': '{name} и ещё {count}',
+  'assets.deleteMany': 'Переместить выбранное ({count}) в корзину?',
+  'assets.deleteManyUsed':
+    'Переместить выбранное ({count}) в корзину? Из них используется в проекте: {used}. Ссылки на эти файлы останутся без картинок.',
+  'assets.deleteManyForever':
+    'Корзина не принимает часть файлов (например, сетевой диск): {count}. Удалить их безвозвратно?',
+  'assets.deletePicked': 'Удалить выбранное ({count})',
+  'assets.movePicked': 'Переместить выбранное ({count}) в…',
+  'assets.picked': 'Выбрано: {count}',
+  'assets.deleted': 'В корзину: {count}',
   'assets.deleteFolder': 'Переместить папку «{name}» со всем содержимым в корзину?',
   'assets.deleteUsed':
     '«{name}» используется в проекте ({count}). Всё равно переместить в корзину? Ссылки на файл останутся без картинки.',

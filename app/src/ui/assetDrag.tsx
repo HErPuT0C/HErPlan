@@ -11,17 +11,29 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, ty
 import { createPortal } from 'react-dom';
 import { atom } from '../core/atom';
 import { useAtom } from '../core/useStore';
+import { t } from '../i18n';
 
 export interface AssetDropTarget {
   /** Whether this place takes that file (or folder). */
   accepts: (path: string, folder: boolean) => boolean;
-  /** The file is let go here, at a point of the window. */
-  drop: (path: string, point: { x: number; y: number }) => void;
+  /**
+   * The file is let go here, at a point of the window. `group` is every file dragged together with it (the
+   * picked ones, 0.7.5), itself included; a place that takes one file only uses `path`.
+   */
+  drop: (path: string, point: { x: number; y: number }, group: readonly DraggedAsset[]) => void;
+}
+
+/** A file or a folder of the assets being dragged. */
+export interface DraggedAsset {
+  path: string;
+  folder: boolean;
 }
 
 interface DragState {
   path: string;
   folder: boolean;
+  /** How many go together (the picked files and folders). */
+  count: number;
   x: number;
   y: number;
   /** The place that would take the file now. */
@@ -45,8 +57,16 @@ function targetAt(path: string, folder: boolean, x: number, y: number): Element 
   return null;
 }
 
-/** Starts dragging a file (or a folder) of the assets from a press on it; a press without moving is a click. */
-export function startAssetDrag(path: string, folder: boolean, e: ReactPointerEvent): void {
+/**
+ * Starts dragging a file (or a folder) of the assets from a press on it; a press without moving is a click.
+ * `group`: the files and folders that go with it (the picked ones), itself included.
+ */
+export function startAssetDrag(
+  path: string,
+  folder: boolean,
+  e: ReactPointerEvent,
+  group: readonly DraggedAsset[] = [{ path, folder }],
+): void {
   if (e.button !== 0) return;
   const x0 = e.clientX;
   const y0 = e.clientY;
@@ -64,7 +84,14 @@ export function startAssetDrag(path: string, folder: boolean, e: ReactPointerEve
     dragging = true;
     m.preventDefault();
     holdTab(m.clientX, m.clientY);
-    assetDrag.set({ path, folder, x: m.clientX, y: m.clientY, over: targetAt(path, folder, m.clientX, m.clientY) });
+    assetDrag.set({
+      path,
+      folder,
+      count: group.length,
+      x: m.clientX,
+      y: m.clientY,
+      over: targetAt(path, folder, m.clientX, m.clientY),
+    });
   };
   const finish = (drop: boolean, x = 0, y = 0) => {
     window.removeEventListener('pointermove', move);
@@ -84,7 +111,7 @@ export function startAssetDrag(path: string, folder: boolean, e: ReactPointerEve
     setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
     if (!drop) return;
     const over = targetAt(path, folder, x, y);
-    if (over) targets.get(over)?.current?.drop(path, { x, y });
+    if (over) targets.get(over)?.current?.drop(path, { x, y }, group);
   };
   const up = (u: PointerEvent) => finish(true, u.clientX, u.clientY);
   const cancel = () => finish(false);
@@ -139,7 +166,8 @@ export function AssetDragGhost() {
       style={{ left: drag.x + 12, top: drag.y + 8 }}
       aria-hidden="true"
     >
-      {drag.folder ? <Folder size={14} /> : <FileIcon size={14} />} {name}
+      {drag.folder ? <Folder size={14} /> : <FileIcon size={14} />}{' '}
+      {drag.count > 1 ? t('assets.dragMany', { name, count: drag.count - 1 }) : name}
     </div>,
     document.body,
   );
