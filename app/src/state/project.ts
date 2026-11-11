@@ -10,6 +10,7 @@ import { applyMigrations, planMigrations, readFormatVersion } from '../core/proj
 import { FORMAT_VERSION, type ProjectData } from '../core/project/types';
 import { Store } from '../core/store';
 import { t } from '../i18n';
+import { tidyProject } from '../story/marks';
 import { applyStamps, editStamps } from '../story/transfer';
 import { platform, isPlatformError, type PlatformError, type ProjectSnapshot } from '../platform';
 import { settings, updateSettings, withRecent } from './settings';
@@ -85,7 +86,12 @@ export async function openProject(dir: string): Promise<OpenResult> {
       onError: (e) => console.error('automatic backup failed', e),
     });
 
-  if (!result.readOnly) stampEdits(store);
+  if (!result.readOnly) {
+    // 0.8.1: empty marks of the game go, cues at the start of a line move into its fields. Not an undo step,
+    // and before the edit times are kept: tidying is not an edit of the conversation.
+    store.dispatch('tidy', (d) => void tidyProject(d as ProjectData), { history: false });
+    stampEdits(store);
+  }
 
   const project: OpenProject = { dir, store, saver, backups, readOnly: result.readOnly, issues: result.issues };
   rememberRecent(project);

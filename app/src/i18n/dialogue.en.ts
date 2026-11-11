@@ -30,8 +30,6 @@ export const dialogueEn: Record<keyof typeof dialogueRu, string> = {
     'The name was "{was}". The game knows the old one: nothing will be found under it after the change.',
   'gameKey.step': 'Name in the game',
 
-  'palette.none': 'There is no game palette: the value is typed as text.',
-  'palette.unknown': '{id} (not in the palette)',
   'palette.found': 'The game palette was read from data/dialogue_palette.json.',
   'palette.missing': 'No game palette (data/dialogue_palette.json): the lists are empty, values are typed as text.',
   'palette.broken': 'data/dialogue_palette.json cannot be read: the lists are empty.',
@@ -51,7 +49,6 @@ export const dialogueEn: Record<keyof typeof dialogueRu, string> = {
   'line.gesture': 'Gesture',
   'line.emote': 'Emote',
   'line.toward': '{what}: to whom',
-  'line.towardNobody': 'nobody',
   'line.more': 'For the game: timing, condition, actions, marks',
   'line.moreSet': 'something is set',
   'line.marks': 'The look of words and the cues between them',
@@ -80,7 +77,6 @@ export const dialogueEn: Record<keyof typeof dialogueRu, string> = {
   'mark.color': 'Colour',
   'mark.colorNone': 'Remove the colour',
 
-  'cue.kind': 'What happens',
   'cue.pause': 'pause',
   'cue.shake': 'shake',
   'cue.sound': 'sound',
@@ -91,7 +87,6 @@ export const dialogueEn: Record<keyof typeof dialogueRu, string> = {
   'cue.seconds': 'seconds',
   'cue.strength': 'strength',
   'cue.after': 'after "…{text}"',
-  'cue.atStart': 'at the start of the line',
 
   'choice.timer': 'Timer, s',
   'choice.timerBlank': 'no timer',
@@ -228,8 +223,6 @@ export const dialogueEn: Record<keyof typeof dialogueRu, string> = {
   'preview.again': 'Again',
   'preview.close': 'Close',
   'preview.auto': 'goes on by itself in {seconds} s',
-  'preview.hint':
-    'The default speed is {cps} characters a second: the game may have its own. A click on the text shows the whole line.',
   'translation.label': 'Translation from the game',
   'translation.hint': "The translation from the game's file data/dialogue_translations.json; read-only here.",
   'translation.stale': 'the line was changed after it was translated',
@@ -290,4 +283,42 @@ export const dialogueEn: Record<keyof typeof dialogueRu, string> = {
   'script.when': 'when it sounds: {when}',
   'script.interrupted': 'interrupted → {to}',
   'script.secret': '(secret — when the time runs out)',
+
+  // 0.8.1: the line editor's lists, marks and preview.
+  'check.actionUnknown': '"{title}": the game has no action "{action}".',
+  'game.facesFromGame': 'Faces from the game',
+  'game.facesFromGameHint':
+    "This character's faces are drawn in the game: the list comes from the palette by the name in the game.",
+  'line.addCue': 'Cue here…',
+  'line.addCueKeys': 'A cue at the caret (Ctrl+M)',
+  'line.addCueStart': 'From the start of the line…',
+  'line.fromStart': '{what} from the start of the line — the field under the text',
+  'line.noStartCue': 'Cues stand inside the text. What holds from the start of the line is set in the fields under it.',
+  'line.noFaces': 'no faces are drawn for this character',
+  'line.nobody': '— not chosen —',
+  'line.notInGameSpeaker': "not in the game's palette",
+  'line.speakerNoKey': 'the card has no name in the game',
+  'line.startCue': 'at the start of the line',
+  'line.startCueHint':
+    'No cue is needed at the start of a line: what holds from the start is set in the fields under the text. The field is taken — decide which to keep.',
+  'line.towardSpeaker': 'the speaker',
+  'line.valueId': 'id in the game',
+  'line.bubbleIs': 'bubble: {name}',
+  'line.voiceIs': 'voice: {name}',
+  'line.whoSpeaks': 'Who speaks?',
+  'line.whoSpeaksMissing': 'who speaks?',
+  'palette.emptyList': "this list of the game's palette is empty",
+  'palette.listen': 'Listen: {name}',
+  'palette.noneItem': '— none —',
+  'palette.noneShort': 'no palette: the value is typed',
+  'palette.notInGame': 'not in the game',
+  'palette.sample': 'Sample',
+  'palette.sampleOf': 'A sample of the effect "{name}"',
+  'palette.unknownValue': '{id} — not in the game',
+  'preview.hintGame':
+    "Speed, pauses, effects and shake follow the numbers of the game's palette. The game's font, the bubble and the character come in 0.8.2. Space or a click on the text finishes the line.",
+  'preview.hintDefault':
+    'No game palette: default numbers (32 characters a second). Space or a click on the text finishes the line.',
+  'preview.pause': 'Pause',
+  'preview.resume': 'Resume',
 };

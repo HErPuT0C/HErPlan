@@ -37,7 +37,8 @@ export const ACTION_TYPES: readonly ActionType[] = [
 ];
 
 export interface GameAction {
-  type: ActionType;
+  /** One of ACTION_TYPES, or (0.8.1) any action of the palette's list. */
+  type: ActionType | (string & {});
   /** give_item, take_item: an item; hire, dismiss: a character; list_add, give_list: a list variable (ids). */
   ref?: string | null;
   /** list_add: the item put on the list (entity id)… */
@@ -149,8 +150,8 @@ export interface CueProps {
   sound?: string;
   gesture?: TowardValue;
   emote?: TowardValue;
-  /** Held until the end of the line. */
-  face?: string;
+  /** Held until the end of the line; since 0.8.1 with "to whom" like a gesture. */
+  face?: TowardValue;
 }
 export const CUE_KINDS = ['pause', 'shake', 'sound', 'gesture', 'emote', 'face'] as const;
 export type CueKind = (typeof CUE_KINDS)[number];

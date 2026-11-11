@@ -23,7 +23,6 @@ import {
   findNode,
   graphOf,
   PASS_THROUGH,
-  type ActionType,
   type DialogueLine,
   type GameAction,
   type GivePort,
@@ -59,7 +58,7 @@ export type LogEntry =
   | { kind: 'changes'; at: NodeRef; changes: Change[] }
   | { kind: 'manual'; name: string; value: Value | null }
   /** What the game would do (0.8): an item given or taken, a companion hired, a save, an event. */
-  | { kind: 'action'; at: NodeRef; action: ActionType; name: string }
+  | { kind: 'action'; at: NodeRef; action: string; name: string }
   | { kind: 'gave'; at: NodeRef; name: string }
   | { kind: 'enter'; at: NodeRef; title: string }
   | { kind: 'leave'; at: NodeRef; title: string };

@@ -16,7 +16,8 @@ import { openEntity } from '../../state/navigation';
 import { asEntity } from '../../story/entities';
 import { graphTitle, refKey } from '../../story/flow';
 import { visibleLength } from '../../story/game';
-import { graphKey } from '../../story/gameKey';
+import { graphKey, keyOf } from '../../story/gameKey';
+import { NARRATOR, paletteSpeaker } from '../../story/palette';
 import { marksOn, resolveRange } from '../../story/marks';
 import {
   CHOICE_ROW_H,
@@ -38,7 +39,7 @@ import { listVariables } from '../../story/variables';
 import { knownNames } from '../../story/usage';
 import { useAsync } from '../useAsync';
 import { StoryContext, storyIndex, useStory, type StoryActions } from './context';
-import { gameMarks } from './lineLook';
+import { gameMarks, speakerName } from './lineLook';
 import { highlightPieces, pieceStyle, textHighlights } from './MarkedText';
 import { TransferBadge } from './TransferBadge';
 
@@ -193,6 +194,7 @@ function DialogueBody({ node }: CardBodyProps) {
   const { project } = useStory();
   const entities = useStore(project.store, (s) => s.entities);
   const limit = useStore(project.store, (s) => s.meta.settings.dialogueLimits.maxLineChars);
+  const { palette } = useAtom(gameFiles);
   const n = asStory(node);
   const lines = n.lines ?? [];
   const shown = n.expanded ? lines : lines.slice(0, FOLDED_LINES);
@@ -202,20 +204,25 @@ function DialogueBody({ node }: CardBodyProps) {
       {lines.length === 0 && <span className="cnode-empty">{t('story.card.noLines')}</span>}
       {n.when?.trim() && lines.length === 0 && <span className="muted small"> · {n.when}</span>}
       {shown.map((line) => {
-        const speaker = line.speaker ? (entities[line.speaker]?.name as string | undefined) : undefined;
+        // A card speaks; the narrator is set apart; a line nobody was chosen for asks "who speaks?" (0.8.1).
+        const card = !!line.speaker && line.speaker !== NARRATOR;
+        const color = card ? paletteSpeaker(palette, keyOf(entities[line.speaker!]))?.color : undefined;
         return (
           <div
             key={line.id}
             className={['cline', visibleLength(line.text) > limit && 'cline-long'].filter(Boolean).join(' ')}
           >
             <span
-              className={speaker ? 'cline-speaker' : 'cline-speaker cline-narrator'}
-              title={speaker ? t('story.ref.ctrlClick') : undefined}
+              className={['cline-speaker', !card && 'cline-narrator', !line.speaker && 'cline-nobody']
+                .filter(Boolean)
+                .join(' ')}
+              style={color ? { color } : undefined}
+              title={card ? t('story.ref.ctrlClick') : undefined}
               onClick={(e) => {
-                if (speaker && line.speaker && (e.ctrlKey || e.metaKey)) openEntity(line.speaker);
+                if (card && (e.ctrlKey || e.metaKey)) openEntity(line.speaker!);
               }}
             >
-              {speaker ?? t('story.narrator')}
+              {speakerName(entities, line.speaker)}
             </span>
             <MarkIcons node={n} anchor={{ kind: 'line', id: line.id }} text={line.text} />
             <span className="cline-text">

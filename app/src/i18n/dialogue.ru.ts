@@ -29,8 +29,6 @@ export const dialogueRu = {
   'gameKey.changed': 'Имя было «{was}». Игра знает старое имя: после смены под ним ничего не найдётся.',
   'gameKey.step': 'Имя в игре',
 
-  'palette.none': 'Палитры игры нет: значение пишется как текст.',
-  'palette.unknown': '{id} (нет в палитре)',
   'palette.found': 'Палитра игры прочитана из data/dialogue_palette.json.',
   'palette.missing': 'Палитры игры нет (data/dialogue_palette.json): списки пусты, значения пишутся как текст.',
   'palette.broken': 'Файл data/dialogue_palette.json не читается: списки пусты.',
@@ -50,7 +48,6 @@ export const dialogueRu = {
   'line.gesture': 'Жест',
   'line.emote': 'Эмоция',
   'line.toward': '{what}: кому',
-  'line.towardNobody': 'никому',
   'line.more': 'Для игры: время, условие, действия, метки',
   'line.moreSet': 'что-то задано',
   'line.marks': 'Оформление слов и метки между ними',
@@ -79,7 +76,6 @@ export const dialogueRu = {
   'mark.color': 'Цвет',
   'mark.colorNone': 'Убрать цвет',
 
-  'cue.kind': 'Что происходит',
   'cue.pause': 'пауза',
   'cue.shake': 'тряска',
   'cue.sound': 'звук',
@@ -90,7 +86,6 @@ export const dialogueRu = {
   'cue.seconds': 'секунд',
   'cue.strength': 'сила',
   'cue.after': 'после «…{text}»',
-  'cue.atStart': 'в начале реплики',
 
   'choice.timer': 'Таймер, с',
   'choice.timerBlank': 'без таймера',
@@ -227,8 +222,6 @@ export const dialogueRu = {
   'preview.again': 'Сначала',
   'preview.close': 'Закрыть',
   'preview.auto': 'дальше сама через {seconds} с',
-  'preview.hint':
-    'Скорость по умолчанию — {cps} знаков в секунду: у игры может быть своя. Щелчок по тексту показывает реплику целиком.',
   'translation.label': 'Перевод из игры',
   'translation.hint': 'Перевод из файла игры data/dialogue_translations.json; здесь он только для чтения.',
   'translation.stale': 'реплику меняли после перевода',
@@ -290,4 +283,41 @@ export const dialogueRu = {
   'script.when': 'когда звучит: {when}',
   'script.interrupted': 'перебили → {to}',
   'script.secret': '(тайный — когда выйдет время)',
+
+  // 0.8.1: the line editor's lists, marks and preview.
+  'check.actionUnknown': '«{title}»: действия «{action}» нет в игре.',
+  'game.facesFromGame': 'Лица из игры',
+  'game.facesFromGameHint': 'Лица этого персонажа нарисованы в игре: список берётся из палитры по «Имени в игре».',
+  'line.addCue': 'Метка здесь…',
+  'line.addCueKeys': 'Метка там, где курсор (Ctrl+M)',
+  'line.addCueStart': 'С начала реплики…',
+  'line.fromStart': '{what} с начала реплики — поле под текстом',
+  'line.noStartCue': 'Метки ставятся внутри текста. Что действует с начала реплики — в полях под текстом.',
+  'line.noFaces': 'этому персонажу лица не нарисованы',
+  'line.nobody': '— не выбран —',
+  'line.notInGameSpeaker': 'в палитре игры такого персонажа нет',
+  'line.speakerNoKey': 'у карточки нет «Имени в игре»',
+  'line.startCue': 'в начале реплики',
+  'line.startCueHint':
+    'В начале реплики метка не нужна: то, что действует с начала, задаётся полями под текстом. Поле занято — решите, что оставить.',
+  'line.towardSpeaker': 'говорящий',
+  'line.valueId': 'id из игры',
+  'line.bubbleIs': 'пузырь: {name}',
+  'line.voiceIs': 'голос: {name}',
+  'line.whoSpeaks': 'Кто говорит?',
+  'line.whoSpeaksMissing': 'кто говорит?',
+  'palette.emptyList': 'в палитре игры этот список пуст',
+  'palette.listen': 'Послушать: {name}',
+  'palette.noneItem': '— нет —',
+  'palette.noneShort': 'палитры нет: значение пишется текстом',
+  'palette.notInGame': 'нет в игре',
+  'palette.sample': 'Пример',
+  'palette.sampleOf': 'Пример эффекта «{name}»',
+  'palette.unknownValue': '{id} — нет в игре',
+  'preview.hintGame':
+    'Скорость, паузы, эффекты и тряска — по числам из палитры игры. Шрифт игры, пузырь и персонаж появятся в 0.8.2. Пробел или щелчок по тексту дописывает реплику.',
+  'preview.hintDefault':
+    'Палитры игры нет: числа по умолчанию (32 знака в секунду). Пробел или щелчок по тексту дописывает реплику.',
+  'preview.pause': 'Пауза',
+  'preview.resume': 'Дальше',
 } as const;

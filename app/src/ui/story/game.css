@@ -707,3 +707,169 @@
 .line-search-why {
   flex-basis: 100%;
 }
+
+/* --- 0.8.1: values picked from the game's palette --- */
+.palette-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  cursor: pointer;
+}
+.palette-select:disabled {
+  cursor: default;
+}
+.palette-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-select .sprite-frame {
+  flex: none;
+  max-height: calc(var(--control-h-sm) - 6px);
+  width: auto;
+}
+/* No palette: the value is typed (yellow); a value the game no longer has (red); nothing to choose (grey). */
+.palette-missing {
+  border-color: var(--warning);
+}
+.palette-unknown,
+.palette-unknown:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.palette-unknown .palette-value {
+  color: var(--danger) !important;
+}
+.palette-gray {
+  opacity: 0.55;
+}
+.palette-list {
+  position: fixed;
+  z-index: 1000;
+  max-height: min(320px, 50vh);
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-lg, 0 8px 24px rgb(0 0 0 / 0.35));
+  list-style: none;
+}
+.palette-list-up {
+  transform: none;
+}
+.palette-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.palette-option[data-active] {
+  background: var(--accent-soft);
+}
+.palette-option[aria-selected='true'] {
+  font-weight: 600;
+}
+.palette-sample {
+  flex-basis: 100%;
+}
+.effect-sample {
+  display: block;
+  border-radius: var(--radius-sm);
+  background: #100e14;
+  image-rendering: pixelated;
+}
+.sprite-frame {
+  image-rendering: pixelated;
+}
+.palette-play {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.palette-play:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.palette-dot {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+/* --- who speaks --- */
+.iline {
+  border-left-width: 3px;
+}
+.iline-nobody {
+  border-left-color: var(--danger);
+}
+.iline-speaker {
+  flex: 1 1 130px;
+  min-width: 110px;
+}
+.iline-head {
+  flex-wrap: wrap;
+}
+.iline-who-missing {
+  align-self: flex-start;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  color: var(--danger);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+.iline-game-speaker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cline-nobody {
+  color: var(--danger) !important;
+  font-style: normal;
+}
+
+/* --- marks --- */
+.tmark-what {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+.tmark-bad {
+  border-color: var(--danger);
+  border-left-color: var(--danger);
+}
+.tmark-bad .tmark-where {
+  color: var(--danger);
+}
+.action-unknown {
+  border-color: var(--danger);
+}
+.action-unknown .action-kind {
+  color: var(--danger);
+}
+
+/* --- the preview, letter by letter --- */
+.typing-letter {
+  position: relative;
+}

@@ -9,7 +9,7 @@ import { current, isDraft } from 'immer';
 import { newId } from '../core/ids';
 import type { ProjectData } from '../core/project/types';
 import { renameCallArg } from './expr';
-import { dropMarksOn, followText } from './marks';
+import { dropMarksOn, followText, tidyNode } from './marks';
 import {
   asStory,
   graphOf,
@@ -54,6 +54,8 @@ export function updateLine(
   if (!n || !line) return;
   if (patch.text !== undefined) followText(n, { kind: 'line', id: lineId }, line.text, patch.text);
   Object.assign(line, patch);
+  // A cue the edit brought to the start of the line goes into its field; a look that lost its words, away.
+  if (patch.text !== undefined) tidyNode(n);
 }
 
 export function removeLine(g: GraphDoc, nodeId: string, lineId: string): void {

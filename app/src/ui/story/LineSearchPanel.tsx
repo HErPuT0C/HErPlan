@@ -21,6 +21,7 @@ import { graphOf } from '../../story/model';
 import { listVariables } from '../../story/variables';
 import { IconButton } from '../components';
 import { useStory } from './context';
+import { speakerName } from './lineLook';
 
 const REASONS: Record<UseReason, MessageKey> = {
   speaker: 'search.reason.speaker',
@@ -90,8 +91,7 @@ export function LineSearchPanel({ engine, onClose }: { engine: CanvasEngine; onC
     const key = `${h.graph}/${h.node}`;
     groups.set(key, [...(groups.get(key) ?? []), h]);
   }
-  const name = (id: string | null) =>
-    id ? ((data.entities[id]?.name as string | undefined) ?? t('story.lines.deletedSpeaker')) : t('story.narrator');
+  const name = (id: string | null) => speakerName(data.entities, id);
   const open = (h: LineHit) =>
     show({ graph: h.graph, node: h.node }, h.part ? `${h.part.kind}:${h.part.id}` : undefined);
 

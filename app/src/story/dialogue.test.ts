@@ -21,15 +21,34 @@ import {
 } from './expr';
 import { callWorld, entityGame, visibleLength } from './game';
 import { freeKey, isGameKey, keyProblem, suggestKey } from './gameKey';
-import { addCueMark, addStyleMark, cueAt, plotSources, textMarksOn, toggleBold } from './marks';
+import {
+  addCueMark,
+  addStyleMark,
+  cueAt,
+  plotSources,
+  setMarkProps,
+  startCue,
+  textMarksOn,
+  tidyProject,
+  toggleBold,
+} from './marks';
 import { graphOf, textMarks, toward, towardValue, type StoryNode } from './model';
 import { createBarksGraph, removeLine, renewParts, setInterruptExit, setLineFields, updateLine } from './ops';
 import { searchLines } from './lineSearch';
 import { companionTalk, type CompanionWords } from './templates';
 import { parseTranslations, translationsOf } from './translation';
-import { BASE_CPS, syllableEnd, typedAt, typing } from './typing';
+import { faceAt, gameLine, shownAt, syllables } from './gameLine';
+import { letterMove, noise, shakeAt } from './gameFx';
 import { conversationScript, talkOrder } from '../ui/story/script';
-import { emptyPalette, notInPalette, parsePalette } from './palette';
+import {
+  actionRef,
+  emptyPalette,
+  NARRATOR,
+  notInPalette,
+  paletteSpeaker,
+  parsePalette,
+  type PalettePreview,
+} from './palette';
 import { playAct, playActions, playSetItem, startPlay, type PlayAction, type PlayState } from './play';
 import { applyStamps, editStamps, graphTransfer, nodeTransfer, parseImport, transferChanges } from './transfer';
 import { renameInCalls, variableUsage } from './usage';
@@ -39,6 +58,71 @@ import './kinds';
 // 0.8, the spec "Dialogues: what to add to HErPlan": a conversation with a skeleton who takes offerings.
 
 const G = 'g-talk';
+
+/** A palette of the game's shape (a part of the real one of 11.11.2026, no pictures). */
+const PALETTE = {
+  version: '2026-11-11',
+  styles: [
+    { id: 'normal', name: 'Обычный', color: '#e8e6de' },
+    { id: 'shout', name: 'Крик', color: '#e8e6de', hint: 'жирно' },
+    { id: 'anger', name: 'Гнев', color: '#ff7a4a' },
+  ],
+  faces: [
+    { id: 'neutral', name: 'Обычное' },
+    { id: 'angry', name: 'Зол' },
+    { id: 'sad', name: 'Грустит' },
+  ],
+  emotes: [{ id: 'question', name: '?', icon: { image: 'dialogue_preview/emotes.png', frame: 1, w: 13, h: 13 } }],
+  gestures: [{ id: 'nod', name: 'Кивнул', hint: 'два коротких кивка' }],
+  voices: [{ id: 'dlg_blip_bone', name: 'Костяной', sound: 'dialogue_preview/sounds/dlg_blip_bone.wav' }],
+  sounds: [{ id: 'ui_deny', name: 'Отказ' }],
+  speakers: [
+    {
+      id: 'skeleton',
+      name: 'Скелет',
+      color: '#3fd0c0',
+      bubble: 'round',
+      voice: 'dlg_blip_bone',
+      faces: ['neutral', 'angry', 'sad'],
+    },
+    { id: 'narrator', name: 'Рассказчик', color: '#e8e6de', bubble: 'round', voice: 'dlg_blip' },
+  ],
+  actions: [
+    { id: 'give_item', name: 'Выдать предмет', ref: 'item' },
+    { id: 'hire', name: 'Нанять напарника', ref: 'character' },
+    { id: 'save', name: 'Сохранить игру' },
+    { id: 'event', name: 'Событие для игры', ref: 'text' },
+  ],
+  preview: {
+    text: { color: '#e8e6de', width: 190, cps: 32, pause_stop: 0.28, pause_comma: 0.12, shake_time: 0.14 },
+    styles: [
+      { id: 'normal', props: {} },
+      { id: 'shout', props: { bold: true, reveal: 'word', fx: ['punch'], cps: 24, shake: 2, face: 'surprised' } },
+      { id: 'anger', props: { col: '#ff7a4a', fx: ['shake'], cps: 46, face: 'angry' } },
+    ],
+    effects: [
+      { id: 'shake', params: { px: 1, rate: 22 } },
+      { id: 'wave', params: { px: 2, speed: 9, step: 0.7 } },
+      { id: 'rainbow', params: { speed: 0.5, step: 0.06, sat: 170, val: 255 } },
+      { id: 'punch', params: { px: 3, time: 0.1 } },
+      { id: 'sink', params: { px: 2, time: 1.2 } },
+      { id: 'twitch', params: { rate: 9, chance: 0.08 } },
+    ],
+    speakers: [
+      {
+        id: 'skeleton',
+        color: '#3fd0c0',
+        voice_pitch: 1,
+        faces: { neutral: 'dialogue_preview/skeleton_neutral.png' },
+        frame_w: 64,
+        frame_h: 32,
+        frames: 4,
+        fps: 5,
+        head: [14, 1],
+      },
+    ],
+  },
+};
 
 function talk(): ProjectData {
   const data = newProject({ name: 'Склеп', appVersion: '0.8.0', now: new Date('2026-11-10T09:00:00Z') });
@@ -258,13 +342,14 @@ describe('marks of the game on a line (2.3)', () => {
       // "Кто потревожил мой покой?": "потревожил" is 4..14.
       addStyleMark(n, 'l1', { start: 4, end: 14 }, { bold: true, color: '#ff0000', effect: 'shake' });
       addCueMark(n, 'l1', 14, { pause: 0.4 });
-      addCueMark(n, 'l1', 0, { shake: 2 });
+      // 0.8.1: no cue at the start of a line (the fields under the text are for that).
+      expect(addCueMark(n, 'l1', 0, { shake: 2 })).toBeNull();
     });
     data = produce(data, (d) => updateLine(graphOf(d, G)!, 'hello', 'l1', { text: 'Эй! Кто потревожил мой покой?' }));
     const n = node(data, 'hello');
     const marks = textMarksOn(n, { kind: 'line', id: 'l1' });
     expect(marks[0].range).toEqual({ start: 8, end: 18, quote: 'потревожил' });
-    expect(marks.slice(1).map((m) => cueAt(n.lines![0].text, m))).toEqual([18, 0]);
+    expect(marks.slice(1).map((m) => cueAt(n.lines![0].text, m))).toEqual([18]);
     // Plot devices never see them; checks of the story are not confused by them.
     expect(plotSources(graphOf(data, G)!)).toEqual([]);
     expect(checkProject(data).filter((p) => p.code === 'gunNoPayoff')).toEqual([]);
@@ -272,7 +357,7 @@ describe('marks of the game on a line (2.3)', () => {
     // The marked words cut out: the look goes, the cue stays at the cut.
     const cut = produce(data, (d) => updateLine(graphOf(d, G)!, 'hello', 'l1', { text: 'Эй! Кто мой покой?' }));
     const left = textMarksOn(node(cut, 'hello'), { kind: 'line', id: 'l1' });
-    expect(left.map((m) => m.device)).toEqual(['cue', 'cue']);
+    expect(left.map((m) => m.device)).toEqual(['cue']);
     expect(cueAt('Эй! Кто мой покой?', left[0])).toBe(8);
 
     const gone = produce(data, (d) => removeLine(graphOf(d, G)!, 'hello', 'l1'));
@@ -680,53 +765,138 @@ describe('export (0.8 fields)', () => {
 
 // ---------- section В of the spec ----------
 
-describe('the line typed out as in the game (19)', () => {
-  const syllables = (word: string) => {
-    const out: string[] = [];
-    for (let i = 0; i < word.length;) {
-      const j = syllableEnd(word, i);
-      out.push(word.slice(i, j));
-      i = j;
-    }
-    return out;
-  };
+describe('the line typed out as in the game (19; 0.8.1, "Редактор реплик" 7.1, 7.4)', () => {
+  const step = 1 / 32;
+  const mark = (text: string, props: Record<string, unknown>, start: number, end: number, device = 'style') =>
+    ({
+      id: `m${start}-${end}-${device}`,
+      device,
+      anchor: { kind: 'line', id: 'l' },
+      range: { start, end, quote: text.slice(start, end) },
+      props,
+    }) as never;
+  const times = (text: string, marks: never[] = [], style?: string, preview: PalettePreview | null = null) =>
+    gameLine(text, style, marks, preview);
 
-  it('splits words into syllables the Russian way', () => {
-    expect(syllables('потревожил')).toEqual(['по', 'тре', 'во', 'жил']);
+  it('splits words into syllables as the game does', () => {
+    expect(syllables('потревожил')).toEqual(['пот', 'ре', 'во', 'жил']);
     expect(syllables('кольцо')).toEqual(['коль', 'цо']);
-    expect(syllables('покой?')).toEqual(['по', 'кой', '?']);
+    expect(syllables('покой?')).toEqual(['по', 'кой?']);
+    expect(syllables('Кто')).toEqual(['Кто']);
   });
 
-  it('letters at the base speed; faster words, words at once, pauses, hidden effects', () => {
-    const plain = typing('Ab cd', []);
-    expect(plain.steps.map((s) => s.upto)).toEqual([1, 2, 3, 4, 5]);
-    expect(plain.total).toBeCloseTo((5 / BASE_CPS) * 1000);
+  it('letters one step apart; pauses after stops and commas, but not after the last sign', () => {
+    const plain = times('Ab cd');
+    expect(plain.letters.map((l) => l.appear)).toEqual([0, step, 2 * step, 3 * step, 4 * step]);
+    expect(plain.end).toBeCloseTo(5 * step);
+    const stop = times('Да. Нет');
+    expect(stop.letters[3].appear).toBeCloseTo(3 * step + 0.28);
+    expect(stop.end).toBeCloseTo(7 * step + 0.28);
+    expect(times('a, b').letters[2].appear).toBeCloseTo(2 * step + 0.12);
+    // "." not followed by a space or the end is no stop ("3.5").
+    expect(times('3.5').letters[2].appear).toBeCloseTo(2 * step);
+    expect(times('Да.').end).toBeCloseTo(3 * step);
+  });
 
-    const mark = (props: Record<string, unknown>, start: number, end: number, device = 'style') =>
-      ({
-        id: `m${start}`,
-        device,
-        anchor: { kind: 'line', id: 'l' },
-        range: { start, end, quote: 'Ab cd'.slice(start, end) },
-        props,
-      }) as never;
-    const fast = typing('Ab cd', [mark({ speed: 2 }, 0, 2)]);
-    expect(fast.total).toBeCloseTo((4 / BASE_CPS) * 1000);
-    const words = typing('Ab cd', [mark({ reveal: 'word' }, 0, 5)]);
-    expect(words.steps.map((s) => s.upto)).toEqual([3, 5]);
-    const instant = typing('Ab cd', [mark({ reveal: 'instant' }, 3, 5)]);
-    expect(instant.steps.map((s) => s.upto)).toEqual([1, 2, 3, 5]);
+  it('words at once, syllables, at once; speed; pauses and cues in their places', () => {
+    const t1 = 'раз два.';
+    const words = times(t1, [mark(t1, { reveal: 'word' }, 0, t1.length)]);
+    expect(words.chunks.map((c) => [c.from, c.to])).toEqual([
+      [0, 4],
+      [4, 8],
+    ]);
+    expect(words.chunks[1].time).toBeCloseTo(3 * step);
+    expect(words.end).toBeCloseTo(4 * step);
+    const t2 = 'потревожил';
+    const syl = times(t2, [mark(t2, { reveal: 'syllable' }, 0, t2.length)]);
+    expect(syl.chunks.map((c) => t2.slice(c.from, c.to))).toEqual(['пот', 'ре', 'во', 'жил']);
+    const t3 = 'Ab cd';
+    const fast = times(t3, [mark(t3, { speed: 2 }, 0, 2)]);
+    expect(fast.letters.map((l) => l.appear)).toEqual([0, step / 2, step, 2 * step, 3 * step]);
+    const instant = times(t3, [mark(t3, { reveal: 'instant' }, 3, 5)]);
+    expect(instant.letters[3].appear).toBe(instant.letters[4].appear);
+    const cues = times(t3, [mark(t3, { pause: 0.5 }, 2, 2, 'cue'), mark(t3, { shake: 2 }, 4, 4, 'cue')]);
+    expect(cues.letters[2].appear).toBeCloseTo(2 * step + 0.5);
+    expect(cues.cues.map((c) => [c.at, c.time])).toEqual([
+      [2, 2 * step],
+      [4, 4 * step + 0.5],
+    ]);
+    expect(
+      shownAt(cues, 2 * step + 0.1)
+        .letters.map((l) => l.ch)
+        .join(''),
+    ).toBe('Ab');
+    // Effects written in braces are never shown and take no time.
+    const hidden = times('Hi {x = 1}!');
+    expect(
+      hidden.letters
+        .filter((l) => l.i >= 0)
+        .map((l) => l.ch)
+        .join(''),
+    ).toBe('Hi !');
+    expect(hidden.end).toBeCloseTo(4 * step);
+  });
 
-    const cues = typing('Ab cd', [mark({ pause: 0.5 }, 2, 2, 'cue'), mark({ shake: 2 }, 3, 3, 'cue')]);
-    expect(cues.total).toBeCloseTo((5 / BASE_CPS) * 1000 + 500);
-    expect(cues.steps.find((s) => s.cue)).toMatchObject({ upto: 3, cue: { shake: 2 } });
-    expect(typedAt(cues, 0).upto).toBe(0);
-    expect(typedAt(cues, (2 / BASE_CPS) * 1000 + 100).upto).toBe(2); // held by the pause
-    expect(typedAt(cues, cues.total)).toMatchObject({ upto: 5, cues: [{ cue: { shake: 2 } }] });
+  it('a letter wears the line style, then the marks over it, outer before inner', () => {
+    const { palette } = parsePalette(JSON.stringify(PALETTE));
+    const preview = palette.preview!;
+    const text = 'КТО ТАМ';
+    const line = times(
+      text,
+      [mark(text, { style: 'anger' }, 0, 7), mark(text, { effect: 'wave', bold: false }, 4, 7)],
+      'shout',
+      preview,
+    );
+    const [k, , , , tt] = line.letters;
+    expect(k.props).toMatchObject({ bold: true, col: '#ff7a4a', fx: ['shake'], cps: 46, shake: 2, face: 'angry' });
+    expect(tt.props).toMatchObject({ bold: false, fx: ['wave'], col: '#ff7a4a' });
+    // The shout's own shake goes with every piece it types.
+    expect(line.chunks.every((c) => c.shake === 2)).toBe(true);
+    expect(faceAt(line, 'sad', 0)).toBe('angry');
+    expect(faceAt(line, 'sad', line.end + 1)).toBe('sad');
+    const withCue = times('Ну и ну', [mark('Ну и ну', { face: 'happy' }, 3, 3, 'cue')], undefined, preview);
+    expect(faceAt(withCue, undefined, 0)).toBe('neutral');
+    expect(faceAt(withCue, undefined, withCue.end)).toBe('happy');
+  });
+});
 
-    const effect = typing('Hi {x = 1}!', []);
-    expect(effect.hidden).toEqual([{ start: 3, end: 10 }]);
-    expect(effect.total).toBeCloseTo((4 / BASE_CPS) * 1000);
+describe('letters move and the screen shakes by the time (0.8.1, 7.5, 7.7)', () => {
+  const params = parsePalette(JSON.stringify(PALETTE)).palette.preview!.effects;
+  it('the effects of the game, as functions of t', () => {
+    expect(noise(0)).toBe(0);
+    expect(letterMove(['wave'], params, 0, Math.PI / 2 / 9, 1).dy).toBe(2);
+    expect(letterMove(['punch'], params, 0, 0, 0).dy).toBe(-3);
+    expect(letterMove(['punch'], params, 0, 0, 0.2).dy).toBe(0);
+    expect(letterMove(['sink'], params, 0, 5, 5).dy).toBe(2);
+    expect(letterMove(['rainbow'], params, 3, 0.4, 1).col).toMatch(/^#[0-9a-f]{6}$/);
+    const shaken = letterMove(['shake'], params, 3, 0.37, 1);
+    expect(Math.abs(shaken.dx) <= 1 && Math.abs(shaken.dy) <= 1).toBe(true);
+    expect(letterMove(['nothing'], params, 0, 1, 1)).toEqual({ dx: 0, dy: 0 });
+    // The same moment gives the same frame: playing again is the same.
+    expect(letterMove(['twitch', 'shake'], params, 5, 1.23, 1)).toEqual(
+      letterMove(['twitch', 'shake'], params, 5, 1.23, 1),
+    );
+  });
+
+  it('the screen shakes for shake_time after each shake, weaker towards the end; again from the start shakes again', () => {
+    const events = [{ time: 0.5, strength: 2 }];
+    expect(shakeAt(events, 0.49, 0.14)).toEqual({ dx: 0, dy: 0 });
+    expect(shakeAt(events, 0.65, 0.14)).toEqual({ dx: 0, dy: 0 });
+    const moved = [0.5, 0.51, 0.52, 0.53, 0.54].map((t) => shakeAt(events, t, 0.14));
+    expect(moved.some((m) => m.dx !== 0 || m.dy !== 0)).toBe(true);
+    expect(moved.every((m) => Math.abs(m.dx) <= 2 && Math.abs(m.dy) <= 2)).toBe(true);
+    expect(shakeAt(events, 0.52, 0.14)).toEqual(shakeAt(events, 0.52, 0.14));
+    // Two shakes in a row are two shakes.
+    const two = [
+      { time: 0.1, strength: 1 },
+      { time: 0.5, strength: 1 },
+    ];
+    expect([0.1, 0.11, 0.12, 0.13].some((t) => shakeAt(two, t, 0.14).dx !== 0 || shakeAt(two, t, 0.14).dy !== 0)).toBe(
+      true,
+    );
+    expect([0.5, 0.51, 0.52, 0.53].some((t) => shakeAt(two, t, 0.14).dx !== 0 || shakeAt(two, t, 0.14).dy !== 0)).toBe(
+      true,
+    );
   });
 });
 
@@ -883,3 +1053,120 @@ describe('the conversation as plain text (23)', () => {
     ]);
   });
 });
+
+// ---------- 0.8.1: "Редактор реплик", step 1 ----------
+
+describe('the palette of the game (0.8.1, 2.1)', () => {
+  it('reads speakers, actions, icons, sounds and the numbers of the preview', () => {
+    const { palette, ok } = parsePalette(`\uFEFF${JSON.stringify(PALETTE)}`);
+    expect(ok).toBe(true);
+    expect(palette.loaded).toBe(true);
+    expect(palette.emotes[0].icon).toEqual({ image: 'dialogue_preview/emotes.png', frame: 1, w: 13, h: 13 });
+    expect(palette.voices[0].sound).toBe('dialogue_preview/sounds/dlg_blip_bone.wav');
+    expect(paletteSpeaker(palette, 'skeleton')).toMatchObject({ color: '#3fd0c0', faces: ['neutral', 'angry', 'sad'] });
+    expect(paletteSpeaker(palette, 'narrator')?.faces).toEqual([]);
+    expect(palette.actions.map((a) => [a.id, a.ref])).toEqual([
+      ['give_item', 'item'],
+      ['hire', 'character'],
+      ['save', null],
+      ['event', 'text'],
+    ]);
+    const p = palette.preview!;
+    expect(p.text.cps).toBe(32);
+    expect(p.styles.shout).toMatchObject({ bold: true, fx: ['punch'], shake: 2 });
+    expect(p.effects.wave).toEqual({ px: 2, speed: 9, step: 0.7 });
+    expect(p.speakers[0]).toMatchObject({ id: 'skeleton', frame_w: 64, head: [14, 1] });
+    // Actions: the palette's list when it has one, else HErPlan's own.
+    expect(actionRef(palette, 'hire')).toBe('character');
+    expect(actionRef(palette, 'take_item')).toBeUndefined();
+    expect(actionRef(emptyPalette(), 'take_item')).toBe('item');
+    expect(emptyPalette().loaded).toBe(false);
+  });
+});
+
+describe('one place for one thing (0.8.1, 3)', () => {
+  const line = (d: ProjectData) => node(d, 'hello').lines!;
+  it('empty looks and cues are not kept; twins join; a cue at the start goes into the field', () => {
+    const messy = produce(talk(), (d) => {
+      const n = node(d, 'hello');
+      const anchor = { kind: 'line' as const, id: 'l1' };
+      const all = 'Кто потревожил мой покой?';
+      n.marks = [
+        // What the owner's file had: an emote cue with no value, two looks over the whole text with no props.
+        { id: 'a', device: 'cue', anchor, range: { start: 4, end: 4, quote: '' }, props: { emote: '' } },
+        { id: 'b', device: 'style', anchor, range: { start: 0, end: all.length, quote: all }, props: {} },
+        { id: 'c', device: 'style', anchor, range: { start: 0, end: all.length, quote: all }, props: {} },
+        // Two looks over the same words: one.
+        { id: 'd', device: 'style', anchor, range: { start: 4, end: 14, quote: 'потревожил' }, props: { bold: true } },
+        {
+          id: 'e',
+          device: 'style',
+          anchor,
+          range: { start: 4, end: 14, quote: 'потревожил' },
+          props: { style: 'anger' },
+        },
+        // At the start: an emote moves into the empty field; a face stays (the field is taken), shown as a mistake.
+        { id: 'f', device: 'cue', anchor, range: { start: 0, end: 0, quote: '' }, props: { emote: 'question' } },
+        { id: 'g', device: 'cue', anchor, range: { start: 0, end: 0, quote: '' }, props: { face: 'angry' } },
+      ];
+    });
+    const tidy = produce(messy, (d) => void tidyProject(d));
+    const n = node(tidy, 'hello');
+    expect(n.marks!.map((m) => m.id)).toEqual(['d', 'g']);
+    expect(textMarks(n)[0].props).toEqual({ bold: true, style: 'anger' });
+    expect(line(tidy)[0]).toMatchObject({ emote: 'question', face: 'neutral' });
+    expect(startCue(n, textMarks(n)[1])).toBe(true);
+    // Nothing left to tidy the second time.
+    expect(produce(tidy, (d) => void tidyProject(d))).toBe(tidy);
+  });
+
+  it('a look with its props taken away goes away; no cue is put at the start; typing keeps the field', () => {
+    let data = produce(talk(), (d) => {
+      const n = node(d, 'hello');
+      const m = addStyleMark(n, 'l3', { start: 0, end: 5 }, { bold: true })!;
+      setMarkProps(n, m.id, { bold: false });
+      expect(textMarks(n)).toEqual([]);
+      expect(addStyleMark(n, 'l3', { start: 0, end: 5 }, {})).toBeNull();
+      expect(addCueMark(n, 'l3', 0, { pause: 0.3 })).toBeNull();
+      addCueMark(n, 'l3', 2, { gesture: 'nod' });
+    });
+    // The text before the cue is cut: it comes to the start and becomes the line's gesture.
+    data = produce(data, (d) => updateLine(graphOf(d, G)!, 'hello', 'l3', { text: 'одите, пока цел!' }));
+    expect(textMarks(node(data, 'hello'))).toEqual([]);
+    expect(line(data)[2].gesture).toBe('nod');
+  });
+});
+
+describe('who speaks (0.8.1, 2.3)', () => {
+  it('"narrator" is the narrator; null is nobody, and the check says so', () => {
+    const data = produce(talk(), (d) => {
+      const [l1, l2] = line3(d);
+      l1.speaker = NARRATOR;
+      l2.speaker = null;
+    });
+    const { palette } = parsePalette(JSON.stringify(PALETTE));
+    const found = checkConversation(data, G, palette);
+    expect(found.filter((p) => p.code === 'lineNoSpeaker').map((p) => p.line)).toEqual(['l2']);
+    expect(found.find((p) => p.code === 'lineNoSpeaker')?.severity).toBe('warning');
+    // The narrator is no card: no "no name in the game", no faces asked of it.
+    expect(found.some((p) => p.params.id === NARRATOR)).toBe(false);
+    expect(
+      (exportStory(data, '0.8.1').story.graphs[0].nodes.find((n) => n.id === 'hello')!.lines as unknown[]).slice(0, 2),
+    ).toMatchObject([{ speaker: 'narrator' }, { speaker: null }]);
+  });
+
+  it('faces come from the game for its speakers; actions the game does not know are flagged', () => {
+    const { palette } = parsePalette(JSON.stringify(PALETTE));
+    const data = produce(talk(), (d) => {
+      node(d, 'hello').lines![0].face = 'glow';
+      node(d, 'ask').options![1].actions = [{ type: 'hire', ref: 'shadow' }, { type: 'dance' }];
+    });
+    const found = checkConversation(data, G, palette);
+    expect(found.find((p) => p.code === 'faceNotDrawn')).toMatchObject({ line: 'l1', params: { face: 'glow' } });
+    expect(found.filter((p) => p.code === 'actionUnknown').map((p) => p.params.action)).toEqual(['dance']);
+  });
+});
+
+function line3(d: ProjectData) {
+  return node(d, 'hello').lines!;
+}

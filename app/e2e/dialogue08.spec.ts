@@ -90,6 +90,13 @@ const center = (b: { x: number; y: number; width: number; height: number }) => (
   y: b.y + b.height / 2,
 });
 
+/** Picks an item of a list of the palette (0.8.1: a list of its own, not a native select). */
+async function pick(page: Page, combo: Locator, option: string) {
+  await combo.click();
+  await page.getByRole('listbox').getByRole('option', { name: option, exact: true }).click();
+  await expect(page.getByRole('listbox')).toHaveCount(0);
+}
+
 /** Pulls an edge out of a port of `card` into empty space and picks the kind of the new node. */
 async function pull(page: Page, card: Locator, port: string, dx: number, dy: number, kind: string, nth = 0) {
   await card.hover();
@@ -154,9 +161,11 @@ test('a conversation for the game: name, palette, the look of words, cues, timer
   await expect(second.locator('.iline-count')).toHaveText('6/100');
 
   // The row of the palette under the text.
-  await first.getByLabel('Стиль', { exact: true }).selectOption('whisper');
-  await first.getByLabel('Лицо', { exact: true }).selectOption('angry');
-  await first.getByLabel('Эмоция', { exact: true }).selectOption('question');
+  await pick(page, first.getByRole('combobox', { name: 'Стиль', exact: true }), 'Шёпот');
+  await pick(page, first.getByRole('combobox', { name: 'Эмоция', exact: true }), 'Вопрос');
+  // Nobody speaks the line yet: there are no faces to choose (0.8.1).
+  await expect(first.getByRole('combobox', { name: 'Лицо', exact: true })).toBeDisabled();
+  await expect(first.locator('.iline-who-missing')).toHaveText('кто говорит?');
   await expect(first.locator('.mtext-live')).toHaveCount(1);
 
   // Bold from the keyboard on the selected word, a pause where the caret is.
@@ -167,7 +176,7 @@ test('a conversation for the game: name, palette, the look of words, cues, timer
   await text.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(14, 14));
   await page.keyboard.press('Control+p');
   await expect(first.locator('.line-preview .hl-bold')).toHaveText('потревожил');
-  await expect(first.locator('.line-preview .line-cue')).toHaveAttribute('title', 'пауза 0.4 с');
+  await expect(first.locator('.line-preview .line-cue')).toHaveAttribute('title', 'пауза 0.3 с');
   await expect(first.locator('.mtext-tick')).toHaveCount(1);
   // The marks follow the words when the text before them changes.
   await text.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(0, 0));
@@ -231,11 +240,12 @@ test('a conversation for the game: name, palette, the look of words, cues, timer
     lines: Record<string, unknown>[];
     marks: { device: string; range: { start: number; end: number; quote: string }; props: unknown }[];
   };
-  expect(node.lines[0]).toMatchObject({ style: 'whisper', face: 'angry', emote: 'question' });
+  expect(node.lines[0]).toMatchObject({ style: 'whisper', emote: 'question' });
+  expect(node.lines[0].face).toBeUndefined();
   expect(node.lines[1]).toMatchObject({ interrupt: 1.5, interruptExit: true, note: 'грубо, на «ты»' });
   expect(node.marks).toMatchObject([
     { device: 'style', range: { start: 8, end: 18, quote: 'потревожил' }, props: { bold: true } },
-    { device: 'cue', range: { start: 18, end: 18 }, props: { pause: 0.4 } },
+    { device: 'cue', range: { start: 18, end: 18 }, props: { pause: 0.3 } },
   ]);
   const picked = graph.nodes.find((n) => n.kind === 'choice') as { timer: number; options: Record<string, unknown>[] };
   expect(picked.timer).toBe(10);
@@ -450,10 +460,12 @@ test('section В: a line typed as in the game; the game translation beside it; a
   const preview = page.getByRole('dialog', { name: /Как в игре/ });
   const box = preview.locator('.typing-box');
   await expect(box).toBeVisible();
-  await expect(box).not.toHaveText('Стой, кто идёт к воротам?');
+  const letters = box.locator('.typing-letter');
+  await expect(letters).toHaveCount(25);
+  expect(await box.locator('[data-out]').count()).toBeLessThan(25);
   await box.click();
-  await expect(box).toHaveText('Стой, кто идёт к воротам?');
-  await expect(box.locator('.hl-bold')).toHaveText('идёт');
+  await expect(box.locator('[data-out]')).toHaveCount(25);
+  expect((await box.locator('[data-bold]').allTextContents()).join('')).toBe('идёт');
   await shot(page, 'v1-preview');
   await preview.getByRole('button', { name: 'Закрыть', exact: true }).last().click();
   await expect(preview).toHaveCount(0);

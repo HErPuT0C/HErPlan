@@ -10,7 +10,7 @@ import { edgesFrom } from './flow';
 import { entityByName, entityGame } from './game';
 import { graphKey, isGameKey, keyOf } from './gameKey';
 import { asStory, graphOf, textMarks, toward, type GameAction, type StoryNode, type TowardValue } from './model';
-import { notInPalette, type Palette, type PaletteList } from './palette';
+import { actionRef, NARRATOR, notInPalette, paletteSpeaker, type Palette, type PaletteList } from './palette';
 import type { ImportInfo } from './transfer';
 import { graphExpressions, knownNames, variableUsage } from './usage';
 import { listVariables } from './variables';
@@ -30,16 +30,6 @@ const FROM_STORY: ReadonlySet<ProblemCode> = new Set([
   'jumpNoTarget',
   'chapterNoGraph',
 ]);
-
-/** Which entity an action needs, by its kind. */
-const ACTION_REF: Partial<Record<GameAction['type'], 'item' | 'character' | 'list'>> = {
-  give_item: 'item',
-  take_item: 'item',
-  hire: 'character',
-  dismiss: 'character',
-  list_add: 'list',
-  give_list: 'list',
-};
 
 export function checkConversation(
   data: ProjectData,
@@ -61,7 +51,9 @@ export function checkConversation(
   out.push(...checkProject(data).filter((p) => p.graph === graphId && FROM_STORY.has(p.code)));
 
   const speakers = new Set<string>();
-  for (const raw of g.nodes) for (const l of asStory(raw).lines ?? []) if (l.speaker) speakers.add(l.speaker);
+  for (const raw of g.nodes) {
+    for (const l of asStory(raw).lines ?? []) if (l.speaker && l.speaker !== NARRATOR) speakers.add(l.speaker);
+  }
 
   // What the conversation refers to must have names in the game too.
   const entities = new Set<string>();
@@ -85,17 +77,27 @@ export function checkConversation(
       );
     }
   };
+  const varIds = new Set(listVariables(data).map((v) => v.id));
   const actions = (list: GameAction[] | undefined, node: string, part: { line?: string; option?: string }) => {
     for (const a of list ?? []) {
-      const need = ACTION_REF[a.type];
-      if (need && (!a.ref || (need === 'list' ? !isList(data, a.ref) : !data.entities[a.ref]))) {
-        out.push(problem('actionNoRef', { ...here, node, ...part }, { title: titleOf(g, node), action: a.type }));
-      } else if (need === 'list') variables.add(a.ref!);
-      else if (need) entities.add(a.ref!);
-      if (a.type === 'list_add' && a.item) entities.add(a.item);
-      if ((a.type === 'event' || a.type === 'start_quest') && !a.value?.trim()) {
-        out.push(problem('actionNoRef', { ...here, node, ...part }, { title: titleOf(g, node), action: a.type }));
+      const where = { ...here, node, ...part };
+      const ref = actionRef(palette, a.type);
+      if (ref === undefined) {
+        out.push(problem('actionUnknown', where, { title: titleOf(g, node), action: a.type }));
+        continue;
       }
+      const missing =
+        ref === 'text'
+          ? !a.value?.trim()
+          : ref === 'variable'
+            ? !a.ref || !varIds.has(a.ref)
+            : ref
+              ? !a.ref || !data.entities[a.ref]
+              : false;
+      if (missing) out.push(problem('actionNoRef', where, { title: titleOf(g, node), action: a.type }));
+      else if (ref === 'variable') variables.add(a.ref!);
+      else if (ref === 'item' || ref === 'character') entities.add(a.ref!);
+      if (a.item && data.entities[a.item]) entities.add(a.item);
     }
   };
 
@@ -107,10 +109,10 @@ export function checkConversation(
         const where = { ...at, line: l.id };
         if (!l.text.trim()) out.push(problem('lineEmpty', where, { title: n.title, line: i + 1 }));
         if (!l.speaker) out.push(problem('lineNoSpeaker', where, { title: n.title, line: i + 1 }));
-        else entities.add(l.speaker);
+        else if (l.speaker !== NARRATOR) entities.add(l.speaker);
         palettes.push({ list: 'styles', id: l.style, node: n.id, line: l.id });
         palettes.push({ list: 'faces', id: l.face, node: n.id, line: l.id });
-        if (l.face) faceOf.push({ face: l.face, speaker: l.speaker, node: n.id, line: l.id });
+        if (l.face && l.speaker !== NARRATOR) faceOf.push({ face: l.face, speaker: l.speaker, node: n.id, line: l.id });
         towards(l.gesture, 'gestures', n.id, l.id);
         towards(l.emote, 'emotes', n.id, l.id);
         actions(l.actions, n.id, { line: l.id });
@@ -126,8 +128,10 @@ export function checkConversation(
           palettes.push({ list: 'reveals', id: m.props.reveal, node: n.id, line });
         } else {
           palettes.push({ list: 'sounds', id: m.props.sound, node: n.id, line });
-          palettes.push({ list: 'faces', id: m.props.face, node: n.id, line });
-          if (m.props.face) faceOf.push({ face: m.props.face, speaker, node: n.id, line });
+          const face = toward(m.props.face);
+          towards(m.props.face, 'faces', n.id, line);
+          // A face shown by somebody else must be one of theirs.
+          if (face) faceOf.push({ face: face.id, speaker: face.to ?? speaker, node: n.id, line });
           towards(m.props.gesture, 'gestures', n.id, line);
           towards(m.props.emote, 'emotes', n.id, line);
         }
@@ -197,10 +201,11 @@ export function checkConversation(
       }
     }
   }
-  // A face the speaker is not drawn with (cards that list no faces say nothing).
+  // A face the speaker is not drawn with: the game's own list (by the name in the game), else the card's.
   for (const f of faceOf) {
-    if (!f.speaker) continue;
-    const faces = entityGame(data.entities[f.speaker]).faces;
+    if (!f.speaker || f.speaker === NARRATOR) continue;
+    const card = data.entities[f.speaker];
+    const faces = paletteSpeaker(palette, keyOf(card))?.faces ?? entityGame(card).faces;
     if (faces.length && !faces.includes(f.face)) {
       out.push(
         problem(
@@ -240,9 +245,6 @@ function checkChoice(n: StoryNode, at: { graph: string; node: string }, out: Pro
     out.push(problem('choiceNoFallback', at, { title: n.title }));
   }
 }
-
-const isList = (data: ProjectData, id: string): boolean =>
-  listVariables(data).some((v) => v.id === id && v.type === 'list');
 
 const nameOf = (data: ProjectData, id: string): string => {
   const e = data.entities[id];

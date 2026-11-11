@@ -12,7 +12,7 @@ import { cueAt } from '../../story/marks';
 import { asStory, graphOf, GIVE_PORTS, textMarks, toward, type StoryNode, type TowardValue } from '../../story/model';
 import { paletteName, type Palette } from '../../story/palette';
 import { textPieces } from '../../story/textEffects';
-import { cueText } from './lineLook';
+import { cueText, speakerName } from './lineLook';
 
 /** Nodes in the order the talk goes: from the start along the exits (options in their order), then the rest. */
 export function talkOrder(g: GraphDoc): StoryNode[] {
@@ -85,8 +85,7 @@ function lineText(
 export function conversationScript(data: ProjectData, graphId: string, palette: Palette): string {
   const g = graphOf(data, graphId);
   if (!g) return '';
-  const entity = (id: string | null | undefined) =>
-    id ? ((data.entities[id]?.name as string | undefined) ?? t('story.lines.deletedSpeaker')) : t('story.narrator');
+  const entity = (id: string | null | undefined) => speakerName(data.entities, id);
   const title = (id: string) => g.nodes.find((n) => n.id === id)?.title || t('story.untitled');
   const exitsOf = (n: StoryNode, port?: string) =>
     edgesFrom(g, n.id, port)

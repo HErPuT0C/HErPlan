@@ -415,7 +415,10 @@
             "required": ["id", "speaker", "text"],
             "properties": {
               "id": { "type": "string" },
-              "speaker": { "type": ["string", "null"] },
+              "speaker": {
+                "type": ["string", "null"],
+                "description": "An entity id; since 0.8.1 \"narrator\" for the narrator, null when nobody was chosen."
+              },
               "text": { "type": "string" },
               "style": {
                 "type": "string",
@@ -535,7 +538,20 @@
                   "pause": { "type": "number" },
                   "shake": { "type": "number" },
                   "sound": { "type": "string" },
-                  "face": { "type": "string" },
+                  "face": {
+                    "oneOf": [
+                      { "type": "string" },
+                      {
+                        "type": "object",
+                        "required": ["id"],
+                        "properties": {
+                          "id": { "type": "string" },
+                          "to": { "type": ["string", "null"] }
+                        }
+                      }
+                    ],
+                    "description": "Since 0.8.1 a face cue may be for another participant, like a gesture."
+                  },
                   "gesture": {
                     "oneOf": [
                       { "type": "string" },

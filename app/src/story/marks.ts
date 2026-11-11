@@ -9,9 +9,12 @@ import type { ProjectData } from '../core/project/types';
 import {
   allGraphs,
   asStory,
+  isPlotMark,
   plotMarks,
   textMarks,
+  toward,
   type CueProps,
+  type NodeMark,
   type MarkAnchor,
   type NodeRef,
   type PlotDevice,
@@ -69,7 +72,19 @@ export function addStyleMark(
   const text = anchorText(n, anchor);
   const range = text === undefined ? null : tightRange(text, selection.start, selection.end);
   if (!range) return null;
-  const mark: TextMark = { id: newId(), device: 'style', anchor, range, props };
+  const props1 = cleanProps(props);
+  if (!Object.keys(props1).length) return null;
+  // The same words already have a look: it takes these props too.
+  const twin = textMarksOn(n, anchor).find((m) => {
+    if (m.device !== 'style') return false;
+    const r = resolveRange(text!, m.range);
+    return r?.start === range.start && r.end === range.end;
+  });
+  if (twin) {
+    twin.props = { ...twin.props, ...props1 };
+    return twin;
+  }
+  const mark: TextMark = { id: newId(), device: 'style', anchor, range, props: props1 };
   (n.marks ??= []).push(mark);
   return mark;
 }
@@ -78,17 +93,138 @@ export function addStyleMark(
 export function addCueMark(n: StoryNode, lineId: string, at: number, props: CueProps): TextMark | null {
   const anchor: MarkAnchor = { kind: 'line', id: lineId };
   const text = anchorText(n, anchor);
-  if (text === undefined) return null;
+  const clean = cleanProps(props);
+  // Cues stand inside the text (0.8.1): what holds from the start is set in the line's fields.
+  if (text === undefined || at <= 0 || !Object.keys(clean).length) return null;
+  props = clean;
   const pos = Math.max(0, Math.min(text.length, at));
   const mark: TextMark = { id: newId(), device: 'cue', anchor, range: { start: pos, end: pos, quote: '' }, props };
   (n.marks ??= []).push(mark);
   return mark;
 }
 
-/** Replaces what a style or cue mark says (inside a Store recipe). */
+/**
+ * Replaces what a style or cue mark says (inside a Store recipe). A mark left with nothing to say goes away,
+ * and one that came to cover the same words as another is joined with it (tidyNode).
+ */
 export function setMarkProps(n: StoryNode, id: string, props: StyleProps | CueProps): void {
   const m = textMarkOf(n, id);
-  if (m) m.props = props;
+  if (!m) return;
+  m.props = props;
+  tidyNode(n);
+}
+
+// ---------- one place for one thing (0.8.1, "Редактор реплик" 3) ----------
+
+const blank = (v: unknown): boolean =>
+  v === undefined ||
+  v === null ||
+  v === '' ||
+  v === false ||
+  (typeof v === 'number' && !Number.isFinite(v)) ||
+  (Array.isArray(v) && v.length === 0) ||
+  (typeof v === 'object' && v !== null && !Array.isArray(v) && !(v as { id?: unknown }).id);
+
+/** The props without the values that say nothing (blank text, false, an emote without an id…). */
+export function cleanProps<T extends object>(props: T): T {
+  return Object.fromEntries(Object.entries(props).filter(([, v]) => !blank(v))) as T;
+}
+
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/** What a cue at the very start of a line becomes: the line's own field. */
+const START_FIELDS = ['emote', 'gesture', 'face'] as const;
+
+/**
+ * Keeps the game's marks of a node tidy (inside a Store recipe); true when anything changed:
+ * - a look with no props and a cue with no value are dropped (the game does not need them);
+ * - two looks over the same words become one (the later's props over the earlier's), equal cues one;
+ * - an emote, a gesture or a face at the very start of a line goes into the line's field when that is empty:
+ *   the fields under the text are what holds from the start; when the field is taken the mark stays, shown
+ *   as a mistake (startCue).
+ */
+export function tidyNode(n: StoryNode): boolean {
+  if (!n.marks?.length) return false;
+  const before = JSON.stringify(n.marks) + JSON.stringify(n.lines ?? []);
+  const kept: NodeMark[] = [];
+  for (const m of n.marks) {
+    if (!isPlotMark(m)) {
+      const props = cleanProps(m.props);
+      if (!Object.keys(props).length) continue;
+      if (!sameJson(props, m.props)) m.props = props;
+      const text = anchorText(n, m.anchor);
+      if (text === undefined) {
+        kept.push(m);
+        continue;
+      }
+      if (m.device === 'style') {
+        const r = resolveRange(text, m.range);
+        const twin = kept.find(
+          (x): x is TextMark =>
+            !isPlotMark(x) &&
+            x.device === 'style' &&
+            sameAnchor(x.anchor, m.anchor) &&
+            sameJson(resolveRange(text, x.range), r),
+        );
+        if (twin) {
+          twin.props = { ...twin.props, ...m.props };
+          continue;
+        }
+      } else {
+        const at = cueAt(text, m);
+        if (
+          kept.some(
+            (x) =>
+              !isPlotMark(x) &&
+              x.device === 'cue' &&
+              sameAnchor(x.anchor, m.anchor) &&
+              cueAt(text, x) === at &&
+              sameJson(x.props, m.props),
+          )
+        ) {
+          continue;
+        }
+        if (at === 0 && m.anchor.kind === 'line' && liftStartCue(n, m.anchor.id, m.props)) continue;
+      }
+    }
+    kept.push(m);
+  }
+  // Untouched marks stay the same object (no change for the store to save).
+  if (kept.length !== n.marks.length) n.marks = kept;
+  return JSON.stringify(n.marks) + JSON.stringify(n.lines ?? []) !== before;
+}
+
+/** Moves an emote, a gesture or a face from the start of a line into its empty field; false when it cannot. */
+function liftStartCue(n: StoryNode, lineId: string, props: CueProps): boolean {
+  const line = n.lines?.find((l) => l.id === lineId);
+  const kind = START_FIELDS.find((k) => props[k] !== undefined);
+  if (!line || !kind || Object.keys(props).length !== 1 || line[kind]) return false;
+  const value = toward(props[kind]);
+  if (!value) return false;
+  // The line's face has no "to whom": a face for somebody else stays a mark.
+  if (kind === 'face') {
+    if (value.to) return false;
+    line.face = value.id;
+  } else {
+    line[kind] = props[kind];
+  }
+  return true;
+}
+
+/** A cue that stands at the very start of its line, where the fields under the text belong (a mistake). */
+export function startCue(n: StoryNode, m: TextMark): boolean {
+  if (m.device !== 'cue') return false;
+  const text = anchorText(n, m.anchor);
+  return text !== undefined && cueAt(text, m) === 0;
+}
+
+/** Tidies every story graph of a project (inside a Store recipe); how many nodes changed. */
+export function tidyProject(d: ProjectData): number {
+  let changed = 0;
+  for (const g of allGraphs(d)) {
+    for (const raw of g.nodes ?? []) if (tidyNode(asStory(raw))) changed++;
+  }
+  return changed;
 }
 
 /**

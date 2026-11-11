@@ -1,26 +1,28 @@
-// The preview of lines as the game types them (0.8, item 19 of "Dialogues"): letter by letter, marked words
-// at their speed and by their reveal, pauses held, other cues shown as they happen; a line with "auto" goes on
-// by itself after its seconds, the others wait for "Next". A click on the text shows the rest at once, as
-// games do. The base speed is the editor's assumption (story/typing.ts), not the game's own.
+// The preview of lines as the game types them (0.8, item 19 of "Dialogues"; 0.8.1, "Редактор реплик" 6.2).
+// Playing is a function of the time t from the start of the line: every frame works out again, from t, what
+// is out, where each letter is (effects), how the frame shakes, which cues have happened and the face. So
+// "again" really starts again — the cues fire, the screen shakes, the letters move — as many times as asked.
+// The numbers are the game's (preview of the palette); the text is still in the editor's font: the game's
+// font, the bubble and the speaker come with the scene (0.8.2).
 
-import { ChevronRight, RotateCcw } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { ChevronRight, Pause, Play, RotateCcw } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { ProjectData } from '../../core/project/types';
 import { useAtom } from '../../core/useStore';
 import { t } from '../../i18n';
 import { gameFiles } from '../../state/gameFiles';
-import { resolveRange, textMarksOn } from '../../story/marks';
-import { toward, type DialogueLine, type MarkAnchor, type StoryNode } from '../../story/model';
-import { paletteEntry, paletteName, type Palette } from '../../story/palette';
-import { BASE_CPS, typedAt, typing } from '../../story/typing';
+import { letterMove, shakeAt, type ShakeEvent } from '../../story/gameFx';
+import { faceAt, gameLine } from '../../story/gameLine';
+import { textMarksOn } from '../../story/marks';
+import { toward, type DialogueLine, type StoryNode } from '../../story/model';
+import { DEFAULT_TEXT, paletteName, type Palette } from '../../story/palette';
 import { Button, Dialog } from '../components';
-import { cueText, gameMarks } from './lineLook';
-import { highlightPieces, pieceStyle } from './MarkedText';
+import { cueText, speakerName } from './lineLook';
 
-/** Effects of the palette the preview knows how to draw, by their usual ids. */
-const DRAWN_EFFECTS = new Set(['shake', 'wave', 'rainbow', 'push', 'slide', 'twitch']);
 /** How long a cue stays shown. */
-const CUE_SHOWN = 1200;
+const CUE_SHOWN = 1.2;
+/** Screen pixels for a pixel of the game, in this preview. */
+const SCALE = 2;
 
 export function TypingPreview({
   node,
@@ -42,8 +44,6 @@ export function TypingPreview({
   const last = only ? start : lines.length - 1;
   const [index, setIndex] = useState(start);
   const line = lines[index];
-  const nameOf = (id: string | null | undefined) =>
-    id ? ((entities[id]?.name as string | undefined) ?? t('story.lines.deletedSpeaker')) : t('story.narrator');
   return (
     <Dialog
       open
@@ -54,13 +54,12 @@ export function TypingPreview({
     >
       {line ? (
         <TypedLine
-          // A new line, or the same one again: a fresh start.
+          // A new line: a fresh start.
           key={`${line.id}-${index}`}
           node={node}
           line={line}
           palette={palette}
-          speaker={nameOf(line.speaker)}
-          nameOf={nameOf}
+          entities={entities}
           position={t('preview.position', { n: index + 1, count: lines.length })}
           hasNext={index < last}
           onNext={() => (index < last ? setIndex(index + 1) : onClose())}
@@ -68,7 +67,7 @@ export function TypingPreview({
       ) : (
         <p className="muted">{t('story.card.noLines')}</p>
       )}
-      <p className="muted small">{t('preview.hint', { cps: BASE_CPS })}</p>
+      <p className="muted small">{t(palette.preview ? 'preview.hintGame' : 'preview.hintDefault')}</p>
     </Dialog>
   );
 }
@@ -77,8 +76,7 @@ function TypedLine({
   node,
   line,
   palette,
-  speaker,
-  nameOf,
+  entities,
   position,
   hasNext,
   onNext,
@@ -86,47 +84,73 @@ function TypedLine({
   node: StoryNode;
   line: DialogueLine;
   palette: Palette;
-  speaker: string;
-  nameOf: (id: string) => string;
+  entities: ProjectData['entities'];
   position: string;
   hasNext: boolean;
   onNext: () => void;
 }) {
-  // Worked out once per version of the node, not on every frame of the clock.
-  const { marks, ty, look } = useMemo(() => {
-    const anchor: MarkAnchor = { kind: 'line', id: line.id };
-    const marks = textMarksOn(node, anchor);
-    return {
-      marks,
-      ty: typing(line.text, marks),
-      look: gameMarks(node, anchor, line.text, palette, true),
-    };
-  }, [node, line.id, line.text, palette]);
-  const [run, setRun] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
-  const [skipped, setSkipped] = useState(false);
-  const began = useRef(0);
-  const auto = typeof line.auto === 'number' ? line.auto * 1000 : null;
-  const end = ty.total + (auto ?? 0);
+  const preview = palette.preview;
+  const shakeTime = preview?.text.shake_time ?? DEFAULT_TEXT.shake_time;
+  // Worked out once per version of the line, not on every frame.
+  const { gl, shakes } = useMemo(() => {
+    const gl = gameLine(line.text, line.style, textMarksOn(node, { kind: 'line', id: line.id }), preview);
+    const shakes: ShakeEvent[] = [
+      ...gl.cues.flatMap((c) => (typeof c.props.shake === 'number' ? [{ time: c.time, strength: c.props.shake }] : [])),
+      ...gl.chunks.filter((c) => c.shake > 0).map((c) => ({ time: c.time, strength: c.shake })),
+    ];
+    return { gl, shakes };
+  }, [node, line.id, line.text, line.style, preview]);
+  const auto = typeof line.auto === 'number' ? line.auto : null;
 
-  // The clock of the line: runs until the line is out (and its "auto" seconds are over).
+  // The clock: t seconds from the start of the line; "from the start" sets it back to 0, nothing else to undo.
+  const [t0, setT] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const origin = useRef(0);
+  const frozen = useRef(0);
   useEffect(() => {
-    began.current = performance.now();
+    if (!playing) return;
+    origin.current = performance.now() - frozen.current * 1000;
     let frame = 0;
     const tick = () => {
-      const now = performance.now() - began.current;
-      setElapsed(now);
-      if (now < end + 50) frame = requestAnimationFrame(tick);
+      setT((performance.now() - origin.current) / 1000);
+      frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [run, end]);
-
-  const shownAt = skipped ? Math.max(elapsed, ty.total) : elapsed;
-  const { upto, cues } = typedAt(ty, shownAt);
-  const done = shownAt >= ty.total;
-  // "auto": on by itself once its seconds are over.
-  const goesOn = done && auto !== null && elapsed >= end;
+  }, [playing]);
+  const restart = () => {
+    frozen.current = 0;
+    origin.current = performance.now();
+    setT(0);
+    setPlaying(true);
+  };
+  const pause = () => {
+    frozen.current = t0;
+    setPlaying(!playing);
+  };
+  const done = t0 >= gl.end;
+  /** Space or a click on the text: the rest of the line at once; once it is out, the next line. */
+  const advance = () => {
+    if (done) return onNext();
+    frozen.current = gl.end;
+    origin.current = performance.now() - gl.end * 1000;
+    setT(gl.end);
+  };
+  const advanceRef = useRef(advance);
+  useEffect(() => {
+    advanceRef.current = advance;
+  });
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== ' ' || (e.target as HTMLElement).closest('button, input, select, textarea')) return;
+      e.preventDefault();
+      advanceRef.current();
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, []);
+  // "auto": on by itself once its seconds after the line are over.
+  const goesOn = done && auto !== null && playing && t0 >= gl.end + auto;
   const onNextRef = useRef(onNext);
   useEffect(() => {
     onNextRef.current = onNext;
@@ -135,23 +159,15 @@ function TypedLine({
     if (goesOn) onNextRef.current();
   }, [goesOn]);
 
-  const recent = cues.filter((c) => shownAt - c.at < CUE_SHOWN && typeof c.cue.pause !== 'number');
-  const shaking = recent.some((c) => typeof c.cue.shake === 'number');
-  // The face holds till the end of the line; the line's own face before any cue.
-  const face = [...cues].reverse().find((c) => c.cue.face)?.cue.face ?? line.face;
-  const style = paletteEntry(palette, 'styles', line.style);
-  const pieces = highlightPieces(line.text, look.highlights, [upto, ...ty.hidden.flatMap((h) => [h.start, h.end])]);
-  const hidden = (at: number) => ty.hidden.some((h) => h.start <= at && at < h.end);
-  /** Effects of the palette drawn on the words at an offset (the ones the preview knows by their id). */
-  const effectsAt = (at: number) =>
-    marks.flatMap((m) => {
-      if (m.device !== 'style' || !m.props.effect || !DRAWN_EFFECTS.has(m.props.effect)) return [];
-      const r = resolveRange(line.text, m.range);
-      return r && r.start <= at && at < r.end ? [`fx fx-${m.props.effect}`] : [];
-    });
-
+  const nameOf = (id: string) => speakerName(entities, id);
+  const shake = shakeAt(shakes, t0, shakeTime);
+  const recent = gl.cues.filter((c) => c.time <= t0 && t0 - c.time < CUE_SHOWN && typeof c.props.pause !== 'number');
+  const face = faceAt(gl, line.face, t0);
+  const params = preview?.effects ?? {};
+  /** The first letter not out yet: the caret stands before it. */
+  const caretAt = gl.letters.find((l) => l.i >= 0 && l.appear > t0)?.at ?? -1;
   const statics = [
-    face && `${t('line.face')}: ${paletteName(palette, 'faces', face)}`,
+    `${t('line.face')}: ${paletteName(palette, 'faces', face)}`,
     ...(['gesture', 'emote'] as const).map((k) => {
       const x = toward(line[k]);
       if (!x) return null;
@@ -163,7 +179,7 @@ function TypedLine({
   return (
     <div className="typing">
       <div className="typing-head">
-        <strong className="typing-speaker">{speaker}</strong>
+        <strong className="typing-speaker">{speakerName(entities, line.speaker)}</strong>
         {statics.map((s) => (
           <span key={s as string} className="chip typing-chip">
             {s}
@@ -173,59 +189,65 @@ function TypedLine({
       </div>
       {line.condition?.trim() && <p className="muted small">{t('script.if', { condition: line.condition.trim() })}</p>}
       <div
-        className={['typing-box', shaking && 'typing-shake'].filter(Boolean).join(' ')}
-        style={style?.color ? ({ color: style.color } as CSSProperties) : undefined}
+        className="typing-box"
+        style={{ translate: `${shake.dx * SCALE}px ${shake.dy * SCALE}px` } as CSSProperties}
         role="button"
         tabIndex={0}
         aria-label={t(done ? 'preview.next' : 'preview.skip')}
         data-done={done ? '' : undefined}
-        onClick={() => (done ? onNext() : setSkipped(true))}
+        data-shake={shake.dx || shake.dy ? `${shake.dx},${shake.dy}` : undefined}
+        onClick={advance}
         onKeyDown={(e) => {
-          if (e.key !== 'Enter' && e.key !== ' ') return;
+          if (e.key !== 'Enter') return;
           e.preventDefault();
-          if (done) onNext();
-          else setSkipped(true);
+          advance();
         }}
       >
-        {pieces.map((p, i) => {
-          if (p.start >= upto || hidden(p.start)) return null;
-          const effects = effectsAt(p.start);
+        {gl.letters.map((l) => {
+          if (l.i < 0) return null;
+          const out = l.appear <= t0;
+          const move = out ? letterMove(l.props.fx, params, l.i, t0, t0 - l.appear) : { dx: 0, dy: 0 };
           return (
-            <span
-              key={i}
-              className={[...p.over.map((h) => h.className), ...effects].join(' ') || undefined}
-              style={pieceStyle(p.over)}
-            >
-              {p.text}
-            </span>
+            <Fragment key={l.at}>
+              {/* The caret stands where the typing is. */}
+              {!done && l.at === caretAt && <span className="typing-caret" aria-hidden="true" />}
+              <span
+                className="typing-letter"
+                data-bold={l.props.bold ? '' : undefined}
+                data-out={out ? '' : undefined}
+                style={{
+                  color: move.col ?? l.props.col,
+                  fontWeight: l.props.bold ? 700 : undefined,
+                  fontSize: l.props.size === 2 ? '1.6em' : undefined,
+                  visibility: out ? undefined : 'hidden',
+                  left: move.dx * SCALE || undefined,
+                  top: move.dy * SCALE || undefined,
+                }}
+              >
+                {l.ch}
+              </span>
+            </Fragment>
           );
         })}
-        {!done && <span className="typing-caret" aria-hidden="true" />}
       </div>
       <div className="typing-cues" aria-live="polite">
         {recent.map((c, i) => (
           <span key={`${c.at}-${i}`} className="chip typing-cue">
-            {cueText(c.cue, palette, nameOf)}
+            {cueText(c.props, palette, nameOf)}
           </span>
         ))}
       </div>
       <div className="typing-foot">
         {auto !== null && done && !goesOn && (
           <span className="muted small">
-            {t('preview.auto', { seconds: Math.max(0, (end - elapsed) / 1000).toFixed(1) })}
+            {t('preview.auto', { seconds: Math.max(0, gl.end + auto - t0).toFixed(1) })}
           </span>
         )}
-        <Button
-          size="sm"
-          variant="ghost"
-          icon={<RotateCcw size={14} />}
-          onClick={() => {
-            setSkipped(false);
-            setElapsed(0);
-            setRun((r) => r + 1);
-          }}
-        >
+        <Button size="sm" variant="ghost" icon={<RotateCcw size={14} />} onClick={restart}>
           {t('preview.again')}
+        </Button>
+        <Button size="sm" variant="ghost" icon={playing ? <Pause size={14} /> : <Play size={14} />} onClick={pause}>
+          {t(playing ? 'preview.pause' : 'preview.resume')}
         </Button>
         <Button size="sm" variant="primary" icon={<ChevronRight size={14} />} onClick={onNext}>
           {t(hasNext ? 'play.next' : 'preview.close')}

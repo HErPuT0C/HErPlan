@@ -92,6 +92,7 @@ import { useStory } from './context';
 import { ExpressionField } from './ExpressionField';
 import { ActionsEditor, GameKeyField, NumberBlank } from './game';
 import { LineRow, Translation } from './LineEditor';
+import { participants } from './paletteItems';
 import { MarkedTextArea, textHighlights, useTextMenu } from './MarkedText';
 import { NodePicker } from './NodePicker';
 import { DeviceMenu, useAddDevice } from './plotTools';
@@ -337,12 +338,16 @@ function GiveSection({ node }: { node: StoryNode }) {
 // ---------- dialogue ----------
 
 function DialogueSection({ node }: { node: StoryNode }) {
-  const { project, edit } = useStory();
+  const { project, graphId, edit } = useStory();
   const readOnly = project.readOnly;
   const limits = useStore(project.store, (s) => s.meta.settings.dialogueLimits);
   const entities = useStore(project.store, (s) => s.entities);
-  const types = useStore(project.store, (s) => s.types);
-  const characters = listEntities({ entities, types }, 'character');
+  // Who speaks anywhere in this conversation: whom an emote, a gesture or a face can belong to (0.8.1).
+  const people = useStore(project.store, (s) =>
+    participants((graphOf(s, graphId)?.nodes ?? []).flatMap((n) => asStory(n).lines ?? [])).join('\n'),
+  )
+    .split('\n')
+    .filter(Boolean);
   const lines = node.lines ?? [];
   const over = lines.length > limits.maxLines;
   const [previewing, setPreviewing] = useState(false);
@@ -369,8 +374,8 @@ function DialogueSection({ node }: { node: StoryNode }) {
           last={i === lines.length - 1}
           node={node}
           maxChars={limits.maxLineChars}
-          characters={characters}
           entities={entities}
+          people={people}
           readOnly={readOnly}
         />
       ))}

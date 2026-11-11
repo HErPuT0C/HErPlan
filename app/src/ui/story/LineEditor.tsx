@@ -1,7 +1,9 @@
-// One dialogue line in the inspector (0.8): who says it, the text with the look of its words shown in the
-// field itself, the row of the game's palette under it (style, face, gesture, emote), and, folded away, the
-// rest the game needs: timings, the "interrupted" exit, a condition, effects, actions, a note for the
-// translator, and the marks on the words (their look) and between them (pauses, sounds, gestures).
+// One dialogue line in the inspector. 0.8: who says it, the text with the look of its words shown in the
+// field itself, the row of what holds from the start of the line (style, face, gesture, emote) and, folded
+// away, timings, the "interrupted" exit, a condition, effects, actions, a note for the translator, and the
+// marks on the words and between them. 0.8.1 ("Редактор реплик" 2–3): every value is picked from the game's
+// palette; who speaks are the cards with a name in the game and the narrator, and a line nobody speaks is
+// marked; a cue stands only inside the text — at its start the fields under the text are what is set.
 
 import {
   ArrowDown,
@@ -10,18 +12,19 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardCopy,
+  MapPinPlus,
   Paintbrush,
   Play,
   Trash,
   X,
 } from 'lucide-react';
-import { Fragment, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { Fragment, useRef, useState, type KeyboardEvent } from 'react';
 import type { ProjectData } from '../../core/project/types';
 import { useAtom, useStore } from '../../core/useStore';
 import { t } from '../../i18n';
 import { gameFiles } from '../../state/gameFiles';
-import type { WorldEntity } from '../../story/entities';
 import { visibleLength } from '../../story/game';
+import { keyOf } from '../../story/gameKey';
 import {
   addCueMark,
   addStyleMark,
@@ -29,11 +32,13 @@ import {
   removeMark,
   resolveRange,
   setMarkProps,
+  startCue,
   textMarksOn,
   toggleBold,
 } from '../../story/marks';
 import {
   CUE_KINDS,
+  toward,
   type CueKind,
   type CueProps,
   type DialogueLine,
@@ -51,25 +56,25 @@ import {
   storyNode,
   updateLine,
 } from '../../story/ops';
-import { paletteEntry, type Palette } from '../../story/palette';
+import { NARRATOR, paletteName, paletteSpeaker, type Palette } from '../../story/palette';
 import { translationsOf, type Translations } from '../../story/translation';
-import { IconButton, Switch, type MenuEntry } from '../components';
+import { IconButton, Menu, Switch, toast, type MenuEntry } from '../components';
+import { PromptDialog, type PromptRequest } from '../canvas/PromptDialog';
 import { useStory } from './context';
 import { ExpressionField } from './ExpressionField';
 import { ActionsEditor, NumberBlank, PaletteInput, TowardInput } from './game';
-import { CUE_ICONS, CUE_NAMES, cueKind, cueText, gameMarks, styleCss } from './lineLook';
+import { CUE_ICONS, CUE_NAMES, cueKind, cueText, gameMarks, speakerName, styleCss } from './lineLook';
 import { highlightPieces, MarkedTextArea, pieceStyle, textHighlights, useTextMenu } from './MarkedText';
+import { faceItems, listItems, speakerItems } from './paletteItems';
+import { PaletteSelect, SoundButton } from './PaletteSelect';
 import { DeviceMenu, useAddDevice } from './plotTools';
 import { TypingPreview } from './TypingPreview';
 
-const CUE_DEFAULT: Record<CueKind, CueProps> = {
-  pause: { pause: 0.4 },
-  shake: { shake: 1 },
-  sound: { sound: '' },
-  gesture: { gesture: '' },
-  emote: { emote: '' },
-  face: { face: '' },
-};
+/** A pause put with Ctrl+P (the spec: 0.3 s). */
+const PAUSE = 0.3;
+/** Cues that at the very start of a line are the line's own fields. */
+const FIELDS: readonly CueKind[] = ['face', 'gesture', 'emote'];
+const FIELD_LIST = { face: 'faces', gesture: 'gestures', emote: 'emotes', sound: 'sounds' } as const;
 
 /** The line as the game shows it: real weights and sizes, and an icon for every cue, explained on hover. */
 function LinePreview({
@@ -119,14 +124,21 @@ function LinePreview({
   );
 }
 
+interface MenuAt {
+  x: number;
+  y: number;
+  entries: MenuEntry[];
+  label: string;
+}
+
 export function LineRow({
   line,
   index,
   last,
   node,
   maxChars,
-  characters,
   entities,
+  people,
   readOnly,
 }: {
   line: DialogueLine;
@@ -134,13 +146,23 @@ export function LineRow({
   last: boolean;
   node: StoryNode;
   maxChars: number;
-  characters: WorldEntity[];
   entities: ProjectData['entities'];
+  /** Who speaks in this conversation: whom an emote, a gesture or a face can belong to. */
+  people: string[];
   readOnly: boolean;
 }) {
-  const { edit, task } = useStory();
+  const { project, edit, task } = useStory();
   const { palette, translations } = useAtom(gameFiles);
+  const types = useStore(project.store, (s) => s.types);
+  const noPalette = !palette.loaded;
   const [previewing, setPreviewing] = useState(false);
+  const [menuAt, setMenuAt] = useState<MenuAt | null>(null);
+  const [prompt, setPrompt] = useState<PromptRequest | null>(null);
+  /** A field under the text asked to open its list (a cue at the start of the line). */
+  const [openField, setOpenField] = useState<CueKind | null>(null);
+  const textBox = useRef<HTMLTextAreaElement | null>(null);
+  /** Where the caret was last: "+ mark" puts the mark there. */
+  const caret = useRef(0);
   const nodeId = node.id;
   const anchor: MarkAnchor = { kind: 'line', id: line.id };
   const addDevice = useAddDevice(node.id);
@@ -166,16 +188,86 @@ export function LineRow({
     );
   const set = (patch: Partial<DialogueLine>, mergeKey?: string) =>
     edit(t('story.step.lines'), (g) => setLineFields(g, nodeId, line.id, patch), mergeKey);
+  const nameOf = (id: string) => speakerName(entities, id);
+  const others = people.filter((p) => p !== line.speaker);
+  const faces = faceItems(palette, entities, line.speaker);
+
+  /** A value typed by hand when there is no palette (or a list the palette has not got). */
+  const ask = (title: string, onSubmit: (v: string) => void) =>
+    setPrompt({ title, label: t('line.valueId'), value: '', onSubmit: (v) => v.trim() && onSubmit(v.trim()) });
 
   const bold = (sel: { start: number; end: number }) => change((n) => toggleBold(n, line.id, sel));
-  const style = (sel: { start: number; end: number }) => {
-    change((n) => void addStyleMark(n, line.id, sel, {}));
+  const styleWords = (sel: { start: number; end: number }, style: string) => {
+    change((n) => void addStyleMark(n, line.id, sel, { style }));
     setOpen(true);
   };
-  const cue = (at: number, kind: CueKind) => {
-    change((n) => void addCueMark(n, line.id, at, { ...CUE_DEFAULT[kind] }));
-    if (kind !== 'pause') setOpen(true);
+  /** "Style the words…": the palette's styles in their colours. */
+  const styleMenu = (sel: { start: number; end: number }, x: number, y: number) => {
+    if (noPalette || !palette.styles.length) return ask(t('line.styleWords'), (v) => styleWords(sel, v));
+    setMenuAt({
+      x,
+      y,
+      label: t('line.styleWords'),
+      entries: palette.styles.map((s, i) => ({
+        id: s.id,
+        label: s.name,
+        icon: <span className="palette-dot" style={{ background: s.color ?? 'currentColor' }} />,
+        shortcut: i < 8 ? `Ctrl+${i + 1}` : undefined,
+        onSelect: () => styleWords(sel, s.id),
+      })),
+    });
   };
+
+  /** Puts a cue of a kind at a place of the text, asking for its value first when it has one. */
+  const putCue = (kind: CueKind, at: number, x: number, y: number) => {
+    if (at <= 0) {
+      // What holds from the start of the line is set in its fields.
+      if (FIELDS.includes(kind)) {
+        setOpenField(kind);
+        return;
+      }
+      toast({ kind: 'info', text: t('line.noStartCue') });
+      return;
+    }
+    if (kind === 'pause') return change((n) => void addCueMark(n, line.id, at, { pause: PAUSE }));
+    if (kind === 'shake') return change((n) => void addCueMark(n, line.id, at, { shake: 1 }));
+    const put = (value: string) => {
+      change((n) => void addCueMark(n, line.id, at, { [kind]: value } as CueProps));
+      setOpen(true);
+    };
+    const items = kind === 'face' ? faces.items : listItems(palette, FIELD_LIST[kind]);
+    if (noPalette || !items.length) {
+      if (kind === 'face' && faces.gray && !noPalette) return toast({ kind: 'info', text: faces.gray });
+      return ask(t(CUE_NAMES[kind]), put);
+    }
+    setMenuAt({
+      x,
+      y,
+      label: t('line.cueHere', { what: t(CUE_NAMES[kind]) }),
+      entries: items.map((it) => ({ id: it.id, label: it.name, icon: it.icon, onSelect: () => put(it.id) })),
+    });
+  };
+  /** "+ mark": the kinds of cues, at the caret. */
+  const cueMenu = (at: number, x: number, y: number) =>
+    setMenuAt({
+      x,
+      y,
+      label: t('line.addCue'),
+      entries: CUE_KINDS.map((kind) => {
+        const Icon = CUE_ICONS[kind];
+        const start = at <= 0;
+        return {
+          id: `cue-${kind}`,
+          label:
+            start && FIELDS.includes(kind) ? t('line.fromStart', { what: t(CUE_NAMES[kind]) }) : t(CUE_NAMES[kind]),
+          icon: <Icon size={16} />,
+          shortcut: kind === 'pause' ? 'Ctrl+P' : undefined,
+          disabled: readOnly || (start && !FIELDS.includes(kind)),
+          onSelect: () => putCue(kind, at, x, y),
+        };
+      }),
+    });
+
   const menu = useTextMenu({
     readOnly,
     onDevice: (device, sel) => addDevice(device, anchor, sel),
@@ -194,59 +286,73 @@ export function LineRow({
         icon: <Paintbrush size={16} />,
         shortcut: 'Ctrl+E',
         disabled: readOnly || !selected,
-        onSelect: () => style({ start, end }),
+        onSelect: () => {
+          const r = textBox.current?.getBoundingClientRect();
+          styleMenu({ start, end }, r?.left ?? 0, (r?.bottom ?? 0) + 4);
+        },
       },
-      ...CUE_KINDS.map((kind) => {
-        const Icon = CUE_ICONS[kind];
-        return {
-          id: `cue-${kind}`,
-          label: t('line.cueHere', { what: t(CUE_NAMES[kind]) }),
-          icon: <Icon size={16} />,
-          ...(kind === 'pause' ? { shortcut: 'Ctrl+P' } : {}),
-          disabled: readOnly,
-          onSelect: () => cue(start, kind),
-        };
-      }),
+      {
+        id: 'cue',
+        label: start > 0 ? t('line.addCue') : t('line.addCueStart'),
+        icon: <MapPinPlus size={16} />,
+        shortcut: 'Ctrl+M',
+        disabled: readOnly,
+        onSelect: () => {
+          const r = textBox.current?.getBoundingClientRect();
+          cueMenu(start, r?.left ?? 0, (r?.bottom ?? 0) + 4);
+        },
+      },
     ],
   });
-  // Bold, pause and style from the keyboard, whatever the layout.
+  // Bold, a pause, styles and "+ mark" from the keyboard, whatever the layout.
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (readOnly || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
     const el = e.currentTarget;
     const sel = { start: el.selectionStart, end: el.selectionEnd };
+    const r = el.getBoundingClientRect();
+    const digit = /^Digit([1-8])$/.exec(e.code);
     if (e.code === 'KeyB' && sel.end > sel.start) bold(sel);
-    else if (e.code === 'KeyE' && sel.end > sel.start) style(sel);
-    else if (e.code === 'KeyP') cue(sel.start, 'pause');
+    else if (e.code === 'KeyE' && sel.end > sel.start) styleMenu(sel, r.left, r.bottom + 4);
+    else if (digit && sel.end > sel.start && palette.styles[Number(digit[1]) - 1]) {
+      styleWords(sel, palette.styles[Number(digit[1]) - 1].id);
+    } else if (e.code === 'KeyP') {
+      if (sel.start > 0) change((n) => void addCueMark(n, line.id, sel.start, { pause: PAUSE }));
+      else toast({ kind: 'info', text: t('line.noStartCue') });
+    } else if (e.code === 'KeyM') cueMenu(sel.start, r.left, r.bottom + 4);
     else return;
     e.preventDefault();
   };
 
   const chars = visibleLength(line.text);
-  const unknownSpeaker = line.speaker && !entities[line.speaker];
-  const nameOf = (id: string) => (entities[id]?.name as string | undefined) ?? t('story.lines.deletedSpeaker');
+  const card = line.speaker && line.speaker !== NARRATOR ? entities[line.speaker] : undefined;
+  const gameSpeaker = paletteSpeaker(palette, line.speaker === NARRATOR ? NARRATOR : keyOf(card));
   const game = gameMarks(node, anchor, line.text, palette);
-  const others = characters.filter((c) => c.id !== line.speaker).map((c) => ({ id: c.id, name: c.name }));
-  const lineStyle = paletteEntry(palette, 'styles', line.style)?.color;
+  const lineStyle = palette.styles.find((s) => s.id === line.style)?.color;
+  const unknownSpeaker = line.speaker
+    ? line.speaker === NARRATOR
+      ? undefined
+      : !card
+        ? t('story.lines.deletedSpeaker')
+        : t('line.speakerNoKey')
+    : undefined;
   return (
-    <div className="iline" data-line={line.id} data-field={`line:${line.id}`}>
+    <div
+      className={['iline', !line.speaker && 'iline-nobody'].filter(Boolean).join(' ')}
+      data-line={line.id}
+      data-field={`line:${line.id}`}
+      style={gameSpeaker?.color ? { borderLeftColor: gameSpeaker.color } : undefined}
+    >
       <div className="iline-head">
-        <select
-          className="input iline-speaker"
-          value={line.speaker ?? ''}
+        <PaletteSelect
+          label={t('line.whoSpeaks')}
+          value={line.speaker}
+          items={speakerItems(palette, { entities, types })}
+          noneLabel={t('line.nobody')}
+          unknownHint={unknownSpeaker}
           disabled={readOnly}
-          aria-label={t('story.lines.speaker')}
-          onChange={(e) =>
-            edit(t('story.step.lines'), (g) => updateLine(g, nodeId, line.id, { speaker: e.target.value || null }))
-          }
-        >
-          <option value="">{t('story.narrator')}</option>
-          {characters.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name || t('story.untitled')}
-            </option>
-          ))}
-          {unknownSpeaker && <option value={line.speaker!}>{t('story.lines.deletedSpeaker')}</option>}
-        </select>
+          className={['iline-speaker', !line.speaker && 'palette-unknown'].filter(Boolean).join(' ')}
+          onChange={(v) => edit(t('story.step.lines'), (g) => updateLine(g, nodeId, line.id, { speaker: v || null }))}
+        />
         <span
           className={['small', 'iline-count', chars > maxChars ? 'text-warning' : 'muted'].join(' ')}
           title={t('line.countHint')}
@@ -262,6 +368,15 @@ export function LineRow({
         />
         {!readOnly && (
           <span className="iline-tools">
+            <IconButton
+              size="sm"
+              label={t('line.addCueKeys')}
+              icon={<MapPinPlus size={14} />}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                cueMenu(caret.current, r.left, r.bottom + 4);
+              }}
+            />
             <IconButton
               size="sm"
               label={t('story.up')}
@@ -286,6 +401,22 @@ export function LineRow({
           </span>
         )}
       </div>
+      {!line.speaker && <span className="iline-who-missing">{t('line.whoSpeaksMissing')}</span>}
+      {gameSpeaker && (
+        <div className="iline-game-speaker small muted">
+          <span className="palette-dot" style={{ background: gameSpeaker.color ?? 'currentColor' }} />
+          {[
+            gameSpeaker.bubble && t('line.bubbleIs', { name: paletteName(palette, 'bubbles', gameSpeaker.bubble) }),
+            gameSpeaker.voice && t('line.voiceIs', { name: paletteName(palette, 'voices', gameSpeaker.voice) }),
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+          <SoundButton
+            sound={palette.voices.find((v) => v.id === gameSpeaker.voice)?.sound}
+            label={paletteName(palette, 'voices', gameSpeaker.voice)}
+          />
+        </div>
+      )}
       <MarkedTextArea
         className={['iline-text', chars > maxChars && 'iline-over'].filter(Boolean).join(' ')}
         value={line.text}
@@ -298,6 +429,13 @@ export function LineRow({
         aria-label={t('story.lines.text', { n: index + 1 })}
         onContextMenu={menu.onContextMenu}
         onKeyDown={onKeyDown}
+        onSelect={(e) => {
+          textBox.current = e.currentTarget;
+          caret.current = e.currentTarget.selectionStart;
+        }}
+        onFocus={(e) => {
+          textBox.current = e.currentTarget;
+        }}
         onChange={(e) =>
           edit(
             t('story.step.lines'),
@@ -309,9 +447,6 @@ export function LineRow({
       {menu.menu}
       <Translation translations={translations} id={line.id} edited={(line as { edited?: string }).edited} />
       <LinePreview node={node} line={line} palette={palette} nameOf={nameOf} />
-      {previewing && (
-        <TypingPreview node={node} start={index} only entities={entities} onClose={() => setPreviewing(false)} />
-      )}
       <div className="iline-game">
         <PaletteInput
           palette={palette}
@@ -321,12 +456,15 @@ export function LineRow({
           disabled={readOnly}
           onChange={(v) => set({ style: v }, `style:${line.id}`)}
         />
-        <PaletteInput
-          palette={palette}
-          list="faces"
-          value={line.face}
+        <PaletteSelect
           label={t('line.face')}
+          value={line.face}
+          items={faces.items}
+          gray={noPalette ? null : faces.gray}
+          noPalette={noPalette}
           disabled={readOnly}
+          autoOpen={openField === 'face'}
+          onOpened={() => setOpenField(null)}
           onChange={(v) => set({ face: v }, `face:${line.id}`)}
         />
         <TowardInput
@@ -335,7 +473,10 @@ export function LineRow({
           value={line.gesture}
           label={t('line.gesture')}
           people={others}
+          nameOf={nameOf}
           disabled={readOnly}
+          autoOpen={openField === 'gesture'}
+          onOpened={() => setOpenField(null)}
           onChange={(v) => set({ gesture: v }, `gesture:${line.id}`)}
         />
         <TowardInput
@@ -344,7 +485,10 @@ export function LineRow({
           value={line.emote}
           label={t('line.emote')}
           people={others}
+          nameOf={nameOf}
           disabled={readOnly}
+          autoOpen={openField === 'emote'}
+          onOpened={() => setOpenField(null)}
           onChange={(v) => set({ emote: v }, `emote:${line.id}`)}
         />
       </div>
@@ -360,10 +504,13 @@ export function LineRow({
               {marks.map((m) => (
                 <TextMarkRow
                   key={m.id}
+                  node={node}
                   mark={m}
                   text={line.text}
                   palette={palette}
-                  people={others}
+                  people={people}
+                  speaker={line.speaker}
+                  entities={entities}
                   readOnly={readOnly}
                   onProps={(props) => change((n) => setMarkProps(n, m.id, props), `tmark:${m.id}`)}
                   onRemove={() => change((n) => removeMark(n, m.id))}
@@ -441,6 +588,13 @@ export function LineRow({
           </button>
         </div>
       )}
+      {previewing && (
+        <TypingPreview node={node} start={index} only entities={entities} onClose={() => setPreviewing(false)} />
+      )}
+      {menuAt && (
+        <Menu x={menuAt.x} y={menuAt.y} label={menuAt.label} entries={menuAt.entries} onClose={() => setMenuAt(null)} />
+      )}
+      <PromptDialog request={prompt} onClose={() => setPrompt(null)} />
     </div>
   );
 }
@@ -491,35 +645,37 @@ function LineActions({ line, nodeId, readOnly }: { line: DialogueLine; nodeId: s
 
 /** One mark of the game on a line: the look of words, or a cue between them. */
 function TextMarkRow({
+  node,
   mark: m,
   text,
   palette,
   people,
+  speaker,
+  entities,
   readOnly,
   onProps,
   onRemove,
 }: {
+  node: StoryNode;
   mark: TextMark;
   text: string;
   palette: Palette;
-  people: { id: string; name: string }[];
+  people: string[];
+  speaker: string | null;
+  entities: ProjectData['entities'];
   readOnly: boolean;
   onProps: (props: StyleProps | CueProps) => void;
   onRemove: () => void;
 }) {
+  const nameOf = (id: string) => speakerName(entities, id);
   const remove = !readOnly && (
     <IconButton size="sm" label={t('line.markRemove')} icon={<X size={14} />} onClick={onRemove} />
   );
   if (m.device === 'style') {
     const r = resolveRange(text, m.range);
     const p = m.props;
-    const put = (patch: Partial<StyleProps>) => {
-      const next: StyleProps = { ...p, ...patch };
-      for (const k of Object.keys(next) as (keyof StyleProps)[]) {
-        if (next[k] === '' || next[k] === undefined || next[k] === false) delete next[k];
-      }
-      onProps(next);
-    };
+    // A look without any props goes away by itself (tidyNode).
+    const put = (patch: Partial<StyleProps>) => onProps({ ...p, ...patch });
     return (
       <div className="tmark tmark-style" data-field={`tmark:${m.id}`}>
         <div className="tmark-head">
@@ -605,65 +761,63 @@ function TextMarkRow({
   const Icon = CUE_ICONS[kind];
   const at = cueAt(text, m);
   const before = text.slice(Math.max(0, at - 14), at).trimStart();
-  let value: ReactNode;
+  const atStart = startCue(node, m);
+  // A face is one of its owner's faces: the speaker's, or the one it is for.
+  const faceOwner = kind === 'face' ? (toward(m.props.face)?.to ?? speaker) : speaker;
+  const faces = faceItems(palette, entities, faceOwner);
+  let value;
   if (kind === 'pause' || kind === 'shake') {
     value = (
       <NumberBlank
         label={t(kind === 'pause' ? 'cue.seconds' : 'cue.strength')}
         value={m.props[kind]}
         disabled={readOnly}
-        onChange={(n) => onProps({ [kind]: n ?? 0 })}
+        // Blank takes the cue away (a pause of nothing is nothing).
+        onChange={(n) => onProps({ [kind]: n })}
       />
     );
-  } else if (kind === 'sound' || kind === 'face') {
+  } else if (kind === 'sound') {
     value = (
       <PaletteInput
         palette={palette}
-        list={kind === 'sound' ? 'sounds' : 'faces'}
-        value={m.props[kind]}
+        list="sounds"
+        value={m.props.sound}
         label={t(CUE_NAMES[kind])}
         disabled={readOnly}
-        onChange={(id) => onProps({ [kind]: id })}
+        onChange={(sound) => onProps({ sound })}
       />
     );
   } else {
     value = (
       <TowardInput
         palette={palette}
-        list={kind === 'gesture' ? 'gestures' : 'emotes'}
+        list={kind === 'gesture' ? 'gestures' : kind === 'emote' ? 'emotes' : 'faces'}
+        items={kind === 'face' ? faces.items : undefined}
+        gray={kind === 'face' && palette.loaded ? faces.gray : null}
         value={m.props[kind]}
         label={t(CUE_NAMES[kind])}
-        people={people}
+        people={people.filter((x) => x !== speaker)}
+        nameOf={nameOf}
         disabled={readOnly}
-        onChange={(v) => onProps({ [kind]: v ?? '' })}
+        onChange={(v) => onProps({ [kind]: v })}
       />
     );
   }
   return (
-    <div className="tmark tmark-cue" data-field={`tmark:${m.id}`}>
+    <div
+      className={['tmark', 'tmark-cue', atStart && 'tmark-bad'].filter(Boolean).join(' ')}
+      data-field={`tmark:${m.id}`}
+      title={atStart ? t('line.startCueHint') : undefined}
+    >
       <div className="tmark-head">
         <Icon size={13} aria-hidden="true" />
+        <span className="tmark-what">{t(CUE_NAMES[kind])}</span>
         <span className="tmark-where muted small">
-          {at === 0 ? t('cue.atStart') : t('cue.after', { text: before })}
+          {atStart ? t('line.startCue') : t('cue.after', { text: before })}
         </span>
         {remove}
       </div>
-      <div className="tmark-props">
-        <select
-          className="input"
-          value={kind}
-          disabled={readOnly}
-          aria-label={t('cue.kind')}
-          onChange={(e) => onProps({ ...CUE_DEFAULT[e.target.value as CueKind] })}
-        >
-          {CUE_KINDS.map((k) => (
-            <option key={k} value={k}>
-              {t(CUE_NAMES[k])}
-            </option>
-          ))}
-        </select>
-        {value}
-      </div>
+      <div className="tmark-props">{value}</div>
     </div>
   );
 }

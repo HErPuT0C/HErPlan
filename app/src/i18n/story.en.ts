@@ -155,7 +155,6 @@ export const storyEn: Record<keyof typeof storyRu, string> = {
   'story.inspector.startHint': 'The playthrough of this canvas starts here.',
   'story.lines': 'Lines',
   'story.lines.add': 'Add a line',
-  'story.lines.speaker': 'Speaker',
   'story.lines.text': 'Line {n}',
   'story.lines.remove': 'Delete line',
   'story.lines.count': 'Lines: {count} of {max}.',

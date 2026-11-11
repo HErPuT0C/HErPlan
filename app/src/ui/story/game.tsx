@@ -15,15 +15,19 @@ import {
   type GameAction,
   type TowardValue,
 } from '../../story/model';
-import { type Palette, type PaletteList } from '../../story/palette';
+import { actionRef, type Palette, type PaletteList } from '../../story/palette';
 import { listVariables } from '../../story/variables';
+import { useAtom } from '../../core/useStore';
+import { gameFiles } from '../../state/gameFiles';
 import { IconButton, MenuButton } from '../components';
 import { ACTION_NAMES } from './messages';
+import { listItems } from './paletteItems';
+import { PaletteSelect, type SelectItem } from './PaletteSelect';
 import './game.css';
 
 /**
- * One value of a palette list: a dropdown of the game's own names, or, when the game gave no list, a plain
- * text field for the id. A value the palette does not have stays, marked.
+ * One value of a palette list (0.8.1): picked from the list (styles in their colours, emotes by icon, sounds
+ * to hear); typed only when the project has no palette. "— нет —" takes the field out of the file.
  */
 export function PaletteInput({
   palette,
@@ -43,77 +47,68 @@ export function PaletteInput({
   disabled?: boolean;
   className?: string;
 }) {
-  const entries = palette[list];
-  const current = value ?? '';
-  const cls = ['input', 'palette-input', className].filter(Boolean).join(' ');
-  if (!entries.length) {
-    return (
-      <input
-        className={cls}
-        value={current}
-        disabled={disabled}
-        placeholder={label}
-        aria-label={label}
-        title={t('palette.none')}
-        spellCheck={false}
-        onChange={(e) => onChange(e.target.value.trim())}
-      />
-    );
-  }
-  const known = entries.some((e) => e.id === current);
-  const hint = entries.find((e) => e.id === current)?.hint;
   return (
-    <select
-      className={[cls, current && !known && 'palette-unknown'].filter(Boolean).join(' ')}
-      value={current}
+    <PaletteSelect
+      label={label}
+      value={value}
+      items={listItems(palette, list)}
+      noPalette={!palette.loaded}
       disabled={disabled}
-      aria-label={label}
-      title={current && !known ? t('palette.unknown', { id: current }) : (hint ?? label)}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      <option value="">{`${label}: —`}</option>
-      {entries.map((e) => (
-        <option key={e.id} value={e.id} title={e.hint}>
-          {e.name}
-        </option>
-      ))}
-      {current && !known && <option value={current}>{t('palette.unknown', { id: current })}</option>}
-    </select>
+      className={className}
+      onChange={onChange}
+    />
   );
 }
 
-/** A gesture or an emote with "to whom": the palette value and, when it has one, another participant. */
+/**
+ * A gesture, an emote or a face, and who shows it (0.8.1: "кому" — the speaker by default, or another
+ * participant of this conversation).
+ */
 export function TowardInput({
   palette,
   list,
+  items,
+  gray,
   value,
   label,
   people,
+  nameOf,
   onChange,
   disabled,
+  autoOpen,
+  onOpened,
 }: {
   palette: Palette;
   list: PaletteList;
+  /** What to choose from, when not the whole list (the faces of a speaker). */
+  items?: SelectItem[];
+  gray?: string | null;
   value: TowardValue | undefined;
   label: string;
-  /** Who it can be aimed at. */
-  people: { id: string; name: string }[];
+  /** Who else speaks in the conversation. */
+  people: string[];
+  nameOf: (id: string) => string;
   onChange: (value: TowardValue | undefined) => void;
   disabled?: boolean;
+  autoOpen?: boolean;
+  onOpened?: () => void;
 }) {
   const v = toward(value);
-  const gone = v?.to && !people.some((p) => p.id === v.to);
+  const gone = v?.to && !people.includes(v.to);
   return (
     <span className="toward-input">
-      <PaletteInput
-        palette={palette}
-        list={list}
-        value={v?.id}
+      <PaletteSelect
         label={label}
+        value={v?.id}
+        items={items ?? listItems(palette, list)}
+        gray={gray}
+        noPalette={!palette.loaded}
         disabled={disabled}
+        autoOpen={autoOpen}
+        onOpened={onOpened}
         onChange={(id) => onChange(towardValue(id, v?.to))}
       />
-      {v && (
+      {v && (people.length > 0 || v.to) && (
         <select
           className="input toward-to"
           value={v.to ?? ''}
@@ -122,13 +117,13 @@ export function TowardInput({
           title={t('line.toward', { what: label })}
           onChange={(e) => onChange(towardValue(v.id, e.target.value || null))}
         >
-          <option value="">{t('line.towardNobody')}</option>
+          <option value="">{t('line.towardSpeaker')}</option>
           {people.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name || t('story.untitled')}
+            <option key={p} value={p}>
+              {nameOf(p)}
             </option>
           ))}
-          {gone && <option value={v.to!}>{t('story.lines.deletedSpeaker')}</option>}
+          {gone && <option value={v.to!}>{nameOf(v.to!)}</option>}
         </select>
       )}
     </span>
@@ -251,24 +246,19 @@ export function GameKeyField({
   );
 }
 
-/** What an action refers to, by its kind. */
-const NEEDS: Record<ActionType, 'item' | 'character' | 'list' | 'value' | null> = {
-  give_item: 'item',
-  take_item: 'item',
-  hire: 'character',
-  dismiss: 'character',
-  list_add: 'list',
-  give_list: 'list',
-  save: null,
-  event: 'value',
-  start_quest: 'value',
-};
-
 const OWN_VALUE = '\u0000value';
 
+/** What an action is called: by the palette, else by HErPlan's own names. */
+export function actionName(palette: Palette, type: string): string {
+  const own = palette.actions.find((a) => a.id === type)?.name;
+  if (own) return own;
+  return type in ACTION_NAMES ? t(ACTION_NAMES[type as ActionType]) : type;
+}
+
 /**
- * Game actions of a line, an option or a node: "+ action" with a choice of the kind, and for each one what
- * it refers to in the database.
+ * Game actions of a line, an option or a node: "+ action" with a choice of the kind (the palette's list of
+ * actions when it has one, 0.8.1), and for each one what it refers to: an item, a character, a variable of
+ * the database, or a text.
  */
 export function ActionsEditor({
   actions,
@@ -283,29 +273,38 @@ export function ActionsEditor({
   disabled?: boolean;
   field?: string;
 }) {
+  const { palette } = useAtom(gameFiles);
   const list = actions ?? [];
   const items = listEntities(data, 'item');
   const characters = listEntities(data, 'character');
-  const lists = listVariables(data).filter((v) => v.type === 'list');
+  // Lists first: the game fills them with "add to a list".
+  const variables = listVariables(data).sort((a, b) => Number(b.type === 'list') - Number(a.type === 'list'));
+  const kinds = palette.actions.length
+    ? palette.actions.map((a) => ({ id: a.id, name: a.name }))
+    : ACTION_TYPES.map((id) => ({ id, name: t(ACTION_NAMES[id]) }));
   const set = (i: number, patch: Partial<GameAction>) =>
     onChange(list.map((a, j) => (j === i ? clean({ ...a, ...patch }) : a)));
   return (
     <div className="actions-editor" data-field={field}>
       {list.map((a, i) => {
-        const need = NEEDS[a.type];
+        const ref = actionRef(palette, a.type);
         const options =
-          need === 'item'
+          ref === 'item'
             ? items.map((e) => ({ id: e.id, name: e.name }))
-            : need === 'character'
+            : ref === 'character'
               ? characters.map((e) => ({ id: e.id, name: e.name }))
-              : need === 'list'
-                ? lists.map((v) => ({ id: v.id, name: v.name }))
+              : ref === 'variable'
+                ? variables.map((v) => ({ id: v.id, name: v.name }))
                 : [];
         const missing = a.ref && !options.some((o) => o.id === a.ref);
         return (
-          <div key={i} className="action-row">
-            <span className="action-kind">{t(ACTION_NAMES[a.type])}</span>
-            {need && need !== 'value' && (
+          <div
+            key={i}
+            className={['action-row', ref === undefined && 'action-unknown'].filter(Boolean).join(' ')}
+            title={ref === undefined ? t('palette.notInGame') : undefined}
+          >
+            <span className="action-kind">{actionName(palette, a.type)}</span>
+            {(ref === 'item' || ref === 'character' || ref === 'variable') && (
               <select
                 className={['input', !a.ref && 'action-unset'].filter(Boolean).join(' ')}
                 value={a.ref ?? ''}
@@ -313,7 +312,7 @@ export function ActionsEditor({
                 aria-label={t('action.ref')}
                 onChange={(e) => set(i, { ref: e.target.value || null })}
               >
-                <option value="">{t(need === 'list' ? 'action.pickList' : 'action.pick')}</option>
+                <option value="">{t(ref === 'variable' ? 'action.pickList' : 'action.pick')}</option>
                 {options.map((o) => (
                   <option key={o.id} value={o.id}>
                     {o.name || t('story.untitled')}
@@ -346,14 +345,14 @@ export function ActionsEditor({
                 <option value={OWN_VALUE}>{t('action.ownValue')}</option>
               </select>
             )}
-            {(need === 'value' || (a.type === 'list_add' && !a.item && a.value !== undefined)) && (
+            {(ref === 'text' || (a.type === 'list_add' && !a.item && a.value !== undefined)) && (
               <input
                 className="input"
                 value={a.value ?? ''}
                 disabled={disabled}
                 spellCheck={false}
-                placeholder={t(need === 'value' ? 'action.key' : 'action.value')}
-                aria-label={t(need === 'value' ? 'action.key' : 'action.value')}
+                placeholder={t(ref === 'text' ? 'action.key' : 'action.value')}
+                aria-label={t(ref === 'text' ? 'action.key' : 'action.value')}
                 onChange={(e) => onChange(list.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
               />
             )}
@@ -374,11 +373,7 @@ export function ActionsEditor({
           size="sm"
           variant="ghost"
           icon={<Plus size={14} />}
-          entries={ACTION_TYPES.map((type) => ({
-            id: type,
-            label: t(ACTION_NAMES[type]),
-            onSelect: () => onChange([...list, { type }]),
-          }))}
+          entries={kinds.map((k) => ({ id: k.id, label: k.name, onSelect: () => onChange([...list, { type: k.id }]) }))}
         />
       )}
     </div>

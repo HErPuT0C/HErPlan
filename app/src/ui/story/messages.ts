@@ -93,6 +93,7 @@ const CHECKS: Record<ProblemCode, MessageKey> = {
   faceNotDrawn: 'check.faceNotDrawn',
   towardOutsider: 'check.towardOutsider',
   actionNoRef: 'check.actionNoRef',
+  actionUnknown: 'check.actionUnknown',
   emptyCycle: 'check.emptyCycle',
   gameSaid: 'check.gameSaid',
 };

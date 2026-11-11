@@ -15,7 +15,8 @@ import {
   type StyleProps,
   type TextMark,
 } from '../../story/model';
-import { paletteEntry, paletteName, type Palette } from '../../story/palette';
+import { NARRATOR, paletteEntry, paletteName, type Palette } from '../../story/palette';
+import type { ProjectData } from '../../core/project/types';
 import type { Highlight } from './MarkedText';
 
 export const CUE_ICONS: Record<CueKind, typeof Timer> = {
@@ -48,9 +49,9 @@ export function cueText(props: CueProps, palette: Palette, nameOf: (id: string) 
   if (kind === 'pause') return t('cue.pauseText', { seconds: props.pause ?? 0 });
   if (kind === 'shake') return `${name} ${props.shake ?? 0}`;
   if (kind === 'sound') return `${name}: ${paletteName(palette, 'sounds', props.sound) || '—'}`;
-  if (kind === 'face') return `${name}: ${paletteName(palette, 'faces', props.face) || '—'}`;
   const x = toward(props[kind]);
-  const what = paletteName(palette, kind === 'gesture' ? 'gestures' : 'emotes', x?.id) || '—';
+  const list = kind === 'gesture' ? 'gestures' : kind === 'face' ? 'faces' : 'emotes';
+  const what = paletteName(palette, list, x?.id) || '—';
   return x?.to ? `${name}: ${what} → ${nameOf(x.to)}` : `${name}: ${what}`;
 }
 
@@ -88,4 +89,16 @@ export function gameMarks(node: StoryNode, anchor: MarkAnchor, text: string, pal
   }
   cues.sort((a, b) => a.at - b.at);
   return { highlights, cues };
+}
+
+/**
+ * Who speaks a line, as the author reads it (0.8.1): the narrator ("speaker": "narrator"), a card, or — for
+ * null — "who speaks?", the line nobody was chosen for.
+ */
+export function speakerName(entities: ProjectData['entities'], id: string | null | undefined): string {
+  if (id === NARRATOR) return t('story.narrator');
+  if (!id) return t('line.whoSpeaksMissing');
+  const e = entities[id];
+  if (!e) return t('story.lines.deletedSpeaker');
+  return (typeof e.name === 'string' && e.name) || t('story.untitled');
 }

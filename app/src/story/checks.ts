@@ -49,6 +49,7 @@ export type ProblemCode =
   | 'faceNotDrawn'
   | 'towardOutsider'
   | 'actionNoRef'
+  | 'actionUnknown'
   | 'emptyCycle'
   | 'gameSaid';
 
@@ -98,7 +99,7 @@ const SEVERITY: Record<ProblemCode, Severity> = {
   badKey: 'error',
   refNoKey: 'warning',
   lineEmpty: 'warning',
-  lineNoSpeaker: 'info',
+  lineNoSpeaker: 'warning',
   choiceNoFallback: 'warning',
   secretNoTimer: 'warning',
   manySecrets: 'error',
@@ -106,6 +107,7 @@ const SEVERITY: Record<ProblemCode, Severity> = {
   faceNotDrawn: 'warning',
   towardOutsider: 'warning',
   actionNoRef: 'error',
+  actionUnknown: 'error',
   emptyCycle: 'error',
   gameSaid: 'error',
 };

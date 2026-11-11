@@ -156,7 +156,6 @@ export const storyRu = {
   'story.inspector.startHint': 'Отсюда начинается прохождение этого холста.',
   'story.lines': 'Реплики',
   'story.lines.add': 'Добавить реплику',
-  'story.lines.speaker': 'Кто говорит',
   'story.lines.text': 'Реплика {n}',
   'story.lines.remove': 'Удалить реплику',
   'story.lines.count': 'Реплик: {count} из {max}.',

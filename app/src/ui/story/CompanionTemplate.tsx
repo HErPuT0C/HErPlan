@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useStore } from '../../core/useStore';
 import { t } from '../../i18n';
 import { listEntities } from '../../story/entities';
+import { NARRATOR } from '../../story/palette';
 import { companionTalk, type CompanionWords } from '../../story/templates';
 import { Button, Dialog, SelectField } from '../components';
 import { useStory } from './context';
@@ -46,7 +47,8 @@ export function CompanionTemplate({
   const [companion, setCompanion] = useState(characters[0]?.id ?? '');
   const [hero, setHero] = useState('');
   const options = [
-    { value: '', label: t('story.narrator') },
+    { value: '', label: t('line.nobody') },
+    { value: NARRATOR, label: t('story.narrator') },
     ...characters.map((c) => ({ value: c.id, label: c.name || t('story.untitled') })),
   ];
   const put = () => {

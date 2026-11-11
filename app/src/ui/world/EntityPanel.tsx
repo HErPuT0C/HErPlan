@@ -74,6 +74,9 @@ import {
 import type { FieldValue } from '../../world/values';
 import { Button, Dialog, IconButton, Menu, toast, type MenuEntry } from '../components';
 import { GameKeyField, NumberBlank, PaletteInput } from '../story/game';
+import { faceItems } from '../story/paletteItems';
+import { SoundButton } from '../story/PaletteSelect';
+import { paletteName, paletteSpeaker } from '../../story/palette';
 import { changeVariable, VAR_TYPE_NAMES } from '../story/VariablesPanel';
 import { ValueInput } from '../story/ValueInput';
 import { useDraft } from '../useDraft';
@@ -686,6 +689,7 @@ function GameBlock({ project, entity, character }: { project: OpenProject; entit
   const game = entityGame(entity);
   const set = (patch: Partial<EntityGame>, merge: string) =>
     edit(t('world.step.edit'), (e) => setEntityGame(e, patch), `game:${merge}`);
+  const gameSpeaker = paletteSpeaker(palette, game.key);
   const toggleFace = (id: string, on: boolean) =>
     set({ faces: on ? [...game.faces, id] : game.faces.filter((f) => f !== id) }, 'faces');
   return (
@@ -724,6 +728,10 @@ function GameBlock({ project, entity, character }: { project: OpenProject; entit
                 onChange={(voice) => set({ voice }, 'voice')}
               />
             </label>
+            <SoundButton
+              sound={palette.voices.find((v) => v.id === game.voice)?.sound}
+              label={paletteName(palette, 'voices', game.voice)}
+            />
             <NumberBlank
               label={t('game.pitch')}
               value={game.pitch ?? undefined}
@@ -736,7 +744,18 @@ function GameBlock({ project, entity, character }: { project: OpenProject; entit
           </div>
           <div className="field">
             <span className="field-label">{t('game.faces')}</span>
-            {palette.faces.length > 0 ? (
+            {/* The game knows this character (0.8.1): its faces are the game's, shown as they are drawn. */}
+            {gameSpeaker ? (
+              <div className="world-game-faces" aria-label={t('game.facesFromGame')}>
+                {faceItems(palette, store.getState().entities, entity.id).items.map((f) => (
+                  <span key={f.id} className="chip world-game-face">
+                    {f.icon}
+                    <span>{f.name}</span>
+                  </span>
+                ))}
+                {gameSpeaker.faces.length === 0 && <span className="muted small">{t('line.noFaces')}</span>}
+              </div>
+            ) : palette.faces.length > 0 ? (
               <div className="world-game-faces">
                 {palette.faces.map((f) => (
                   <label key={f.id} className="chip world-game-face" title={f.hint}>
@@ -752,7 +771,11 @@ function GameBlock({ project, entity, character }: { project: OpenProject; entit
                 {game.faces
                   .filter((id) => !palette.faces.some((f) => f.id === id))
                   .map((id) => (
-                    <label key={id} className="chip world-game-face text-warning" title={t('palette.unknown', { id })}>
+                    <label
+                      key={id}
+                      className="chip world-game-face text-warning"
+                      title={t('palette.unknownValue', { id })}
+                    >
                       <input type="checkbox" checked disabled={readOnly} onChange={() => toggleFace(id, false)} />
                       <span>{id}</span>
                     </label>
@@ -783,7 +806,7 @@ function GameBlock({ project, entity, character }: { project: OpenProject; entit
                 }
               />
             )}
-            <div className="field-hint">{t('game.facesHint')}</div>
+            <div className="field-hint">{t(gameSpeaker ? 'game.facesFromGameHint' : 'game.facesHint')}</div>
           </div>
         </>
       )}

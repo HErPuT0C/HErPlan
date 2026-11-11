@@ -21,7 +21,11 @@ import { listVariables, registryFor, valueText } from '../../story/variables';
 import { Button, IconButton, Switch } from '../components';
 import { DeviceIcon, KindIcon, LandingIcon } from '../canvas/kindIcons';
 import { storyIndex, useStory } from './context';
-import { ACTION_NAMES, playProblemText } from './messages';
+import { actionName } from './game';
+import { speakerName } from './lineLook';
+import { playProblemText } from './messages';
+import { gameFiles } from '../../state/gameFiles';
+import type { Palette } from '../../story/palette';
 import { ValueInput } from './ValueInput';
 
 /** States of a run, the last one current: "step back" drops the last. */
@@ -64,8 +68,7 @@ export function PlayPanel({
   const incoming = useAtomSelect(storyIndex, (i) => (state.pos ? i.incoming.get(refKey(state.pos)) : undefined));
   const say = (text: string) =>
     state.pos ? playText(data, state, state.pos.graph, text, t('var.yes'), t('var.no')) : text;
-  const speakerName = (id: string | null) =>
-    id ? ((entities[id]?.name as string | undefined) ?? t('story.lines.deletedSpeaker')) : t('story.narrator');
+  const nameOfSpeaker = (id: string | null) => speakerName(entities, id);
 
   return (
     <div className="play">
@@ -101,7 +104,7 @@ export function PlayPanel({
                   .filter((l) => state.shown.includes(l.id))
                   .map((l) => (
                     <p key={l.id}>
-                      <strong>{speakerName(l.speaker)}:</strong> {say(l.text)}
+                      <strong>{nameOfSpeaker(l.speaker)}:</strong> {say(l.text)}
                     </p>
                   ))}
               </div>
@@ -249,7 +252,7 @@ export function PlayPanel({
             .reverse()
             .slice(0, 200)
             .map((entry, i) => (
-              <li key={state.log.length - i}>{logText(entry)}</li>
+              <li key={state.log.length - i}>{logText(entry, gameFiles.get().palette)}</li>
             ))}
         </ol>
       </section>
@@ -257,7 +260,7 @@ export function PlayPanel({
   );
 }
 
-function logText(e: LogEntry): string {
+function logText(e: LogEntry, palette: Palette): string {
   const yes = t('var.yes');
   const no = t('var.no');
   const none = t('story.ref.none');
@@ -277,7 +280,7 @@ function logText(e: LogEntry): string {
     case 'manual':
       return t('play.log.manual', { name: e.name, value: valueText(e.value, yes, no, none) });
     case 'action':
-      return e.name ? `${t(ACTION_NAMES[e.action])}: ${e.name}` : t(ACTION_NAMES[e.action]);
+      return e.name ? `${actionName(palette, e.action)}: ${e.name}` : actionName(palette, e.action);
     case 'gave':
       return t('play.log.gave', { name: e.name });
     case 'enter':
