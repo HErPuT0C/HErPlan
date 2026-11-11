@@ -102,7 +102,8 @@ export function searchIndex(data: ProjectData, assets: readonly string[] = []): 
   }
   const graphs = Object.values(data.graphs) as (JsonObject & { id: string; kind?: string; nodes?: JsonObject[] })[];
   for (const g of graphs) {
-    if (g.kind === 'chapter') out.push(item('chapter', g.id, graphTitle(data, g.id), '', ''));
+    // Sets of lines (barks, 0.8) are found like chapters: both are graphs opened from a node.
+    if (g.kind === 'chapter' || g.kind === 'barks') out.push(item('chapter', g.id, graphTitle(data, g.id), '', ''));
   }
   for (const raw of Object.values(data.documents)) {
     out.push(
@@ -131,12 +132,12 @@ export function searchIndex(data: ProjectData, assets: readonly string[] = []): 
     );
   }
   for (const g of graphs) {
-    if (g.kind !== 'story' && g.kind !== 'chapter') continue;
+    if (g.kind !== 'story' && g.kind !== 'chapter' && g.kind !== 'barks') continue;
     out.push(
       ...cached(g, () =>
         (g.nodes ?? [])
           .map((raw) => asStory(raw as never))
-          .filter((n) => n.kind !== 'sticker' && n.kind !== 'chapter' && (n.title || nodeText(n)))
+          .filter((n) => n.kind !== 'sticker' && n.kind !== 'chapter' && n.kind !== 'barks' && (n.title || nodeText(n)))
           .map((n) => item('node', `${g.id}/${n.id}`, n.title ?? '', nodeText(n), g.id)),
       ),
     );

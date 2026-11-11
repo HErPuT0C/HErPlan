@@ -10,6 +10,7 @@ import { applyMigrations, planMigrations, readFormatVersion } from '../core/proj
 import { FORMAT_VERSION, type ProjectData } from '../core/project/types';
 import { Store } from '../core/store';
 import { t } from '../i18n';
+import { applyStamps, editStamps } from '../story/transfer';
 import { platform, isPlatformError, type PlatformError, type ProjectSnapshot } from '../platform';
 import { settings, updateSettings, withRecent } from './settings';
 
@@ -84,10 +85,36 @@ export async function openProject(dir: string): Promise<OpenResult> {
       onError: (e) => console.error('automatic backup failed', e),
     });
 
+  if (!result.readOnly) stampEdits(store);
+
   const project: OpenProject = { dir, store, saver, backups, readOnly: result.readOnly, issues: result.issues };
   rememberRecent(project);
   currentProject.set(project);
   return { ok: true, project };
+}
+
+/**
+ * Conversations that have a name in the game keep the time of their last edit, to tell what changed since
+ * they were carried over (story/transfer.ts). The stamps follow every change and are not undo steps.
+ */
+function stampEdits(store: Store<ProjectData>): void {
+  let prev = store.getState();
+  let busy = false;
+  store.onChange(() => {
+    if (busy) return;
+    const next = store.getState();
+    const stamps = editStamps(prev, next);
+    if (stamps.length) {
+      busy = true;
+      try {
+        const now = new Date().toISOString();
+        store.dispatch('stamp', (d) => applyStamps(d as ProjectData, stamps, now), { history: false });
+      } finally {
+        busy = false;
+      }
+    }
+    prev = store.getState();
+  });
 }
 
 /** Opens a project that was just created, imported or restored; any failure is thrown as an error to show. */

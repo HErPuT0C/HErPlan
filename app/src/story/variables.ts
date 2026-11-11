@@ -7,8 +7,13 @@ import { newId } from '../core/ids';
 import type { JsonObject, ProjectData } from '../core/project/types';
 import { isIdentifier, type Registry, type RegistryEntry, type Value, type ValueType } from './expr';
 
-export type VarType = 'bool' | 'int' | 'float' | 'string' | 'enum' | 'entity';
-export const VAR_TYPES: readonly VarType[] = ['bool', 'int', 'float', 'string', 'enum', 'entity'];
+/** "list" (0.8): a list the game fills (what was given, who was met); conditions ask непусто(имя). */
+export type VarType = 'bool' | 'int' | 'float' | 'string' | 'enum' | 'entity' | 'list';
+export const VAR_TYPES: readonly VarType[] = ['bool', 'int', 'float', 'string', 'enum', 'entity', 'list'];
+
+/** Where the game keeps a variable (0.8): in the save ("world"), or outside saves ("game": the game remembers). */
+export type VarMemory = 'world' | 'game';
+export const VAR_MEMORIES: readonly VarMemory[] = ['world', 'game'];
 
 export type VarScope = 'project' | { kind: 'graph'; id: string };
 
@@ -23,6 +28,10 @@ export interface Variable {
   description: string;
   /** Allowed values of an enum. */
   values?: string[];
+  /** The name in the game (0.8): Latin, e.g. "skeleton_respect". */
+  key?: string;
+  /** Where the game keeps it; absent: in the save. */
+  memory?: VarMemory;
   [extra: string]: unknown;
 }
 
@@ -53,6 +62,7 @@ export function defaultInitial(type: VarType, values: readonly string[] = []): V
     case 'enum':
       return values[0] ?? '';
     case 'entity':
+    case 'list':
       return null;
   }
 }
@@ -84,6 +94,8 @@ export function normalizeVariable(raw: JsonObject): Variable | null {
     owner,
     description: typeof raw.description === 'string' ? raw.description : '',
     ...(type === 'enum' ? { values: values ?? [] } : {}),
+    ...(typeof raw.key === 'string' ? { key: raw.key } : {}),
+    ...(raw.memory === 'game' || raw.memory === 'world' ? { memory: raw.memory } : {}),
   };
 }
 
@@ -102,8 +114,13 @@ export function coerce(value: unknown, type: VarType, values: readonly string[] 
       return typeof value === 'string' && values.includes(value) ? value : (values[0] ?? '');
     case 'entity':
       return typeof value === 'string' ? value : null;
+    case 'list':
+      return null;
   }
 }
+
+/** Where the game keeps the variable: in the save unless it says otherwise. */
+export const memoryOf = (v: Pick<Variable, 'memory'>): VarMemory => (v.memory === 'game' ? 'game' : 'world');
 
 export function variablesFile(data: ProjectData): VariablesFile {
   const raw = data.variables as Partial<VariablesFile>;
@@ -186,7 +203,8 @@ export function registryFor(data: ProjectData, graphId: string | null): Map<stri
   // How close a scope is: the chapter itself, then the chapters around it, then the project.
   const depth = (v: Variable) => (v.scope === 'project' ? chain.length : chain.indexOf(v.scope.id));
   for (const v of listVariables(data)) {
-    if (!visibleFrom(v, chain)) continue;
+    // Lists are not values of expressions: conditions ask непусто(имя), actions fill them.
+    if (v.type === 'list' || !visibleFrom(v, chain)) continue;
     const name = fullName(v, data);
     // Names should not repeat where they are seen together (nameProblem); in a hand-edited file that does
     // happen, the closest scope wins, like a local variable shadowing an outer one.
@@ -199,6 +217,16 @@ export function registryFor(data: ProjectData, graphId: string | null): Map<stri
 }
 
 export const asRegistry = (m: Map<string, ScopedVariable>): Registry => m;
+
+/** List variables visible from a graph, by the name written in непусто(…). */
+export function listsFor(data: ProjectData, graphId: string | null): Map<string, Variable> {
+  const chain = graphChain(data, graphId);
+  const out = new Map<string, Variable>();
+  for (const v of listVariables(data)) {
+    if (v.type === 'list' && visibleFrom(v, chain)) out.set(fullName(v, data), v);
+  }
+  return out;
+}
 
 export type NameProblem = 'empty' | 'invalid' | 'taken';
 

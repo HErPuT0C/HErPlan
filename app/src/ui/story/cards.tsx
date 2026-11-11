@@ -2,35 +2,45 @@
 // structured content (lines, options, expressions, links) happens in the inspector; a double click on that
 // content opens it there.
 
-import { ChevronDown, ChevronUp, Diamond, MessageSquareText, Zap } from 'lucide-react';
+import { ChevronDown, ChevronUp, Diamond, EyeOff, MessageSquareText, Timer, Zap } from 'lucide-react';
 import { useContext, type ReactNode } from 'react';
 import { registerCard, type CardBodyProps, type CardLook } from '../canvas/cardRegistry';
 import { Editable } from '../canvas/NodeLayer';
 import { DeviceIcon, KindIcon, LandingIcon } from '../canvas/kindIcons';
 import type { GraphNode } from '../../canvas/model';
-import { useAtomSelect, useStore } from '../../core/useStore';
+import { useAtom, useAtomSelect, useStore } from '../../core/useStore';
 import { t } from '../../i18n';
 import { platform } from '../../platform';
+import { gameFiles } from '../../state/gameFiles';
 import { openEntity } from '../../state/navigation';
 import { asEntity } from '../../story/entities';
 import { graphTitle, refKey } from '../../story/flow';
+import { visibleLength } from '../../story/game';
+import { graphKey } from '../../story/gameKey';
 import { marksOn, resolveRange } from '../../story/marks';
 import {
   CHOICE_ROW_H,
+  GIVE_PORTS,
   asStory,
   findNode,
   graphOf,
+  plotMarks,
   type MarkAnchor,
   type NodeRef,
   type PlotMark,
   type StoryNode,
 } from '../../story/model';
 import { setExpanded, setNodeText } from '../../story/ops';
-import { CHOICE_PROMPT_H, FOLDED_LINES, PLOT_COLORS } from '../../story/kinds';
+import { CHOICE_PROMPT_H, FOLDED_LINES, GIVE_ROW_H, GIVE_TOP, PLOT_COLORS } from '../../story/kinds';
+import { HEADER_H } from '../../canvas/model';
+import { nodeTransfer } from '../../story/transfer';
+import { listVariables } from '../../story/variables';
 import { knownNames } from '../../story/usage';
 import { useAsync } from '../useAsync';
-import { StoryContext, storyIndex, useStory } from './context';
-import { highlightPieces, textHighlights } from './MarkedText';
+import { StoryContext, storyIndex, useStory, type StoryActions } from './context';
+import { gameMarks } from './LineEditor';
+import { highlightPieces, pieceStyle, textHighlights } from './MarkedText';
+import { TransferBadge } from './TransferBadge';
 
 /** Content that opens the inspector on double click (the engine leaves `data-canvas-text` alone). */
 function Inspectable({
@@ -119,7 +129,10 @@ function CardText({ node, anchor, text, bare }: { node: StoryNode; anchor: MarkA
   // Effects without braces depend on which names are variables.
   useStore(project.store, (s) => (bare ? s.variables : null));
   const known = bare ? knownNames(project.store.getState(), graphId) : undefined;
-  const highlights = textHighlights(text, node, anchor, known);
+  const { palette } = useAtom(gameFiles);
+  // 0.8: words of a line that have a look in the game are drawn in their colour and weight.
+  const game = anchor.kind === 'line' ? gameMarks(node, anchor, text, palette, true).highlights : [];
+  const highlights = [...textHighlights(text, node, anchor, known), ...game];
   if (!highlights.length) return <>{text}</>;
   return (
     <>
@@ -129,6 +142,14 @@ function CardText({ node, anchor, text, bare }: { node: StoryNode; anchor: MarkA
           const open = () => inspect(node.id, `mark:${mark.id}`);
           return (
             <span key={i} className={`cmark cmark-${mark.device}`} {...markHandle(mark, open)}>
+              {p.text}
+            </span>
+          );
+        }
+        const style = pieceStyle(p.over);
+        if (style || p.over.some((h) => h.className.startsWith('hl-style'))) {
+          return (
+            <span key={i} style={style}>
               {p.text}
             </span>
           );
@@ -179,12 +200,13 @@ function DialogueBody({ node }: CardBodyProps) {
   return (
     <Inspectable node={node} field="lines" className="cnode-body cdialogue">
       {lines.length === 0 && <span className="cnode-empty">{t('story.card.noLines')}</span>}
+      {n.when?.trim() && lines.length === 0 && <span className="muted small"> · {n.when}</span>}
       {shown.map((line) => {
         const speaker = line.speaker ? (entities[line.speaker]?.name as string | undefined) : undefined;
         return (
           <div
             key={line.id}
-            className={['cline', [...line.text].length > limit && 'cline-long'].filter(Boolean).join(' ')}
+            className={['cline', visibleLength(line.text) > limit && 'cline-long'].filter(Boolean).join(' ')}
           >
             <span
               className={speaker ? 'cline-speaker' : 'cline-speaker cline-narrator'}
@@ -248,6 +270,11 @@ function ChoiceBody({ node, readOnly, onText }: CardBodyProps) {
   return (
     <div className="cchoice">
       <div className="cchoice-prompt" style={{ height: CHOICE_PROMPT_H }}>
+        {typeof n.timer === 'number' && (
+          <span className="cchoice-timer" title={t('choice.timerCard', { seconds: n.timer })}>
+            <Timer size={12} /> {n.timer}
+          </span>
+        )}
         <Editable
           className="cnode-body"
           value={node.text ?? ''}
@@ -274,6 +301,16 @@ function ChoiceBody({ node, readOnly, onText }: CardBodyProps) {
               t('story.optionPlaceholder', { n: i + 1 })
             )}
           </span>
+          {o.secret && (
+            <span className="coption-mark" title={t('choice.secret')}>
+              <EyeOff size={12} />
+            </span>
+          )}
+          {o.once && (
+            <span className="coption-mark coption-once" title={t('choice.once')}>
+              1×
+            </span>
+          )}
           {o.note?.trim() && (
             <span className="coption-mark" title={o.note}>
               <MessageSquareText size={12} />
@@ -284,8 +321,15 @@ function ChoiceBody({ node, readOnly, onText }: CardBodyProps) {
               <Diamond size={12} />
             </span>
           )}
-          {o.effects.trim() && (
-            <span className="coption-mark" title={t('story.card.effects', { effects: o.effects })}>
+          {(o.effects.trim() || !!o.actions?.length) && (
+            <span
+              className="coption-mark"
+              title={
+                o.effects.trim()
+                  ? t('story.card.effects', { effects: o.effects })
+                  : t('action.count', { count: o.actions?.length ?? 0 })
+              }
+            >
               <Zap size={12} />
             </span>
           )}
@@ -308,6 +352,44 @@ function EffectBody({ node }: CardBodyProps) {
     <Inspectable node={node} field="effects" className="cnode-body">
       <Code source={asStory(node).effects} placeholder={t('story.card.noEffects')} />
     </Inspectable>
+  );
+}
+
+const GIVE_LABELS = { given: 'story.port.given', cancel: 'story.port.cancel', empty: 'story.port.empty' } as const;
+
+/** "Give an item" (0.8): its three exits, each level with its port, and where the item is written. */
+function GiveBody({ node }: CardBodyProps) {
+  const { project } = useStory();
+  const n = asStory(node);
+  const names = useStore(project.store, (s) => {
+    const all = listVariables(s);
+    return [n.store, n.keep]
+      .map((id) => all.find((v) => v.id === id)?.name)
+      .filter(Boolean)
+      .join(', ');
+  });
+  return (
+    <Inspectable node={node} field="give" className="cgive">
+      {GIVE_PORTS.map((port, i) => (
+        <div key={port} className="cgive-row" style={{ top: GIVE_TOP - HEADER_H + GIVE_ROW_H * i, height: GIVE_ROW_H }}>
+          {i === 0 && names && <span className="cgive-store muted">→ {names}</span>}
+          <span>{t(GIVE_LABELS[port])}</span>
+        </div>
+      ))}
+    </Inspectable>
+  );
+}
+
+/** A set of lines (0.8): how many nodes of lines it holds. */
+function BarksBody(props: CardBodyProps) {
+  const n = asStory(props.node);
+  const { project } = useStory();
+  const count = useStore(project.store, (s) => (n.graph ? (graphOf(s, n.graph)?.nodes.length ?? 0) : 0));
+  return (
+    <div className="cchapter">
+      <TextBody {...props} />
+      <div className="cchapter-meta muted">{t('barks.count', { count })}</div>
+    </div>
   );
 }
 
@@ -454,7 +536,8 @@ function Marks({ node }: { node: GraphNode }) {
   const n = asStory(node);
   return (
     <>
-      {n.marks?.length ? <MarkIcons node={n} anchor={NODE} text={n.text ?? ''} /> : null}
+      <Transfer story={story} node={node} />
+      {plotMarks(n).length ? <MarkIcons node={n} anchor={NODE} text={n.text ?? ''} /> : null}
       {incoming?.map((link) => {
         const label = t(link.kind === 'gun' ? 'story.card.payoffOf' : 'story.card.consequenceOf', {
           title: link.title,
@@ -484,6 +567,17 @@ function Marks({ node }: { node: GraphNode }) {
   );
 }
 
+/** Where the node stands with the game (0.8), when its conversation was carried over. */
+function Transfer({ story, node }: { story: StoryActions; node: GraphNode }) {
+  const info = useAtomSelect(gameFiles, (f) => f.status[story.graphId]);
+  const named = useStore(story.project.store, (s) => !!graphKey(graphOf(s, story.graphId)));
+  if (!info || !named || node.kind === 'start' || node.kind === 'sticker') return null;
+  const state = nodeTransfer(node, info);
+  // "In the game" is said once, on the conversation; nodes speak up when they differ.
+  if (!state || state.state === 'inGame') return null;
+  return <TransferBadge state={state.state} problems={state.problems.map((p) => p.text)} compact />;
+}
+
 function withMarks(extra?: CardLook['headerExtra']): CardLook['headerExtra'] {
   return function Header(props) {
     const Extra = extra;
@@ -511,6 +605,8 @@ const LOOKS: Record<string, Omit<CardLook, 'icon' | 'headerExtra'> & { extra?: C
   chapter: { body: ChapterBody, titleEditable: false },
   condition: { body: ConditionBody },
   effect: { body: EffectBody },
+  give: { body: GiveBody },
+  barks: { body: BarksBody, titleEditable: false },
   butterfly: { body: ButterflyBody },
   gun: { body: GunBody },
   character: { body: RefBody },

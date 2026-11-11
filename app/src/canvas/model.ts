@@ -3,7 +3,7 @@
 
 import type { ObjectRef } from '../core/ids';
 
-export type GraphKind = 'projectMap' | 'story' | 'chapter' | 'tree' | 'freeform';
+export type GraphKind = 'projectMap' | 'story' | 'chapter' | 'barks' | 'tree' | 'freeform';
 
 export interface GraphNode {
   id: string;

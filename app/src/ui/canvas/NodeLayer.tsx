@@ -248,11 +248,13 @@ const NodeCard = memo(function NodeCard({
             p.anchor && !linked.has(p.id) && 'cnode-port-free',
             !p.anchor && 'cnode-port-typed',
             p.side !== 'in' && 'cnode-port-start',
+            p.hint && 'cnode-port-hinted',
           ]
             .filter(Boolean)
             .join(' ')}
           style={{ left: p.x, top: p.y }}
           data-port={p.id}
+          title={p.hint ? t(p.hint) : undefined}
         >
           {p.label && <span className={`cnode-port-label cnode-port-label-${p.face}`}>{t(p.label)}</span>}
         </span>

@@ -11,14 +11,27 @@ import {
   isBlank,
   parseCondition,
   parseEffects,
+  type CallWorld,
   type Change,
   type State,
   type Value,
 } from './expr';
 import { chapterStack, edgesFrom, startOf } from './flow';
-import { asStory, findNode, graphOf, PASS_THROUGH, type NodeRef, type StoryNode } from './model';
+import { entityByName as entityOfKind } from './game';
+import {
+  asStory,
+  findNode,
+  graphOf,
+  PASS_THROUGH,
+  type ActionType,
+  type DialogueLine,
+  type GameAction,
+  type GivePort,
+  type NodeRef,
+  type StoryNode,
+} from './model';
 import { playerText, textPieces } from './textEffects';
-import { asRegistry, entityName, listVariables, registryFor, type Variable } from './variables';
+import { asRegistry, entityName, listsFor, listVariables, registryFor, type Variable } from './variables';
 
 export type PlayStatus = 'running' | 'ended' | 'stuck' | 'error';
 
@@ -45,6 +58,9 @@ export type LogEntry =
   | { kind: 'exit'; at: NodeRef; label: string }
   | { kind: 'changes'; at: NodeRef; changes: Change[] }
   | { kind: 'manual'; name: string; value: Value | null }
+  /** What the game would do (0.8): an item given or taken, a companion hired, a save, an event. */
+  | { kind: 'action'; at: NodeRef; action: ActionType; name: string }
+  | { kind: 'gave'; at: NodeRef; name: string }
   | { kind: 'enter'; at: NodeRef; title: string }
   | { kind: 'leave'; at: NodeRef; title: string };
 
@@ -60,11 +76,24 @@ export interface PlayState {
   log: LogEntry[];
   status: PlayStatus;
   problem: PlayProblem | null;
+  // 0.8: what the game keeps besides variables, as far as the playthrough can tell.
+  /** Items the hero has and companions hired (entity ids): given and taken by actions. */
+  items: string[];
+  hired: string[];
+  /** Lines the player saw and options chosen (ids): видел(), "show once". */
+  seen: string[];
+  /** List variables by id. */
+  lists: Record<string, string[]>;
+  /** Lines of the dialogue node the player is at whose conditions held when they came. */
+  shown: string[];
 }
 
 export type PlayAction =
-  | { kind: 'option'; id: string; label: string; enabled: boolean }
-  | { kind: 'exit'; edge: string; label: string; to: NodeRef };
+  | { kind: 'option'; id: string; label: string; enabled: boolean; secret?: boolean }
+  /** `interrupt`: the exit of an interrupted line (its id). */
+  | { kind: 'exit'; edge: string; label: string; to: NodeRef; interrupt?: string }
+  /** A give node: hand over an item the hero has, refuse, or have nothing. */
+  | { kind: 'give'; port: GivePort; item?: string; label: string };
 
 /** Auto-advance stops after this many nodes without a player decision: a loop of conditions and jumps. */
 const LOOP_GUARD = 1000;
@@ -115,14 +144,86 @@ function isWhole(data: ProjectData, graph: string): (name: string) => boolean {
   return (name) => reg.get(name)?.variable.type === 'int';
 }
 
-/** A condition on an edge, option or node; blank means "always". Broken conditions count as false. */
-function holds(data: ProjectData, graph: string, source: string | undefined, vars: PlayState['vars']): boolean {
+/** What есть(), нанят(), видел() and непусто() answer in this run (0.8). */
+function worldOf(data: ProjectData, graph: string, s: PlayState): CallWorld {
+  return (fn, arg) => {
+    switch (fn) {
+      case 'has': {
+        const id = entityOfKind(data, 'item', arg);
+        return !!id && s.items.includes(id);
+      }
+      case 'hired': {
+        const id = entityOfKind(data, 'character', arg);
+        return !!id && s.hired.includes(id);
+      }
+      case 'seen':
+        return s.seen.includes(arg);
+      case 'notEmpty': {
+        const v = listsFor(data, graph).get(arg);
+        return !!v && (s.lists[v.id]?.length ?? 0) > 0;
+      }
+    }
+  };
+}
+
+/** A condition on an edge, option, line or node; blank means "always". Broken conditions count as false. */
+function holds(data: ProjectData, graph: string, source: string | undefined, s: PlayState): boolean {
   if (isBlank(source)) return true;
   try {
-    return evaluate(parseCondition(source!), stateFor(data, graph, vars)) === true;
+    return evaluate(parseCondition(source!), stateFor(data, graph, s.vars), worldOf(data, graph, s)) === true;
   } catch {
     return false;
   }
+}
+
+/** What the game would do, as far as the playthrough keeps track: items, companions, lists (0.8). */
+function runActions(data: ProjectData, s: PlayState, actions: GameAction[] | undefined, at: NodeRef): PlayState {
+  if (!actions?.length) return s;
+  let items = s.items;
+  let hired = s.hired;
+  let lists = s.lists;
+  const log = [...s.log];
+  const add = (list: string[], id: string) => (list.includes(id) ? list : [...list, id]);
+  const name = (id: string | null | undefined) => (id ? (entityName(data, id) ?? '') : '');
+  const listName = (id: string | null | undefined) => listVariables(data).find((v) => v.id === id)?.name ?? '';
+  for (const a of actions) {
+    let what: string;
+    switch (a.type) {
+      case 'give_item':
+        if (a.ref) items = add(items, a.ref);
+        what = name(a.ref);
+        break;
+      case 'take_item':
+        items = items.filter((id) => id !== a.ref);
+        what = name(a.ref);
+        break;
+      case 'hire':
+        if (a.ref) hired = add(hired, a.ref);
+        what = name(a.ref);
+        break;
+      case 'dismiss':
+        hired = hired.filter((id) => id !== a.ref);
+        what = name(a.ref);
+        break;
+      case 'list_add': {
+        const value = a.item || a.value || '';
+        if (a.ref && value) lists = { ...lists, [a.ref]: [...(lists[a.ref] ?? []), value] };
+        what = `${listName(a.ref)} ← ${a.item ? name(a.item) : (a.value ?? '')}`;
+        break;
+      }
+      case 'give_list':
+        if (a.ref) {
+          for (const id of lists[a.ref] ?? []) if (data.entities[id]) items = add(items, id);
+          lists = { ...lists, [a.ref]: [] };
+        }
+        what = listName(a.ref);
+        break;
+      default:
+        what = a.value ?? '';
+    }
+    log.push({ kind: 'action', at, action: a.type, name: what });
+  }
+  return { ...s, items, hired, lists, log };
 }
 
 function runEffects(
@@ -135,7 +236,7 @@ function runEffects(
   if (isBlank(source)) return s;
   try {
     const state = stateFor(data, graph, s.vars);
-    const changes = applyEffects(parseEffects(source!), state, isWhole(data, graph));
+    const changes = applyEffects(parseEffects(source!), state, isWhole(data, graph), worldOf(data, graph, s));
     const changed = new Set(changes.map((c) => c.name));
     return {
       ...s,
@@ -163,16 +264,38 @@ function runTextEffects(data: ProjectData, s: PlayState, graph: string, codes: s
   return s;
 }
 
-/** Effects written in a node's description, comment and lines ("{x = 1}", see textEffects.ts). */
+/** Effects written in a node's description and comment ("{x = 1}", see textEffects.ts); lines go one by one. */
 function nodeTextEffects(data: ProjectData, graph: string, node: StoryNode): string[] {
-  if (!node.text && !node.comment && !node.lines?.length) return [];
+  if (!node.text && !node.comment) return [];
   const reg = registryFor(data, graph);
   const known = (name: string) => reg.has(name);
-  return [
-    ...textPieces(node.text, known).effects,
-    ...textPieces(node.comment, known).effects,
-    ...(node.lines ?? []).flatMap((l) => textPieces(l.text).effects),
-  ].map((e) => e.code);
+  return [...textPieces(node.text, known).effects, ...textPieces(node.comment, known).effects].map((e) => e.code);
+}
+
+/**
+ * The lines of a dialogue node as the player gets them, in order (0.8): a line whose condition does not hold
+ * is skipped; a line shown is remembered as seen, then its effects (written in the text, then its own) and
+ * its actions happen, so a later line can depend on an earlier one.
+ */
+function sayLines(data: ProjectData, s0: PlayState, at: NodeRef, lines: DialogueLine[]): PlayState {
+  let s: PlayState = { ...s0, shown: [] };
+  for (const l of lines) {
+    if (!holds(data, at.graph, l.condition, s)) continue;
+    s = { ...s, shown: [...s.shown, l.id], seen: s.seen.includes(l.id) ? s.seen : [...s.seen, l.id] };
+    s = runTextEffects(
+      data,
+      s,
+      at.graph,
+      textPieces(l.text).effects.map((e) => e.code),
+      at,
+    );
+    if (!isBlank(l.effects)) {
+      const next = runEffects(data, s, at.graph, l.effects, at);
+      if (next.status === 'running') s = next;
+    }
+    s = runActions(data, s, l.actions, at);
+  }
+  return s;
 }
 
 /** Effects written in an option's text (braced only: the player reads it) and in its comment. */
@@ -216,7 +339,7 @@ function fail(s: PlayState, code: PlayProblemCode, params: Record<string, string
 function openExits(data: ProjectData, s: PlayState, at: NodeRef, port?: string): GraphEdge[] {
   const g = graphOf(data, at.graph);
   if (!g) return [];
-  return edgesFrom(g, at.node, port).filter((e) => holds(data, at.graph, e.condition, s.vars));
+  return edgesFrom(g, at.node, port).filter((e) => holds(data, at.graph, e.condition, s));
 }
 
 const titleOf = (data: ProjectData, r: NodeRef) => findNode(data, r)?.title ?? '';
@@ -240,8 +363,9 @@ function arrive(data: ProjectData, s0: PlayState, to: NodeRef): PlayState {
     const node = findNode(data, at);
     if (!node) return fail(s, 'missingNode');
     if (!s.leaving) {
-      s = { ...s, log: [...s.log, { kind: 'arrive', at, title: node.title, nodeKind: node.kind }] };
+      s = { ...s, shown: [], log: [...s.log, { kind: 'arrive', at, title: node.title, nodeKind: node.kind }] };
       s = runTextEffects(data, s, at.graph, nodeTextEffects(data, at.graph, node), at);
+      if (node.lines?.length) s = sayLines(data, s, at, node.lines);
     }
     const r = step(data, s, at, node);
     if (r.stop || r.s.status !== 'running') return r.s;
@@ -257,13 +381,14 @@ function step(data: ProjectData, s: PlayState, at: NodeRef, node: StoryNode): St
       // A story event: its effects happen, and the player sees it.
       return { s: runEffects(data, s, at.graph, node.effects, at), stop: true };
     case 'effect': {
-      const after = runEffects(data, s, at.graph, node.effects, at);
+      const done = runEffects(data, s, at.graph, node.effects, at);
+      const after = done.status === 'running' ? runActions(data, done, node.actions, at) : done;
       return after.status === 'running' ? single(data, after, at) : { s: after, stop: true };
     }
     case 'start':
       return single(data, s, at);
     case 'condition': {
-      const result = holds(data, at.graph, node.expr, s.vars);
+      const result = holds(data, at.graph, node.expr, s);
       const logged: PlayState = { ...s, log: [...s.log, { kind: 'condition', at, result }] };
       const exit = openExits(data, logged, at, result ? 'yes' : 'no')[0];
       if (!exit) return { s: fail(logged, 'deadEnd', { node: node.title }), stop: true };
@@ -344,6 +469,11 @@ export function startPlay(data: ProjectData, from?: NodeRef | null, graph?: stri
     log: [],
     status: 'running',
     problem: null,
+    items: [],
+    hired: [],
+    seen: [],
+    lists: {},
+    shown: [],
   };
   let at = from ?? null;
   if (!at) {
@@ -361,20 +491,46 @@ export function playActions(data: ProjectData, s: PlayState): PlayAction[] {
   const node = findNode(data, s.pos);
   if (!node) return [];
   if (node.kind === 'choice' && !s.leaving) {
-    return (asStory(node).options ?? []).map((o) => ({
-      kind: 'option',
-      id: o.id,
-      label: o.text,
-      enabled: holds(data, s.pos!.graph, o.condition, s.vars),
-    }));
+    return (
+      (asStory(node).options ?? [])
+        // "Show once": gone after it was chosen (0.8).
+        .filter((o) => !(o.once && s.seen.includes(o.id)))
+        .map((o) => ({
+          kind: 'option',
+          id: o.id,
+          label: o.text,
+          enabled: holds(data, s.pos!.graph, o.condition, s),
+          ...(o.secret ? { secret: true } : {}),
+        }))
+    );
+  }
+  if (node.kind === 'give' && !s.leaving) {
+    // Any item the hero has can be handed over; with none, the game goes the "nothing to give" way.
+    const items = s.items.filter((id) => data.entities[id]);
+    return [
+      ...items.map((id) => ({
+        kind: 'give' as const,
+        port: 'given' as const,
+        item: id,
+        label: entityName(data, id) ?? '',
+      })),
+      items.length ? { kind: 'give', port: 'cancel', label: '' } : { kind: 'give', port: 'empty', label: '' },
+    ];
   }
   if (PASS_THROUGH.has(node.kind) && !s.leaving && node.kind !== 'start' && node.kind !== 'effect') return [];
-  return openExits(data, s, s.pos).map((e) => ({
-    kind: 'exit',
-    edge: e.id,
-    label: e.label || titleOf(data, { graph: s.pos!.graph, node: e.to.node }),
-    to: { graph: s.pos!.graph, node: e.to.node },
-  }));
+  const lineIds = new Set((node.kind === 'dialogue' ? node.lines : undefined)?.map((l) => l.id));
+  return (
+    openExits(data, s, s.pos)
+      // An interrupted line the player did not get (its condition) cannot be interrupted.
+      .filter((e) => !lineIds.has(e.from.port) || s.shown.includes(e.from.port))
+      .map((e) => ({
+        kind: 'exit',
+        edge: e.id,
+        label: e.label || titleOf(data, { graph: s.pos!.graph, node: e.to.node }),
+        to: { graph: s.pos!.graph, node: e.to.node },
+        ...(lineIds.has(e.from.port) ? { interrupt: e.from.port } : {}),
+      }))
+  );
 }
 
 /** Takes an action; the previous state stays valid for "step back". */
@@ -384,17 +540,59 @@ export function playAct(data: ProjectData, s: PlayState, action: PlayAction): Pl
   if (action.kind === 'option') {
     const node = findNode(data, at);
     const option = node?.options?.find((o) => o.id === action.id);
-    if (!option || !holds(data, at.graph, option.condition, s.vars)) return s;
-    let next: PlayState = { ...s, log: [...s.log, { kind: 'option', at, text: option.text }] };
+    if (!option || !holds(data, at.graph, option.condition, s)) return s;
+    let next: PlayState = {
+      ...s,
+      seen: s.seen.includes(option.id) ? s.seen : [...s.seen, option.id],
+      log: [...s.log, { kind: 'option', at, text: option.text }],
+    };
     next = runEffects(data, next, at.graph, option.effects, at);
     if (next.status !== 'running') return next;
     next = runTextEffects(data, next, at.graph, optionTextEffects(data, at.graph, option), at);
+    next = runActions(data, next, option.actions, at);
     const exit = openExits(data, next, at, option.id)[0];
     if (!exit) return fail(next, 'deadEnd', { node: option.text || node?.title || '' });
     return arrive(data, next, { graph: at.graph, node: exit.to.node });
   }
+  if (action.kind === 'give') return give(data, s, at, action);
   const logged: PlayState = { ...s, log: [...s.log, { kind: 'exit', at, label: action.label }] };
   return arrive(data, logged, action.to);
+}
+
+/** A give node (0.8): the item leaves the hero and is written where the node says; then its exit. */
+function give(data: ProjectData, s: PlayState, at: NodeRef, action: Extract<PlayAction, { kind: 'give' }>): PlayState {
+  const node = findNode(data, at);
+  if (!node) return s;
+  let next = s;
+  if (action.port === 'given' && action.item) {
+    const item = action.item;
+    const vars = { ...next.vars };
+    const store = listVariables(data).find((v) => v.id === node.store);
+    if (store) vars[store.id] = store.type === 'entity' ? item : (entityName(data, item) ?? '');
+    const lists = node.keep ? { ...next.lists, [node.keep]: [...(next.lists[node.keep] ?? []), item] } : next.lists;
+    next = {
+      ...next,
+      vars,
+      lists,
+      items: next.items.filter((id) => id !== item),
+      log: [...next.log, { kind: 'gave', at, name: entityName(data, item) ?? '' }],
+    };
+    next = runEffects(data, next, at.graph, node.effects, at);
+    if (next.status !== 'running') return next;
+    next = runActions(data, next, node.actions, at);
+  }
+  // "Nothing to give" left unconnected goes where "refused" goes.
+  const exit =
+    openExits(data, next, at, action.port)[0] ??
+    (action.port === 'empty' ? openExits(data, next, at, 'cancel')[0] : undefined);
+  if (!exit) return fail(next, 'deadEnd', { node: node.title });
+  return arrive(data, next, { graph: at.graph, node: exit.to.node });
+}
+
+/** Puts an item into the hero's hands or takes it away by hand, from the playthrough panel (0.8). */
+export function playSetItem(s: PlayState, item: string, has: boolean): PlayState {
+  const items = has ? (s.items.includes(item) ? s.items : [...s.items, item]) : s.items.filter((id) => id !== item);
+  return { ...s, items };
 }
 
 /** Sets a variable by hand from the playthrough panel. */

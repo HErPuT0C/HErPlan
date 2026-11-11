@@ -20,6 +20,8 @@ export interface Port {
   anchor?: boolean;
   /** Short text next to the port ("yes", "no"). */
   label?: MessageKey;
+  /** What the port is, shown when it is hovered (an "interrupted" exit of a dialogue line); drawn apart. */
+  hint?: MessageKey;
 }
 
 /** A dashed reference from a node to another node (plot devices), drawn under the cards. */

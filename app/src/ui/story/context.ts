@@ -21,6 +21,13 @@ export interface StoryActions {
   inspect: (nodeId: string, field?: string) => void;
   /** One undoable change of the graph on the canvas (and the project around it); nothing when read-only. */
   edit: (label: string, recipe: (g: GraphDoc, project: ProjectData) => void, mergeKey?: string) => void;
+  /**
+   * Puts a task for Claude on the clipboard (0.8): carry over the conversation on the canvas, one node of
+   * it, or one line.
+   */
+  task: (scope: { node?: string; line?: string }) => void;
+  /** "Check the dialogue" (0.8): what the game will stumble over in the conversation on the canvas. */
+  check: () => void;
 }
 
 export const StoryContext = createContext<StoryActions | null>(null);

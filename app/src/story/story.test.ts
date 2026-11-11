@@ -5,7 +5,7 @@ import type { ProjectData } from '../core/project/types';
 import { checkProject, type ProblemCode } from './checks';
 import { exportStory } from './export';
 import { graphPath, graphTitle, reachableFrom } from './flow';
-import { findNode, graphOf, type StoryNode } from './model';
+import { plotMarks, findNode, graphOf, type StoryNode } from './model';
 import {
   addLine,
   addOption,
@@ -194,7 +194,7 @@ describe('project checks (F3-13)', () => {
     expect(codes(data)).toEqual(expect.arrayContaining<ProblemCode>(['payoffMissing', 'optionNoExit']));
     const noLinks = produce(sampleProject(), (d) => {
       node(d, 'g-ch1', 'a-gun').links = [];
-      node(d, 'g-ch1', 'a-meet').marks![0].links = [];
+      plotMarks(node(d, 'g-ch1', 'a-meet'))[0].links = [];
     });
     expect(codes(noLinks)).toEqual(expect.arrayContaining<ProblemCode>(['gunNoPayoff', 'payoffNoSetup']));
   });

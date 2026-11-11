@@ -5,8 +5,11 @@ import {
   CircleAlert,
   CornerDownRight,
   Diamond,
+  ClipboardCopy,
   FileJson,
   GitBranch,
+  ListChecks,
+  MessagesSquare,
   PanelRight,
   Play,
   TriangleAlert,
@@ -25,8 +28,12 @@ import { platform } from '../../platform';
 import { openVariables, revealRequest } from '../../state/navigation';
 import type { OpenProject } from '../../state/project';
 import { settings } from '../../state/settings';
-import { checkProject, countBySeverity } from '../../story/checks';
+import { gameFiles, loadGameFiles, useGameFiles } from '../../state/gameFiles';
+import { checkProject, countBySeverity, type Problem } from '../../story/checks';
+import { checkConversation } from '../../story/dialogueCheck';
 import { exportJson } from '../../story/export';
+import { graphKey } from '../../story/gameKey';
+import { graphTransfer } from '../../story/transfer';
 import { graphPath, graphTitle, refKey } from '../../story/flow';
 import { HEADER_H } from '../../canvas/model';
 import { CHOICE_PROMPT_H, FOLDED_LINES } from '../../story/kinds';
@@ -38,6 +45,7 @@ import {
   DIALOGUE_TOP,
   findNode,
   graphOf,
+  asStory,
   OFF_FLOW,
   PLOT_DEVICES,
   storyRoot,
@@ -48,6 +56,7 @@ import {
 import {
   addLink,
   chapterGraphsOf,
+  createBarksGraph,
   createChapterGraph,
   deleteChapterGraphs,
   newStoryGraph,
@@ -63,10 +72,12 @@ import { StoryContext, storyIndex, type IncomingLink, type StoryActions } from '
 import { Inspector, type InspectFocus } from './Inspector';
 import { PlayPanel, type PlayHistory } from './PlayPanel';
 import { ProblemsPanel } from './ProblemsPanel';
+import { taskText } from './task';
+import { TransferBadge } from './TransferBadge';
 import './cards';
 import './story.css';
 
-type Side = 'inspector' | 'play' | 'problems' | null;
+type Side = 'inspector' | 'play' | 'problems' | 'dialogue' | null;
 
 /** Where to go once the canvas of a graph is ready. */
 interface Pending {
@@ -196,6 +207,9 @@ function StoryWorkspace({
   const [chosenSide, setSide] = useState<Side>('inspector');
   const [focus, setFocus] = useState<InspectFocus | null>(null);
   const [play, setPlay] = useState<PlayHistory | null>(null);
+  /** What "check the dialogue" found in the conversation on the canvas (0.8). */
+  const [dialogueCheck, setDialogueCheck] = useState<Problem[]>([]);
+  const game = useGameFiles(project.dir);
   const pending = useRef<Pending | null>(null);
   const exists = useStore(store, (s) => !!s.graphs[graphId]);
   const path = useStore(store, (s) => graphPath(s, graphId).join('/'));
@@ -208,6 +222,40 @@ function StoryWorkspace({
 
   // A deleted chapter (or an undone creation) takes the view back to the overview.
   const current = exists ? graphId : rootId;
+  const graphKind = useStore(store, (s) => graphOf(s, current)?.kind);
+  const barks = graphKind === 'barks';
+  const transfer = useStore(store, (s) => {
+    const g = graphOf(s, current);
+    return graphKey(g) ? graphTransfer(g, game.status[current]) : null;
+  });
+
+  /** The files of the game side are read again, then the conversation is checked against them. */
+  const runCheck = useCallback(() => {
+    void loadGameFiles(project.dir).then(() => {
+      const files = gameFiles.get();
+      setDialogueCheck(checkConversation(store.getState(), current, files.palette, files.status[current]));
+      setSide('dialogue');
+    });
+  }, [project.dir, store, current]);
+
+  const copyTask = useCallback(
+    (scope: { node?: string; line?: string }) => {
+      const text = taskText(store.getState(), current, scope, gameFiles.get().status[current]);
+      if (!text) {
+        // No name in the game yet: the field for it is in the properties of the conversation.
+        toast({ kind: 'error', text: t('task.noKey') });
+        engine?.select({ nodes: new Set(), edges: new Set(), groups: new Set() });
+        setSide('inspector');
+        setFocus({ node: '', field: 'key', at: performance.now() });
+        return;
+      }
+      navigator.clipboard.writeText(text).then(
+        () => toast({ kind: 'success', text: t('task.copied', { text }) }),
+        () => toast({ kind: 'info', text }),
+      );
+    },
+    [store, current, engine],
+  );
 
   /** Applies a pending selection once the canvas of its graph exists. */
   const settle = useCallback((e: CanvasEngine | null) => {
@@ -243,6 +291,8 @@ function StoryWorkspace({
         const node = findNode(store.getState(), { graph: current, node: nodeId });
         if (node?.graph && store.getState().graphs[node.graph]) setGraphId(node.graph);
       },
+      task: copyTask,
+      check: runCheck,
       inspect: (nodeId, field) => {
         setSide('inspector');
         go({ graph: current, node: nodeId, field: field ?? 'title' });
@@ -259,7 +309,7 @@ function StoryWorkspace({
         );
       },
     }),
-    [project, store, current, go, readOnly, setGraphId],
+    [project, store, current, go, readOnly, setGraphId, copyTask, runCheck],
   );
 
   // "Where used" and problems in other editors ask to show a place here. A request is used once, so
@@ -305,6 +355,9 @@ function StoryWorkspace({
     () => ({
       create: (d, node) => {
         if (node.kind === 'chapter') createChapterGraph(d, node, t('story.kind.start'));
+        if (node.kind === 'barks') createBarksGraph(d, node);
+        // In a set of lines a dialogue node says when its lines sound, and connects to nothing.
+        if (node.kind === 'dialogue' && graphOf(d, current)?.kind === 'barks') asStory(node).when = '';
       },
       remove: (d, nodes) => deleteChapterGraphs(d, nodes),
       copy: (clip, data) => {
@@ -319,10 +372,10 @@ function StoryWorkspace({
 
   const ext: CanvasExtensions = {
     hooks,
-    insertKind: 'scene',
+    insertKind: barks ? 'dialogue' : 'scene',
     onOpenNode: (id) => {
       const node = findNode(store.getState(), { graph: current, node: id });
-      if (node?.kind === 'chapter') {
+      if (node?.kind === 'chapter' || node?.kind === 'barks') {
         actions.openChapter(id);
         return true;
       }
@@ -344,6 +397,7 @@ function StoryWorkspace({
     menuEntries: (target: HitTarget, world) => {
       const data = store.getState();
       if (target.kind === 'background') {
+        if (barks) return [];
         return [
           { id: 'play', label: t('play.thisCanvas'), icon: <Play size={16} />, onSelect: () => startRun() },
           { id: 'play-all', label: t('play.fromStart'), icon: <Play size={16} />, onSelect: () => startRun({}) },
@@ -375,6 +429,15 @@ function StoryWorkspace({
           onSelect: () => actions.openChapter(node.id),
         });
       }
+      if (node.kind === 'barks') {
+        entries.push({
+          id: 'open',
+          label: t('barks.open'),
+          icon: <MessagesSquare size={16} />,
+          shortcut: 'Enter',
+          onSelect: () => actions.openChapter(node.id),
+        });
+      }
       if (node.kind === 'jump' && node.target) {
         const to = node.target;
         entries.push({
@@ -384,7 +447,7 @@ function StoryWorkspace({
           onSelect: () => actions.show(to),
         });
       }
-      if (!readOnly && !OFF_FLOW.has(node.kind) && !['start', 'gun', 'butterfly'].includes(node.kind)) {
+      if (!readOnly && !barks && !OFF_FLOW.has(node.kind) && !['start', 'gun', 'butterfly'].includes(node.kind)) {
         // Over an option or a line of the card: the device goes there; elsewhere on the whole node.
         const row = cardRow(node, world.y - node.y);
         const where = row
@@ -407,7 +470,7 @@ function StoryWorkspace({
           });
         }
       }
-      if (!OFF_FLOW.has(node.kind)) {
+      if (!OFF_FLOW.has(node.kind) && !barks) {
         entries.push({
           id: 'play-here',
           label: t('play.fromHere'),
@@ -484,18 +547,23 @@ function StoryWorkspace({
                 </button>
               </span>
             ))}
+            {transfer && (
+              <TransferBadge state={transfer} problems={game.status[current]?.problems.map((p) => p.text) ?? []} />
+            )}
           </nav>
           <div className="story-actions">
-            <Button
-              size="sm"
-              variant="primary"
-              icon={<Play size={14} />}
-              title={t('play.thisCanvas')}
-              onClick={() => startRun()}
-              data-tour="play"
-            >
-              {t('play.start')}
-            </Button>
+            {!barks && (
+              <Button
+                size="sm"
+                variant="primary"
+                icon={<Play size={14} />}
+                title={t('play.thisCanvas')}
+                onClick={() => startRun()}
+                data-tour="play"
+              >
+                {t('play.start')}
+              </Button>
+            )}
             {showChecks && (
               <Button
                 size="sm"
@@ -516,6 +584,27 @@ function StoryWorkspace({
             )}
             <Button size="sm" variant="ghost" icon={<Variable size={14} />} onClick={() => openVariables()}>
               {t('var.button')}
+            </Button>
+            <Button
+              size="sm"
+              variant={side === 'dialogue' ? 'secondary' : 'ghost'}
+              icon={<ListChecks size={14} />}
+              title={t('check.dialogueHint')}
+              onClick={runCheck}
+            >
+              {t('check.dialogue')}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<ClipboardCopy size={14} />}
+              title={t('task.hint')}
+              onClick={() => {
+                const picked = engine ? [...engine.selection.get().nodes] : [];
+                copyTask(picked.length === 1 ? { node: picked[0] } : {});
+              }}
+            >
+              {t('task.button')}
             </Button>
             <Button size="sm" variant="ghost" icon={<FileJson size={14} />} onClick={() => void exportStory()}>
               {t('story.export.button')}
@@ -561,6 +650,14 @@ function StoryWorkspace({
             <aside className="story-side" aria-label={t('story.side')}>
               {side === 'inspector' && <Inspector engine={engine} focus={focus} />}
               {side === 'problems' && <ProblemsPanel />}
+              {side === 'dialogue' && (
+                <ProblemsPanel
+                  list={dialogueCheck}
+                  title={t('check.dialogueTitle')}
+                  onAgain={runCheck}
+                  onClose={() => setSide('inspector')}
+                />
+              )}
               {side === 'play' && play && (
                 <PlayPanel
                   history={play}

@@ -1,12 +1,32 @@
-import { Plus } from 'lucide-react';
+import { MessageCircleQuestion, Plus } from 'lucide-react';
 import { useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useStore } from '../../core/useStore';
-import { getLocale, t } from '../../i18n';
-import { checkCondition, checkEffects, isKeyword } from '../../story/expr';
-import { asRegistry, guessType, nameProblem, newVariable, registryFor, type VarType } from '../../story/variables';
-import { Button } from '../components';
+import { getLocale, t, type MessageKey } from '../../i18n';
+import { listEntities } from '../../story/entities';
+import { CALL_WORDS, callsIn, checkCondition, checkEffects, isKeyword, type CallName } from '../../story/expr';
+import { callWorld, spokenParts } from '../../story/game';
+import { asStory, graphOf } from '../../story/model';
+import {
+  asRegistry,
+  guessType,
+  listsFor,
+  nameProblem,
+  newVariable,
+  registryFor,
+  type VarType,
+} from '../../story/variables';
+import { Button, MenuButton, type MenuEntry } from '../components';
 import { useStory } from './context';
 import { diagnosticText } from './messages';
+
+const CALL_NAMES: Record<CallName, MessageKey> = {
+  has: 'call.has',
+  hired: 'call.hired',
+  seen: 'call.seen',
+  notEmpty: 'call.notEmpty',
+};
+/** How many names a list of есть(), нанят()… offers at most. */
+const MENU_LIMIT = 40;
 
 const KEYWORDS = { ru: ['и', 'или', 'не', 'истина', 'ложь'], en: ['and', 'or', 'not', 'true', 'false'] } as const;
 const WORD = /[A-Za-zА-Яа-яЁё_0-9.]+$/;
@@ -24,6 +44,7 @@ const TYPE_LABEL: Record<VarType, Parameters<typeof t>[0]> = {
   string: 'var.type.string',
   enum: 'var.type.enum',
   entity: 'var.type.entity',
+  list: 'var.type.list',
 };
 
 /**
@@ -59,14 +80,24 @@ export function ExpressionField({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [variables, entities, graphs, graphId],
   );
+  // Names inside есть(), нанят(), видел(), непусто() are checked against the database and the story (0.8).
+  const world = useMemo(
+    () => callWorld(project.store.getState(), graphId),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [variables, entities, graphs, graphId],
+  );
   const diagnostic = useMemo(
     () =>
-      kind === 'condition' ? checkCondition(value, asRegistry(registry)) : checkEffects(value, asRegistry(registry)),
-    [kind, value, registry],
+      kind === 'condition'
+        ? checkCondition(value, asRegistry(registry), world)
+        : checkEffects(value, asRegistry(registry), world),
+    [kind, value, registry, world],
   );
   const [caret, setCaret] = useState<number | null>(null);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  /** Which question to the game is being put in: its names are offered under the field. */
+  const [asking, setAsking] = useState<CallName | null>(null);
 
   const word = caret === null ? '' : (WORD.exec(value.slice(0, caret))?.[0] ?? '');
   const suggestions = useMemo<Suggestion[]>(() => {
@@ -132,6 +163,50 @@ export function ExpressionField({
       (file.variables ??= []).push(variable);
     });
   };
+
+  // видел(<id>) holds an id: under the field it is said which line or option that is.
+  const seen = useMemo(() => {
+    const ids = callsIn(value, kind).filter((c) => c.fn === 'seen');
+    if (!ids.length) return [];
+    const parts = spokenParts(project.store.getState());
+    return ids.map((c) => ({ id: c.arg, text: parts.get(c.arg)?.text }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, kind, graphs]);
+
+  /** Puts a question to the game at the caret (or at the end), joined with "and" to what is there. */
+  const insertCall = (fn: CallName, arg: string) => {
+    const ru = getLocale() === 'ru';
+    const call = `${CALL_WORDS[fn][ru ? 'ru' : 'en']}(${arg})`;
+    const at = caret ?? value.length;
+    const before = value.slice(0, at).trimEnd();
+    const after = value.slice(at).trimStart();
+    const glue = ru ? ' и ' : ' and ';
+    onChange([before, call, after].filter(Boolean).join(kind === 'condition' ? glue : ' '));
+    requestAnimationFrame(() => area.current?.focus());
+  };
+  /** What a question to the game can name here: items, characters, lines and options of this graph, lists. */
+  const callNames = (fn: CallName): { arg: string; label: string }[] => {
+    const data = project.store.getState();
+    if (fn === 'has' || fn === 'hired') {
+      return listEntities(data, fn === 'has' ? 'item' : 'character')
+        .filter((e) => e.name.trim())
+        .map((e) => ({ arg: e.name, label: e.name }));
+    }
+    if (fn === 'notEmpty') return [...listsFor(data, graphId).keys()].map((name) => ({ arg: name, label: name }));
+    return (graphOf(data, graphId)?.nodes ?? []).flatMap((raw) => {
+      const n = asStory(raw);
+      const title = n.title || t('story.untitled');
+      return [
+        ...(n.lines ?? []).map((l) => ({ arg: l.id, label: `${title}: ${l.text.slice(0, 48) || '…'}` })),
+        ...(n.options ?? []).map((o) => ({ arg: o.id, label: `${title} › ${o.text.slice(0, 48) || '…'}` })),
+      ];
+    });
+  };
+  const callEntries: MenuEntry[] = (Object.keys(CALL_NAMES) as CallName[]).map((fn) => ({
+    id: fn,
+    label: t(CALL_NAMES[fn]),
+    onSelect: () => setAsking(fn),
+  }));
 
   // Underline: a mirror of the text behind the field, with the faulty part marked.
   const from = diagnostic ? Math.min(diagnostic.from, value.length) : 0;
@@ -208,10 +283,48 @@ export function ExpressionField({
       >
         {diagnostic ? diagnosticText(diagnostic) : t(kind === 'condition' ? 'expr.hintCondition' : 'expr.hintEffects')}
       </div>
+      {seen.map((x) => (
+        <div key={x.id} className="field-hint expr-seen">
+          {x.text === undefined
+            ? t('call.seenGone', { id: x.id })
+            : t('call.seenIs', { id: x.id, text: x.text || '…' })}
+        </div>
+      ))}
       {canCreate && !readOnly && (
         <Button size="sm" variant="ghost" icon={<Plus size={14} />} onClick={create}>
           {t('expr.createVariable', { name: unknown })}
         </Button>
+      )}
+      {kind === 'condition' && !readOnly && (
+        <MenuButton
+          label={t('call.insert')}
+          size="sm"
+          variant="ghost"
+          icon={<MessageCircleQuestion size={14} />}
+          entries={callEntries}
+        />
+      )}
+      {asking && (
+        <select
+          className="input expr-ask"
+          value=""
+          autoFocus
+          aria-label={t(CALL_NAMES[asking])}
+          onBlur={() => setAsking(null)}
+          onChange={(e) => {
+            if (e.target.value) insertCall(asking, e.target.value);
+            setAsking(null);
+          }}
+        >
+          <option value="">{t(CALL_NAMES[asking])}…</option>
+          {callNames(asking)
+            .slice(0, MENU_LIMIT * 5)
+            .map((n) => (
+              <option key={n.arg} value={n.arg}>
+                {n.label}
+              </option>
+            ))}
+        </select>
       )}
     </div>
   );

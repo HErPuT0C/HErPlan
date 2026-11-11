@@ -6,8 +6,9 @@ import type { GraphDoc } from '../canvas/model';
 import type { ProjectData } from '../core/project/types';
 import { checkCondition, checkEffects, type Diagnostic } from './expr';
 import { edgesFrom, reachableFrom, refKey, startOf } from './flow';
+import { callWorld, visibleLength } from './game';
 import { plotSources, rolesOf } from './marks';
-import { allGraphs, asStory, findNode, OFF_FLOW, type NodeRef, type StoryNode } from './model';
+import { allGraphs, asStory, findNode, isFlowGraph, OFF_FLOW, type NodeRef, type StoryNode } from './model';
 import { projectExpressions, unusedVariables } from './usage';
 import { asRegistry, registryFor } from './variables';
 
@@ -32,7 +33,24 @@ export type ProblemCode =
   | 'lineTooLong'
   | 'jumpNoTarget'
   | 'chapterNoGraph'
-  | 'refMissing';
+  | 'refMissing'
+  // 0.8, the story's own:
+  | 'giveNoExit'
+  // 0.8, "check the dialogue" (dialogueCheck.ts): what the game will stumble over.
+  | 'noGraphKey'
+  | 'badKey'
+  | 'refNoKey'
+  | 'lineEmpty'
+  | 'lineNoSpeaker'
+  | 'choiceNoFallback'
+  | 'secretNoTimer'
+  | 'manySecrets'
+  | 'notInPalette'
+  | 'faceNotDrawn'
+  | 'towardOutsider'
+  | 'actionNoRef'
+  | 'emptyCycle'
+  | 'gameSaid';
 
 export type Severity = 'error' | 'warning' | 'info';
 
@@ -45,6 +63,9 @@ export interface Problem {
   variable?: string;
   /** Plot devices laid over a node: which mark. */
   mark?: string;
+  /** A dialogue line or a choice option of the node (0.8). */
+  line?: string;
+  option?: string;
   params: Record<string, string | number>;
   /** Expression problems: the diagnostic, for its message and position. */
   diagnostic?: Diagnostic;
@@ -72,6 +93,21 @@ const SEVERITY: Record<ProblemCode, Severity> = {
   jumpNoTarget: 'error',
   chapterNoGraph: 'error',
   refMissing: 'warning',
+  giveNoExit: 'warning',
+  noGraphKey: 'error',
+  badKey: 'error',
+  refNoKey: 'warning',
+  lineEmpty: 'warning',
+  lineNoSpeaker: 'info',
+  choiceNoFallback: 'warning',
+  secretNoTimer: 'warning',
+  manySecrets: 'error',
+  notInPalette: 'warning',
+  faceNotDrawn: 'warning',
+  towardOutsider: 'warning',
+  actionNoRef: 'error',
+  emptyCycle: 'error',
+  gameSaid: 'error',
 };
 
 /** Open plot threads ("незакрытые завязки") are these problems. */
@@ -87,7 +123,7 @@ export const OPEN_THREADS: ReadonlySet<ProblemCode> = new Set([
 /** Nodes that need no connection to count as used: references to the world and plain nodes off the flow. */
 const ANNOTATION_KINDS = new Set(['character', 'location', 'item', 'node']);
 
-function problem(
+export function problem(
   code: ProblemCode,
   where: Omit<Problem, 'code' | 'severity' | 'params'>,
   params: Problem['params'] = {},
@@ -113,7 +149,7 @@ function reachableInGraph(g: GraphDoc, jumpTargets: ReadonlySet<string>): Set<st
 }
 
 function storyGraphs(data: ProjectData): GraphDoc[] {
-  return allGraphs(data).filter((g) => g.kind === 'story' || g.kind === 'chapter');
+  return allGraphs(data).filter(isFlowGraph);
 }
 
 export function checkProject(data: ProjectData): Problem[] {
@@ -169,6 +205,17 @@ export function checkProject(data: ProjectData): Problem[] {
               out.push(problem('conditionNoBranch', where, { title: n.title, branch: port }));
             }
           }
+        } else if (n.kind === 'give') {
+          // "Nothing to give" may be left out: it then goes where "refused" goes.
+          for (const port of ['given', 'cancel'] as const) {
+            if (!exits.some((e) => e.from.port === port)) {
+              out.push(problem('giveNoExit', where, { title: n.title, branch: port }));
+            }
+          }
+        } else if (n.kind === 'dialogue') {
+          // Exits of interrupted lines do not count: the dialogue must go somewhere when nobody interrupts.
+          const lineIds = new Set((n.lines ?? []).map((l) => l.id));
+          if (!exits.some((e) => !lineIds.has(e.from.port))) out.push(problem('deadEnd', where, { title: n.title }));
         } else if (!['end', 'jump', 'chapter'].includes(n.kind) && exits.length === 0) {
           out.push(problem('deadEnd', where, { title: n.title }));
         }
@@ -231,20 +278,38 @@ export function checkProject(data: ProjectData): Problem[] {
     }
   }
 
+  // Sets of lines (barks, 0.8) are outside the flow, but their lines have the same limits.
+  for (const g of allGraphs(data)) {
+    if (g.kind !== 'barks') continue;
+    for (const raw of g.nodes) {
+      if (raw.kind === 'dialogue') checkDialogue(asStory(raw), { graph: g.id, node: raw.id }, limits, out);
+    }
+  }
+
   // Expressions: parse errors, type errors, unknown names.
   const registries = new Map<string, ReturnType<typeof registryFor>>();
+  const worlds = new Map<string, ReturnType<typeof callWorld>>();
   for (const site of projectExpressions(data)) {
     let reg = registries.get(site.graph);
     if (!reg) registries.set(site.graph, (reg = registryFor(data, site.graph)));
+    let world = worlds.get(site.graph);
+    if (!world) worlds.set(site.graph, (world = callWorld(data, site.graph)));
     const d =
       site.kind === 'condition'
-        ? checkCondition(site.source, asRegistry(reg))
-        : checkEffects(site.source, asRegistry(reg));
+        ? checkCondition(site.source, asRegistry(reg), world)
+        : checkEffects(site.source, asRegistry(reg), world);
     if (!d) continue;
     out.push(
       problem(
         d.code === 'unknownVar' ? 'unknownVar' : 'exprError',
-        { graph: site.graph, node: site.node, edge: site.edge, diagnostic: d },
+        {
+          graph: site.graph,
+          node: site.node,
+          edge: site.edge,
+          ...(site.line ? { line: site.line } : {}),
+          ...(site.option ? { option: site.option } : {}),
+          diagnostic: d,
+        },
         { name: d.params.name ?? '', source: site.source },
       ),
     );
@@ -264,7 +329,8 @@ function checkDialogue(
   if (lines.length > limits.maxLines) {
     out.push(problem('tooManyLines', where, { title: n.title, count: lines.length, max: limits.maxLines }));
   }
-  const long = lines.filter((l) => [...l.text].length > limits.maxLineChars).length;
+  // What the player reads: effects written in braces do not count (0.8).
+  const long = lines.filter((l) => visibleLength(l.text) > limits.maxLineChars).length;
   if (long > 0) out.push(problem('lineTooLong', where, { title: n.title, count: long, max: limits.maxLineChars }));
 }
 

@@ -6,13 +6,32 @@
 import type { GraphDoc } from '../canvas/model';
 import type { ProjectData } from '../core/project/types';
 import { listEntities } from './entities';
-import { parseCondition, parseEffects, stripPositions, type BinaryOp, type EffectOp, type Expr } from './expr';
+import {
+  parseCondition,
+  parseEffects,
+  stripPositions,
+  type BinaryOp,
+  type CallName,
+  type EffectOp,
+  type Expr,
+} from './expr';
 import { graphTitle, parentChapter, startOf } from './flow';
-import { anchorText, resolveRange, rolesOf } from './marks';
-import { allGraphs, asStory, storyRoot, type NodeRef } from './model';
+import { entityGame, resolveCall, spokenParts, type SpokenPart } from './game';
+import { graphKey } from './gameKey';
+import { anchorText, cueAt, resolveRange, rolesOf } from './marks';
+import {
+  allGraphs,
+  asStory,
+  isPlotMark,
+  storyRoot,
+  toward,
+  type GameAction,
+  type NodeRef,
+  type TowardValue,
+} from './model';
 import { joinedEffects, textPieces } from './textEffects';
 import { knownNames } from './usage';
-import { fullName, listVariables } from './variables';
+import { fullName, listVariables, memoryOf } from './variables';
 import {
   cardFields,
   effectiveFields,
@@ -31,6 +50,11 @@ export const EXPORT_VERSION = 1;
 export type ExportExpr =
   | { kind: 'literal'; value: boolean | number | string }
   | { kind: 'var'; name: string }
+  /**
+   * Since 0.8: a question to the game: has an item, a companion is hired, a line was seen, a list is not
+   * empty. `arg` is the name as written, `ref` the id it names (null when nothing has that name).
+   */
+  | { kind: 'call'; fn: CallName; arg: string; ref: string | null }
   | { kind: 'unary'; op: 'not' | 'neg'; arg: ExportExpr }
   | { kind: 'binary'; op: BinaryOp; left: ExportExpr; right: ExportExpr };
 
@@ -58,7 +82,10 @@ export interface ExportNode {
 export interface ExportEdge {
   id: string;
   from: string;
-  /** "out" and the side anchors for ordinary nodes, an option id for a choice, "yes"/"no" for a condition. */
+  /**
+   * "out" and the side anchors for ordinary nodes, an option id for a choice, "yes"/"no" for a condition;
+   * since 0.8 a line id for the exit of an interrupted line, "given"/"cancel"/"empty" for a give node.
+   */
   fromPort: string;
   to: string;
   label: string | null;
@@ -78,8 +105,11 @@ export interface ExportField {
 
 export interface ExportGraph {
   id: string;
-  kind: 'story' | 'chapter';
+  /** "barks" since 0.8: a set of lines, dialogue nodes with nothing between them. */
+  kind: 'story' | 'chapter' | 'barks';
   name: string;
+  /** Since 0.8: the name of the conversation in the game, when it has one. */
+  key?: string;
   /** The chapter node (and its graph) this graph belongs to; null for the story overview. */
   parent: NodeRef | null;
   start: string | null;
@@ -104,6 +134,9 @@ export interface StoryExport {
     owner: string | null;
     values: string[] | null;
     description: string;
+    /** Since 0.8: the name in the game, when it has one; where the game keeps the variable. */
+    key?: string;
+    memory: 'world' | 'game';
   }[];
   entities: {
     id: string;
@@ -122,6 +155,12 @@ export interface StoryExport {
     fields?: ExportField[];
     /** Since 0.5: ids of the type's fields this card does not have, when there are any. */
     hiddenFields?: string[];
+    /** Since 0.8: what the card says to the game, when it says anything. */
+    key?: string;
+    bubble?: string;
+    voice?: string;
+    pitch?: number;
+    faces?: string[];
   }[];
   /** Since 0.3: entity types (with every field an entity of the type has) and property sets. */
   schema: {
@@ -143,16 +182,32 @@ export interface StoryExport {
   story: { root: string | null; graphs: ExportGraph[] };
 }
 
-function condition(source: string | undefined): ExportCondition | null {
+/** Turns names inside есть(), нанят()… into ids, for the place the expression is written in. */
+type Resolve = (fn: CallName, arg: string) => string | null;
+
+function tree(e: Expr, resolve: Resolve): ExportExpr {
+  const plain = stripPositions(e) as unknown as ExportExpr;
+  const walk = (x: ExportExpr): ExportExpr => {
+    if (x.kind === 'call') return { kind: 'call', fn: x.fn, arg: x.arg, ref: resolve(x.fn, x.arg) };
+    if (x.kind === 'unary') return { ...x, arg: walk(x.arg) };
+    if (x.kind === 'binary') return { ...x, left: walk(x.left), right: walk(x.right) };
+    return x;
+  };
+  return walk(plain);
+}
+
+const NO_CALLS: Resolve = () => null;
+
+function condition(source: string | undefined, resolve: Resolve = NO_CALLS): ExportCondition | null {
   if (!source?.trim()) return null;
   try {
-    return { source, ast: stripPositions(parseCondition(source)) as ExportExpr };
+    return { source, ast: tree(parseCondition(source), resolve) };
   } catch {
     return { source, ast: null };
   }
 }
 
-function effects(source: string | undefined): ExportEffects | null {
+function effects(source: string | undefined, resolve: Resolve = NO_CALLS): ExportEffects | null {
   if (!source?.trim()) return null;
   try {
     return {
@@ -160,7 +215,7 @@ function effects(source: string | undefined): ExportEffects | null {
       effects: parseEffects(source).map((e) => ({
         target: e.target,
         op: e.op,
-        value: stripPositions(e.value as Expr) as ExportExpr,
+        value: tree(e.value, resolve),
       })),
     };
   } catch {
@@ -168,7 +223,32 @@ function effects(source: string | undefined): ExportEffects | null {
   }
 }
 
-function exportNode(raw: GraphDoc['nodes'][number], known: (name: string) => boolean): ExportNode {
+/** A gesture or an emote as exported: always `{ id, to }`. */
+const aimed = (v: TowardValue | undefined) => {
+  const x = toward(v);
+  return x ? { id: x.id, to: x.to ?? null } : undefined;
+};
+
+const actionList = (list: GameAction[] | undefined) =>
+  list?.length
+    ? list.map((a) => ({
+        type: a.type,
+        ...(a.ref ? { ref: a.ref } : {}),
+        ...(a.item ? { item: a.item } : {}),
+        ...(a.value ? { value: a.value } : {}),
+      }))
+    : undefined;
+
+/** Without the keys that have no value. */
+function compact<T extends Record<string, unknown>>(o: T): T {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== null && v !== '')) as T;
+}
+
+function exportNode(
+  raw: GraphDoc['nodes'][number],
+  known: (name: string) => boolean,
+  resolve: Resolve = NO_CALLS,
+): ExportNode {
   const n = asStory(raw);
   const out: ExportNode = { id: n.id, kind: n.kind, title: n.title, text: n.text ?? '', x: n.x, y: n.y };
   if (n.comment) out.comment = n.comment;
@@ -190,7 +270,20 @@ function exportNode(raw: GraphDoc['nodes'][number], known: (name: string) => boo
   const marks = (n.marks ?? []).filter((m) => anchorText(n, m.anchor) !== undefined);
   if (marks.length) {
     out.marks = marks.map((m) => {
-      const r = resolveRange(anchorText(n, m.anchor) ?? '', m.range);
+      const text = anchorText(n, m.anchor) ?? '';
+      if (!isPlotMark(m)) {
+        // Since 0.8: how words of a line look ("style") and what happens at a point of it ("cue").
+        const at = m.device === 'cue' ? cueAt(text, m) : null;
+        const r = at === null ? resolveRange(text, m.range) : { start: at, end: at };
+        return {
+          id: m.id,
+          device: m.device,
+          anchor: m.anchor,
+          range: r ? { start: r.start, end: r.end, quote: text.slice(r.start, r.end) } : null,
+          props: m.props,
+        };
+      }
+      const r = resolveRange(text, m.range);
       return {
         id: m.id,
         device: m.device,
@@ -204,25 +297,62 @@ function exportNode(raw: GraphDoc['nodes'][number], known: (name: string) => boo
   }
   switch (n.kind) {
     case 'dialogue':
-      out.lines = (n.lines ?? []).map((l) => ({ id: l.id, speaker: l.speaker, text: l.text }));
+      // Since 0.8 a line carries what the game plays it with; only the fields that are set are written.
+      out.lines = (n.lines ?? []).map((l) =>
+        compact({
+          id: l.id,
+          speaker: l.speaker as string | null | undefined,
+          text: l.text,
+          style: l.style,
+          face: l.face,
+          gesture: aimed(l.gesture),
+          emote: aimed(l.emote),
+          auto: l.auto,
+          interrupt: l.interrupt,
+          condition: condition(l.condition, resolve) ?? undefined,
+          effects: effects(l.effects, resolve) ?? undefined,
+          actions: actionList(l.actions),
+        }),
+      );
+      // A line's speaker and text are always there, even when empty.
+      (out.lines as Record<string, unknown>[]).forEach((line, i) => {
+        line.speaker = n.lines![i].speaker;
+        line.text = n.lines![i].text;
+      });
+      if (n.when !== undefined) out.when = n.when;
       break;
     case 'choice':
       out.options = (n.options ?? []).map((o) => ({
         id: o.id,
         text: o.text,
-        condition: condition(o.condition),
-        effects: effects(o.effects),
+        condition: condition(o.condition, resolve),
+        effects: effects(o.effects, resolve),
         note: o.note ?? '',
         textEffects: effects(
           [joinedEffects(textPieces(o.text)), joinedEffects(textPieces(o.note, known))].filter(Boolean).join('; '),
         ),
+        ...(o.secret ? { secret: true } : {}),
+        ...(o.once ? { once: true } : {}),
+        ...(o.actions?.length ? { actions: actionList(o.actions) } : {}),
       }));
+      if (typeof n.timer === 'number') out.timer = n.timer;
+      if (n.checkpoint) out.checkpoint = true;
       break;
     case 'condition':
-      out.condition = condition(n.expr);
+      out.condition = condition(n.expr, resolve);
       break;
     case 'effect':
-      out.effects = effects(n.effects);
+      out.effects = effects(n.effects, resolve);
+      if (n.actions?.length) out.actions = actionList(n.actions);
+      break;
+    case 'give':
+      out.store = n.store ?? null;
+      out.keep = n.keep ?? null;
+      out.effects = effects(n.effects, resolve);
+      if (n.actions?.length) out.actions = actionList(n.actions);
+      break;
+    case 'barks':
+      out.graph = n.graph ?? null;
       break;
     case 'butterfly':
       out.effects = effects(n.effects);
@@ -261,8 +391,9 @@ function exportField(f: FieldDef): ExportField {
 }
 
 export function exportStory(data: ProjectData, appVersion: string, now = new Date()): StoryExport {
-  const graphs = allGraphs(data).filter((g) => g.kind === 'story' || g.kind === 'chapter');
+  const graphs = allGraphs(data).filter((g) => g.kind === 'story' || g.kind === 'chapter' || g.kind === 'barks');
   const schema = typesFile(data);
+  let parts: Map<string, SpokenPart> | null = null;
   return {
     format: EXPORT_FORMAT,
     version: EXPORT_VERSION,
@@ -279,6 +410,8 @@ export function exportStory(data: ProjectData, appVersion: string, now = new Dat
       owner: v.owner?.id ?? null,
       values: v.type === 'enum' ? (v.values ?? []) : null,
       description: v.description,
+      ...(v.key ? { key: v.key } : {}),
+      memory: memoryOf(v),
     })),
     entities: listEntities(data).map((e) => ({
       id: e.id,
@@ -298,6 +431,7 @@ export function exportStory(data: ProjectData, appVersion: string, now = new Dat
       })),
       ...(ownFields(e).length ? { fields: ownFields(e).map(exportField) } : {}),
       ...(hiddenFields(e).length ? { hiddenFields: hiddenFields(e) } : {}),
+      ...gameFields(e),
     })),
     schema: {
       types: schema.types.map((x) => ({
@@ -318,24 +452,38 @@ export function exportStory(data: ProjectData, appVersion: string, now = new Dat
       root: storyRoot(data)?.id ?? null,
       graphs: graphs.map((g) => {
         const known = knownNames(data, g.id);
+        const resolve: Resolve = (fn, arg) => resolveCall(data, g.id, fn, arg, (parts ??= spokenParts(data)));
         return {
           id: g.id,
-          kind: g.kind as 'story' | 'chapter',
-          name: g.kind === 'chapter' ? graphTitle(data, g.id) : g.name,
+          kind: g.kind as 'story' | 'chapter' | 'barks',
+          name: g.kind === 'story' ? g.name : graphTitle(data, g.id),
+          ...(graphKey(g) ? { key: graphKey(g) } : {}),
           parent: parentChapter(data, g.id),
           start: startOf(g)?.id ?? null,
-          nodes: g.nodes.filter((n) => n.kind !== 'sticker').map((n) => exportNode(n, known)),
+          nodes: g.nodes.filter((n) => n.kind !== 'sticker').map((n) => exportNode(n, known, resolve)),
           edges: g.edges.map((e) => ({
             id: e.id,
             from: e.from.node,
             fromPort: e.from.port,
             to: e.to.node,
             label: e.label || null,
-            condition: condition(e.condition),
+            condition: condition(e.condition, resolve),
           })),
         };
       }),
     },
+  };
+}
+
+/** What a card says to the game (0.8): only what is set. */
+function gameFields(e: { [k: string]: unknown }) {
+  const game = entityGame(e);
+  return {
+    ...(game.key ? { key: game.key } : {}),
+    ...(game.bubble ? { bubble: game.bubble } : {}),
+    ...(game.voice ? { voice: game.voice } : {}),
+    ...(game.pitch !== null ? { pitch: game.pitch } : {}),
+    ...(game.faces.length ? { faces: game.faces } : {}),
   };
 }
 

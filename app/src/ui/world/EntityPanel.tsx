@@ -24,7 +24,9 @@ import { t } from '../../i18n';
 import { openDocument, openEntity, openTask, openVariables, revealInStory } from '../../state/navigation';
 import type { OpenProject } from '../../state/project';
 import { asEntity, listEntities, type WorldEntity } from '../../story/entities';
-import { renameEverywhere } from '../../story/usage';
+import { useGameFiles } from '../../state/gameFiles';
+import { entityGame, setEntityGame, type EntityGame } from '../../story/game';
+import { renameEverywhere, renameInCalls } from '../../story/usage';
 import { fullName, listVariables, nameProblem, newVariable, VAR_TYPES, type VarType } from '../../story/variables';
 import {
   addRelation,
@@ -39,6 +41,7 @@ import {
   type RelationView,
 } from '../../world/entityOps';
 import {
+  isA,
   addCatalog,
   addField,
   CARD_SECTIONS,
@@ -70,6 +73,7 @@ import {
 } from '../../world/schema';
 import type { FieldValue } from '../../world/values';
 import { Button, Dialog, IconButton, Menu, toast, type MenuEntry } from '../components';
+import { GameKeyField, NumberBlank, PaletteInput } from '../story/game';
 import { changeVariable, VAR_TYPE_NAMES } from '../story/VariablesPanel';
 import { ValueInput } from '../story/ValueInput';
 import { useDraft } from '../useDraft';
@@ -163,6 +167,11 @@ export function EntityPanel({
           const before = fullName(v, d);
           const after = fullName(v, { ...d, entities: { ...d.entities, [entity.id]: { ...e, name: value } } });
           renameEverywhere(d, before, after, v);
+        }
+        // есть(имя) and нанят(имя) in conditions name items and characters as the database does (0.8).
+        if (typeof e.name === 'string' && value.trim()) {
+          if (isA(schema, entity.type, 'item')) renameInCalls(d, ['has'], e.name, value);
+          if (isA(schema, entity.type, 'character')) renameInCalls(d, ['hired'], e.name, value);
         }
         e.name = value;
       },
@@ -451,6 +460,9 @@ export function EntityPanel({
         {shows('relations') && (
           <Relations project={project} entity={entity} schema={schema} tools={blockTools('relations')} />
         )}
+        {(isA(schema, entity.type, 'character') || isA(schema, entity.type, 'item')) && (
+          <GameBlock project={project} entity={entity} character={isA(schema, entity.type, 'character')} />
+        )}
         {shows('variables') && <OwnedVariables project={project} entity={entity} tools={blockTools('variables')} />}
         {shows('uses') && <Uses project={project} id={entity.id} tools={blockTools('uses')} />}
         {(hiddenBlocks.length > 0 || hiddenTypeFields.length > 0) && (
@@ -662,6 +674,122 @@ function Relations({
 }
 
 // ---------- variables of the entity (F4-10) ----------
+
+/**
+ * What the card says to the game (0.8): the name in the game; for a character also the bubble, the voice
+ * with its pitch and the faces drawn for them, from the game's palette.
+ */
+function GameBlock({ project, entity, character }: { project: OpenProject; entity: WorldEntity; character: boolean }) {
+  const { store, readOnly } = project;
+  const { palette } = useGameFiles(project.dir);
+  const edit = useEntityEdit(project, entity.id);
+  const game = entityGame(entity);
+  const set = (patch: Partial<EntityGame>, merge: string) =>
+    edit(t('world.step.edit'), (e) => setEntityGame(e, patch), `game:${merge}`);
+  const toggleFace = (id: string, on: boolean) =>
+    set({ faces: on ? [...game.faces, id] : game.faces.filter((f) => f !== id) }, 'faces');
+  return (
+    <Section title={t('game.title')}>
+      <GameKeyField
+        value={game.key}
+        title={entity.name}
+        among="entities"
+        id={entity.id}
+        data={() => store.getState()}
+        disabled={readOnly}
+        onChange={(key) => set({ key }, 'key')}
+      />
+      {character && (
+        <>
+          <div className="world-game-row">
+            <label className="number-blank">
+              <span className="small muted">{t('game.bubble')}</span>
+              <PaletteInput
+                palette={palette}
+                list="bubbles"
+                value={game.bubble}
+                label={t('game.bubble')}
+                disabled={readOnly}
+                onChange={(bubble) => set({ bubble }, 'bubble')}
+              />
+            </label>
+            <label className="number-blank">
+              <span className="small muted">{t('game.voice')}</span>
+              <PaletteInput
+                palette={palette}
+                list="voices"
+                value={game.voice}
+                label={t('game.voice')}
+                disabled={readOnly}
+                onChange={(voice) => set({ voice }, 'voice')}
+              />
+            </label>
+            <NumberBlank
+              label={t('game.pitch')}
+              value={game.pitch ?? undefined}
+              min={0.1}
+              step={0.05}
+              placeholder="1"
+              disabled={readOnly}
+              onChange={(pitch) => set({ pitch: pitch ?? null }, 'pitch')}
+            />
+          </div>
+          <div className="field">
+            <span className="field-label">{t('game.faces')}</span>
+            {palette.faces.length > 0 ? (
+              <div className="world-game-faces">
+                {palette.faces.map((f) => (
+                  <label key={f.id} className="chip world-game-face" title={f.hint}>
+                    <input
+                      type="checkbox"
+                      checked={game.faces.includes(f.id)}
+                      disabled={readOnly}
+                      onChange={(e) => toggleFace(f.id, e.target.checked)}
+                    />
+                    <span>{f.name}</span>
+                  </label>
+                ))}
+                {game.faces
+                  .filter((id) => !palette.faces.some((f) => f.id === id))
+                  .map((id) => (
+                    <label key={id} className="chip world-game-face text-warning" title={t('palette.unknown', { id })}>
+                      <input type="checkbox" checked disabled={readOnly} onChange={() => toggleFace(id, false)} />
+                      <span>{id}</span>
+                    </label>
+                  ))}
+              </div>
+            ) : (
+              <input
+                className="input"
+                value={game.faces.join(', ')}
+                disabled={readOnly}
+                spellCheck={false}
+                placeholder={t('game.facesPlaceholder')}
+                aria-label={t('game.faces')}
+                onChange={(e) =>
+                  set(
+                    {
+                      faces: [
+                        ...new Set(
+                          e.target.value
+                            .split(',')
+                            .map((x) => x.trim())
+                            .filter(Boolean),
+                        ),
+                      ],
+                    },
+                    'faces',
+                  )
+                }
+              />
+            )}
+            <div className="field-hint">{t('game.facesHint')}</div>
+          </div>
+        </>
+      )}
+    </Section>
+  );
+}
 
 function OwnedVariables({ project, entity, tools }: { project: OpenProject; entity: WorldEntity; tools?: ReactNode }) {
   const { store, readOnly } = project;

@@ -10,11 +10,12 @@ import { listEntities } from '../../story/entities';
 import { graphTitle } from '../../story/flow';
 import { markLabel } from '../../story/marks';
 import { LabelsManager } from '../tasks/LabelEditor';
-import { allGraphs, asStory, findNode } from '../../story/model';
+import { allGraphs, asStory, findNode, plotMarks } from '../../story/model';
 import {
   markMentions,
   nodesUsing,
   renameEverywhere,
+  renameInCalls,
   variableUsage,
   type MarkMention,
   type Usage,
@@ -23,16 +24,19 @@ import {
   coerce,
   fullName,
   listVariables,
+  memoryOf,
   nameProblem,
   newVariable,
   VAR_TYPES,
   type Variable,
+  type VarMemory,
   type VarScope,
   type VarType,
 } from '../../story/variables';
 import { Button, IconButton, SelectField, TabPanel, Tabs, TextArea, TextField, toast } from '../components';
 import { ButterflyIcon } from '../canvas/kindIcons';
 import { useDraft } from '../useDraft';
+import { GameKeyField } from './game';
 import { ValueInput } from './ValueInput';
 
 export const VAR_TYPE_NAMES: Record<VarType, MessageKey> = {
@@ -42,6 +46,7 @@ export const VAR_TYPE_NAMES: Record<VarType, MessageKey> = {
   string: 'var.type.string',
   enum: 'var.type.enum',
   entity: 'var.type.entity',
+  list: 'var.type.list',
 };
 
 const NAME_PROBLEMS: Record<'empty' | 'invalid' | 'taken', MessageKey> = {
@@ -62,8 +67,15 @@ export function changeVariable(d: ProjectData, id: string, patch: Partial<Variab
   const next = { ...before, ...patch } as Variable;
   const oldName = fullName(before, d);
   const newName = fullName(next, d);
-  if (oldName !== newName) renameEverywhere(d, oldName, newName, before);
+  if (oldName !== newName) {
+    renameEverywhere(d, oldName, newName, before);
+    // непусто(имя) names a list variable (0.8).
+    if (before.type === 'list') renameInCalls(d, ['notEmpty'], oldName, newName);
+  }
   Object.assign(v, patch);
+  // "In the save" is what a variable without the field means; an empty name in the game is no name.
+  if (v.memory === 'world') delete v.memory;
+  if (v.key === '') delete v.key;
   if (patch.type || patch.values) {
     v.initial = coerce(v.initial, v.type, v.values ?? []);
     if (v.type === 'enum') v.values ??= [];
@@ -214,7 +226,7 @@ const NO_MENTIONS: MarkMention[] = [];
 function forgetInMarks(d: ProjectData, id: string): void {
   for (const g of allGraphs(d)) {
     for (const raw of g.nodes) {
-      for (const m of asStory(raw).marks ?? []) {
+      for (const m of plotMarks(asStory(raw))) {
         if (m.variables.includes(id)) m.variables = m.variables.filter((x) => x !== id);
       }
     }
@@ -348,17 +360,21 @@ function VariableEditor({
           options={VAR_TYPES.map((x) => ({ value: x, label: t(VAR_TYPE_NAMES[x]) }))}
           onChange={(type) => edit(t('var.step.edit'), { type })}
         />
-        <div className="field">
-          <span className="field-label">{t('var.initial')}</span>
-          <ValueInput
-            variable={v}
-            value={v.initial}
-            entities={entities}
-            disabled={readOnly}
-            label={t('var.initial')}
-            onChange={(initial) => edit(t('var.step.edit'), { initial }, 'initial')}
-          />
-        </div>
+        {v.type === 'list' ? (
+          <p className="field-hint var-list-hint">{t('var.listHint')}</p>
+        ) : (
+          <div className="field">
+            <span className="field-label">{t('var.initial')}</span>
+            <ValueInput
+              variable={v}
+              value={v.initial}
+              entities={entities}
+              disabled={readOnly}
+              label={t('var.initial')}
+              onChange={(initial) => edit(t('var.step.edit'), { initial }, 'initial')}
+            />
+          </div>
+        )}
       </div>
       {v.type === 'enum' && (
         <TextField
@@ -416,6 +432,28 @@ function VariableEditor({
         disabled={readOnly}
         onChange={(e) => edit(t('var.step.edit'), { description: e.target.value }, 'description')}
       />
+      <div className="field-row var-game">
+        <GameKeyField
+          value={v.key ?? ''}
+          title={v.name}
+          among="variables"
+          id={v.id}
+          data={() => store.getState()}
+          disabled={readOnly}
+          onChange={(key) => edit(t('gameKey.step'), { key }, 'key')}
+        />
+        <SelectField<VarMemory>
+          label={t('var.memory')}
+          hint={t('var.memoryHint')}
+          value={memoryOf(v)}
+          disabled={readOnly}
+          options={[
+            { value: 'world', label: t('var.memory.world') },
+            { value: 'game', label: t('var.memory.game') },
+          ]}
+          onChange={(memory) => edit(t('var.step.edit'), { memory })}
+        />
+      </div>
     </>
   );
 }
@@ -482,7 +520,7 @@ function WhereUsed({ project, usage, mentions }: { project: OpenProject; usage: 
           <h4 className="small muted">{t('var.butterflies', { count: mentions.length })}</h4>
           {mentions.map((m) => {
             const n = findNode(data, m);
-            const mark = n?.marks?.find((x) => x.id === m.mark);
+            const mark = plotMarks(n).find((x) => x.id === m.mark);
             return (
               <button
                 key={`${m.graph}-${m.node}-${m.mark}`}

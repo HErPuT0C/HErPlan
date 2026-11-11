@@ -1,10 +1,11 @@
-import { CircleAlert, CircleCheck, Info, TriangleAlert } from 'lucide-react';
+import { CircleAlert, CircleCheck, Info, RotateCcw, TriangleAlert, X } from 'lucide-react';
 import { useState } from 'react';
 import { useAtom, useStore } from '../../core/useStore';
 import { t, type MessageKey } from '../../i18n';
 import { openVariables } from '../../state/navigation';
 import { countBySeverity, OPEN_THREADS, type Problem, type Severity } from '../../story/checks';
 import { graphTitle } from '../../story/flow';
+import { IconButton } from '../components';
 import { storyIndex, useStory } from './context';
 import { problemText } from './messages';
 
@@ -23,10 +24,24 @@ const SHOWN_LIMIT = 300;
 
 const ICONS: Record<Severity, typeof CircleAlert> = { error: CircleAlert, warning: TriangleAlert, info: Info };
 
-/** Project checks (FR-NAR-08, FR-NAR-10), live: click a problem to go to its place. */
-export function ProblemsPanel() {
+/**
+ * Project checks (FR-NAR-08, FR-NAR-10), live: click a problem to go to its place. With `list` (0.8) it
+ * shows the result of "check the dialogue" for one conversation instead.
+ */
+export function ProblemsPanel({
+  list,
+  title,
+  onAgain,
+  onClose,
+}: {
+  list?: Problem[];
+  title?: string;
+  onAgain?: () => void;
+  onClose?: () => void;
+}) {
   const { project, show } = useStory();
-  const { problems } = useAtom(storyIndex);
+  const live = useAtom(storyIndex).problems;
+  const problems = list ?? live;
   const data = useStore(project.store, (s) => s);
   const [filter, setFilter] = useState<Filter>('all');
   const counts = countBySeverity(problems);
@@ -37,8 +52,11 @@ export function ProblemsPanel() {
   const count = (f: Filter) => (f === 'all' ? problems.length : f === 'threads' ? threads : counts[f]);
   const go = (p: Problem) => {
     if (p.variable) openVariables(p.variable);
-    else if (p.graph && p.node) show({ graph: p.graph, node: p.node });
-    else if (p.graph && p.edge) {
+    else if (p.graph && p.node) {
+      // A line or an option of the node: its row in the inspector.
+      const field = p.line ? `line:${p.line}` : p.option ? `option:${p.option}` : undefined;
+      show({ graph: p.graph, node: p.node }, field);
+    } else if (p.graph && p.edge) {
       const edge = (data.graphs[p.graph] as { edges?: { id: string; from: { node: string } }[] }).edges?.find(
         (e) => e.id === p.edge,
       );
@@ -48,7 +66,15 @@ export function ProblemsPanel() {
   return (
     <div className="problems">
       <header className="play-head">
-        <h2>{t('problems.title')}</h2>
+        <h2>{title ?? t('problems.title')}</h2>
+        {(onAgain || onClose) && (
+          <div className="play-tools">
+            {onAgain && (
+              <IconButton size="sm" label={t('check.again')} icon={<RotateCcw size={16} />} onClick={onAgain} />
+            )}
+            {onClose && <IconButton size="sm" label={t('common.close')} icon={<X size={16} />} onClick={onClose} />}
+          </div>
+        )}
       </header>
       <div className="problems-filters" role="radiogroup" aria-label={t('problems.filter')}>
         {FILTERS.map(([f, label]) => (
@@ -66,7 +92,7 @@ export function ProblemsPanel() {
       </div>
       {problems.length === 0 && (
         <p className="problems-ok">
-          <CircleCheck size={16} aria-hidden="true" /> {t('problems.none')}
+          <CircleCheck size={16} aria-hidden="true" /> {t(list ? 'check.dialogueFine' : 'problems.none')}
         </p>
       )}
       <ul className="problems-list">

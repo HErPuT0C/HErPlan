@@ -18,7 +18,7 @@ import {
   setRole,
   unlinkAllTo,
 } from './marks';
-import { findNode, graphOf, type StoryNode } from './model';
+import { plotMarks, findNode, graphOf, type StoryNode } from './model';
 import { markRowY } from './kinds';
 import { pasteChapterGraphs, chapterGraphsOf, removeLine, removeOption, updateLine } from './ops';
 import { playAct, playActions, playText, startPlay } from './play';
@@ -71,7 +71,7 @@ describe('plot marks over lines, options and words (0.3)', () => {
     const data = produce(sampleProject(), (d) => {
       updateLine(g(d, 'g-ch1'), 'a-meet', 'l2', { text: 'Ну вот. Над дверью висит старое ружьё.' });
     });
-    expect(node(data, 'g-ch1', 'a-meet').marks![0].range?.quote).toBe('старое ружьё');
+    expect(plotMarks(node(data, 'g-ch1', 'a-meet'))[0].range?.quote).toBe('старое ружьё');
     const gone = produce(data, (d) => {
       removeLine(g(d, 'g-ch1'), 'a-meet', 'l2');
       removeOption(g(d, 'g-ch2'), 'b-knight', 'o-free');
@@ -87,7 +87,7 @@ describe('plot marks over lines, options and words (0.3)', () => {
       ['gun', null, 'Ружьё на стене'],
     ]);
     const unlinked = produce(data, (d) => {
-      node(d, 'g-ch2', 'b-knight').marks![0].links = [];
+      plotMarks(node(d, 'g-ch2', 'b-knight'))[0].links = [];
     });
     const problem = checkProject(unlinked).find((p) => p.code === 'butterflyNoConsequence' && p.mark);
     expect(problem).toMatchObject({
@@ -109,7 +109,7 @@ describe('plot marks over lines, options and words (0.3)', () => {
         owner: null,
         description: '',
       });
-      node(d, 'g-ch2', 'b-knight').marks![0].variables.push('v-only-mark');
+      plotMarks(node(d, 'g-ch2', 'b-knight'))[0].variables.push('v-only-mark');
     });
     expect(markMentions(data).get('v-only-mark')).toEqual([{ graph: 'g-ch2', node: 'b-knight', mark: 'm-knight' }]);
     expect(unusedVariables(data).map((v) => v.id)).not.toContain('v-only-mark');
@@ -119,11 +119,11 @@ describe('plot marks over lines, options and words (0.3)', () => {
     const data = sampleProject();
     const meet = node(data, 'g-ch1', 'a-meet');
     const knight = node(data, 'g-ch2', 'b-knight');
-    expect(markRowY(meet, meet.marks![0])).toBe(HEADER_H + 6 + 22 + 11);
-    expect(markRowY(knight, knight.marks![0])).toBe(HEADER_H + 40 + 15);
+    expect(markRowY(meet, plotMarks(meet)[0])).toBe(HEADER_H + 6 + 22 + 11);
+    expect(markRowY(knight, plotMarks(knight)[0])).toBe(HEADER_H + 40 + 15);
     // Links to other chapters are not drawn; one in the same graph is, with its trail under the dashes.
     const local = produce(data, (d) => {
-      node(d, 'g-ch1', 'a-meet').marks![0].links = [{ graph: 'g-ch1', node: 'a-end' }];
+      plotMarks(node(d, 'g-ch1', 'a-meet'))[0].links = [{ graph: 'g-ch1', node: 'a-end' }];
     });
     const graph = g(local, 'g-ch1');
     const { links, arrows } = buildLinks({ index: new GraphIndex(graph), drag: null } as never);
@@ -144,7 +144,7 @@ describe('plot marks over lines, options and words (0.3)', () => {
         owner: null,
         description: '',
       });
-      const m = node(d, 'g-ch2', 'b-knight').marks![0];
+      const m = plotMarks(node(d, 'g-ch2', 'b-knight'))[0];
       m.links = [{ graph: 'g-ch2', node: 'b-end' }];
       m.variables = ['v-ch2'];
     });
@@ -158,7 +158,7 @@ describe('plot marks over lines, options and words (0.3)', () => {
     const knight = g(pasted, copyGraph).nodes.find(
       (n) => n.kind === 'choice' && n.title.startsWith('Рыцарь'),
     ) as StoryNode;
-    const m = knight.marks![0];
+    const m = plotMarks(knight)[0];
     expect(m.links[0].graph).toBe(copyGraph);
     expect(findNode(pasted, m.links[0])?.title).toBe('Конец главы 2');
     const copyVar = listVariables(pasted).find(
@@ -171,8 +171,8 @@ describe('plot marks over lines, options and words (0.3)', () => {
     const data = sampleProject();
     const meet = node(data, 'g-ch1', 'a-meet');
     const knight = node(data, 'g-ch2', 'b-knight');
-    expect(markLabel(meet, meet.marks![0])).toBe('старое ружьё');
-    expect(markLabel(knight, knight.marks![0])).toBe('Освободить');
+    expect(markLabel(meet, plotMarks(meet)[0])).toBe('старое ружьё');
+    expect(markLabel(knight, plotMarks(knight)[0])).toBe('Освободить');
   });
 
   it('marks are exported with their place, links and variables', () => {
@@ -297,13 +297,13 @@ describe('fixes from the review of 0.3', () => {
     const data = produce(sampleProject(), (d) => {
       const meet = node(d, 'g-ch1', 'a-meet');
       meet.lines![1].text = 'Над дверью висит {золото += 1} старое ружьё.';
-      meet.marks![0].range = { start: 31, end: 43, quote: 'старое ружьё' };
+      plotMarks(meet)[0].range = { start: 31, end: 43, quote: 'старое ружьё' };
     });
     const gold = listVariables(data).find((v) => v.name === 'золото')!;
     const renamed = produce(data, (d) => renameEverywhere(d, 'золото', 'деньги', gold));
     const meet = node(renamed, 'g-ch1', 'a-meet');
     expect(meet.lines![1].text).toBe('Над дверью висит {деньги += 1} старое ружьё.');
-    expect(meet.marks![0].range).toEqual({ start: 31, end: 43, quote: 'старое ружьё' });
+    expect(plotMarks(meet)[0].range).toEqual({ start: 31, end: 43, quote: 'старое ружьё' });
   });
 });
 

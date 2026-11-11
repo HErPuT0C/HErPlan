@@ -9,7 +9,17 @@ import { current, isDraft } from 'immer';
 import { newId } from '../core/ids';
 import type { ProjectData } from '../core/project/types';
 import { dropMarksOn, followText } from './marks';
-import { asStory, graphOf, type ChoiceOption, type DialogueLine, type NodeRef, type StoryNode } from './model';
+import {
+  asStory,
+  graphOf,
+  ownsGraph,
+  plotMarks,
+  type ChoiceOption,
+  type DialogueLine,
+  type GameAction,
+  type NodeRef,
+  type StoryNode,
+} from './model';
 
 export function storyNode(g: GraphDoc, id: string): StoryNode | undefined {
   return g.nodes.find((n) => n.id === id) as StoryNode | undefined;
@@ -50,7 +60,59 @@ export function removeLine(g: GraphDoc, nodeId: string, lineId: string): void {
   if (!n?.lines) return;
   n.lines = n.lines.filter((l) => l.id !== lineId);
   dropMarksOn(n, { kind: 'line', id: lineId });
+  g.edges = g.edges.filter((e) => !(e.from.node === nodeId && e.from.port === lineId));
   fitNode(n);
+}
+
+/** Gives a line its "interrupted" exit or takes it away, with the edges that left it (0.8). */
+export function setInterruptExit(g: GraphDoc, nodeId: string, lineId: string, on: boolean): void {
+  const line = storyNode(g, nodeId)?.lines?.find((l) => l.id === lineId);
+  if (!line) return;
+  if (on) line.interruptExit = true;
+  else {
+    delete line.interruptExit;
+    g.edges = g.edges.filter((e) => !(e.from.node === nodeId && e.from.port === lineId));
+  }
+}
+
+/** Sets optional fields of a line; undefined, blank and empty values are not kept in the file. */
+export function setLineFields(g: GraphDoc, nodeId: string, lineId: string, patch: Partial<DialogueLine>): void {
+  const line = storyNode(g, nodeId)?.lines?.find((l) => l.id === lineId);
+  if (line) assignOptional(line as unknown as Record<string, unknown>, patch as Record<string, unknown>);
+}
+
+/** Sets optional fields of an option (once, secret, actions…), dropping the empty ones. */
+export function setOptionFields(g: GraphDoc, nodeId: string, optionId: string, patch: Partial<ChoiceOption>): void {
+  const option = storyNode(g, nodeId)?.options?.find((o) => o.id === optionId);
+  if (option) assignOptional(option as unknown as Record<string, unknown>, patch as Record<string, unknown>);
+}
+
+/** Sets optional fields of a node (timer, checkpoint, store, keep, actions, when), dropping the empty ones. */
+export function setNodeFields(g: GraphDoc, nodeId: string, patch: Partial<StoryNode>): void {
+  const n = storyNode(g, nodeId);
+  if (n) assignOptional(n as unknown as Record<string, unknown>, patch as Record<string, unknown>);
+}
+
+function assignOptional(target: Record<string, unknown>, patch: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(patch)) {
+    const empty =
+      value === undefined ||
+      value === null ||
+      value === '' ||
+      value === false ||
+      (typeof value === 'number' && !Number.isFinite(value)) ||
+      (Array.isArray(value) && value.length === 0);
+    if (empty) delete target[key];
+    else target[key] = value;
+  }
+}
+
+/** The actions of a line, an option or a node, changed in place (inside a Store recipe). */
+export function editActions(holder: { actions?: GameAction[] }, change: (list: GameAction[]) => void): void {
+  const list = [...(holder.actions ?? [])];
+  change(list);
+  if (list.length) holder.actions = list;
+  else delete holder.actions;
 }
 
 /** Moves an item of a list from one index to another (lines, options). */
@@ -149,6 +211,15 @@ export function createChapterGraph(d: ProjectData, node: GraphNode, startTitle: 
   return g.id;
 }
 
+/** Gives a "set of lines" node its own graph (0.8): dialogue nodes only, nothing connects them. */
+export function createBarksGraph(d: ProjectData, node: GraphNode): string {
+  const g = emptyGraph(newId(), 'barks', node.title);
+  g.parent = { kind: 'node', id: node.id };
+  d.graphs[g.id] = g as unknown as ProjectData['graphs'][string];
+  asStory(node).graph = g.id;
+  return g.id;
+}
+
 /** The graph of a chapter node and every sub-chapter graph inside it. */
 export function chapterTree(data: ProjectData, graphId: string, out: string[] = []): string[] {
   const g = graphOf(data, graphId);
@@ -156,7 +227,7 @@ export function chapterTree(data: ProjectData, graphId: string, out: string[] = 
   out.push(graphId);
   for (const n of g.nodes) {
     const child = asStory(n).graph;
-    if (n.kind === 'chapter' && child) chapterTree(data, child, out);
+    if (ownsGraph(n) && child) chapterTree(data, child, out);
   }
   return out;
 }
@@ -165,7 +236,7 @@ export function chapterTree(data: ProjectData, graphId: string, out: string[] = 
 export function deleteChapterGraphs(d: ProjectData, nodes: readonly GraphNode[]): void {
   for (const n of nodes) {
     const child = asStory(n).graph;
-    if (n.kind !== 'chapter' || !child) continue;
+    if (!ownsGraph(n) || !child) continue;
     const g = graphOf(d, child);
     // Only the graph this node owns: a copy pasted elsewhere owns a copy of its own.
     if (g?.parent?.kind !== 'node' || g.parent.id !== n.id) continue;
@@ -178,7 +249,7 @@ export function chapterGraphsOf(data: ProjectData, nodes: readonly GraphNode[]):
   const ids: string[] = [];
   for (const n of nodes) {
     const child = asStory(n).graph;
-    if (n.kind === 'chapter' && child) chapterTree(data, child, ids);
+    if (ownsGraph(n) && child) chapterTree(data, child, ids);
   }
   return ids.map((id) => structuredClone(graphOf(data, id)!));
 }
@@ -219,7 +290,7 @@ export function pasteChapterGraphs(
   const copies: { g: GraphDoc; oldId: string; owner: GraphNode }[] = [];
   const plan = (owner: GraphNode) => {
     const child = asStory(owner).graph;
-    if (owner.kind !== 'chapter' || !child) return;
+    if (!ownsGraph(owner) || !child) return;
     const g0 = original(child);
     if (!g0 || graphIds.has(child)) {
       delete asStory(owner).graph;
@@ -281,7 +352,7 @@ export function pasteChapterGraphs(
     const s = asStory(n);
     if (s.target) s.target = remap(s.target);
     if (s.links) s.links = s.links.map(remap);
-    for (const m of s.marks ?? []) {
+    for (const m of plotMarks(s)) {
       m.links = m.links.map(remap);
       m.variables = m.variables.map((id) => varIds.get(id) ?? id);
     }

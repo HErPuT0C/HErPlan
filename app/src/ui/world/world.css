@@ -104,6 +104,13 @@
 .mention-link:hover {
   text-decoration-thickness: 2px;
 }
+/* As tall as its text, wherever it stands (0.8.0: among the fields of a tag every input has a fixed small
+   height, so a long tag description ran out of its box over what was below it). */
+.input.textarea.mention-view,
+.mention-edit > textarea.input.textarea {
+  height: auto;
+  field-sizing: content;
+}
 .mention-edit {
   position: relative;
   min-width: 0;

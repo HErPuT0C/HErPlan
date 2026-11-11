@@ -3,11 +3,11 @@
 
 import type { GraphDoc } from '../canvas/model';
 import type { ProjectData } from '../core/project/types';
-import { namesInCondition, namesInEffects, renameVariable } from './expr';
+import { callsIn, namesInCondition, namesInEffects, renameCallArg, renameVariable, type CallName } from './expr';
 import { followText } from './marks';
-import { allGraphs, asStory, OFF_FLOW } from './model';
+import { allGraphs, asStory, OFF_FLOW, plotMarks } from './model';
 import { renameInText, textPieces } from './textEffects';
-import { listVariables, registryFor, type Variable } from './variables';
+import { listsFor, listVariables, registryFor, type Variable } from './variables';
 
 export type ExprKind = 'condition' | 'effects';
 
@@ -43,7 +43,7 @@ export function graphExpressions(g: GraphDoc, known?: (name: string) => boolean)
     // Stickers are the designer's notes beside the story: nothing in them runs.
     if (OFF_FLOW.has(n.kind)) continue;
     if (n.kind === 'condition') add({ node: n.id, field: 'expr', kind: 'condition', source: n.expr ?? '' });
-    if (n.kind === 'effect' || n.kind === 'butterfly') {
+    if (n.kind === 'effect' || n.kind === 'butterfly' || n.kind === 'give') {
       add({ node: n.id, field: 'effects', kind: 'effects', source: n.effects ?? '' });
     }
     if (n.kind === 'choice') {
@@ -56,7 +56,12 @@ export function graphExpressions(g: GraphDoc, known?: (name: string) => boolean)
     }
     inText(n.text, { node: n.id, field: 'text' }, true);
     inText(n.comment, { node: n.id, field: 'comment' }, true);
-    for (const l of n.lines ?? []) inText(l.text, { node: n.id, line: l.id, field: 'line' }, false);
+    for (const l of n.lines ?? []) {
+      inText(l.text, { node: n.id, line: l.id, field: 'line' }, false);
+      // 0.8: a line can have a condition and effects of its own.
+      add({ node: n.id, line: l.id, field: 'condition', kind: 'condition', source: l.condition ?? '' });
+      add({ node: n.id, line: l.id, field: 'effects', kind: 'effects', source: l.effects ?? '' });
+    }
   }
   return out;
 }
@@ -98,11 +103,56 @@ export function variableUsage(data: ProjectData): Map<string, Usage[]> {
       const v = reg.get(name)?.variable;
       if (v) touched.set(v.id, { writes: touched.get(v.id)?.writes ?? false, reads: true });
     }
+    // непусто(список) reads a list variable (0.8).
+    const calls = callsIn(site.source, site.kind).filter((c) => c.fn === 'notEmpty');
+    if (calls.length) {
+      const lists = listsFor(data, site.graph);
+      for (const c of calls) {
+        const v = lists.get(c.arg);
+        if (v) touched.set(v.id, { writes: touched.get(v.id)?.writes ?? false, reads: true });
+      }
+    }
     for (const [id, how] of touched) {
       const list = usage.get(id);
       const entry = { site, ...how };
       if (list) list.push(entry);
       else usage.set(id, [entry]);
+    }
+  }
+  // Variables a give node writes to, and lists that actions fill or hand out (0.8).
+  const note = (id: string | null | undefined, site: ExprSite, writes: boolean) => {
+    if (!id) return;
+    const entry = { site, writes, reads: !writes };
+    const list = usage.get(id);
+    if (list) list.push(entry);
+    else usage.set(id, [entry]);
+  };
+  for (const g of allGraphs(data)) {
+    for (const raw of g.nodes ?? []) {
+      const n = asStory(raw);
+      const at = (more: Partial<ExprSite> = {}): ExprSite => ({
+        graph: g.id,
+        node: n.id,
+        field: 'effects',
+        kind: 'effects',
+        source: '',
+        ...more,
+      });
+      if (n.kind === 'give') {
+        note(n.store, at(), true);
+        note(n.keep, at(), true);
+      }
+      const holders: { actions?: { type: string; ref?: string | null }[]; site: ExprSite }[] = [
+        { actions: n.actions, site: at() },
+        ...(n.lines ?? []).map((l) => ({ actions: l.actions, site: at({ line: l.id }) })),
+        ...(n.options ?? []).map((o) => ({ actions: o.actions, site: at({ option: o.id }) })),
+      ];
+      for (const h of holders) {
+        for (const a of h.actions ?? []) {
+          if (a.type === 'list_add') note(a.ref, h.site, true);
+          if (a.type === 'give_list') note(a.ref, h.site, false);
+        }
+      }
     }
   }
   return usage;
@@ -163,11 +213,31 @@ export function renameEverywhere(draft: ProjectData, oldName: string, newName: s
         }
       }
       for (const l of n.lines ?? []) {
+        if (l.condition) l.condition = fix(l.condition);
+        if (l.effects) l.effects = fix(l.effects);
         if (!l.text) continue;
         const text = fixText(l.text, false)!;
         followText(n, { kind: 'line', id: l.id }, l.text, text);
         l.text = text;
       }
+    }
+  }
+}
+
+/**
+ * Rewrites the name inside есть(), нанят() or непусто() in every condition of the project (inside a Store
+ * recipe), when the item, the character or the list variable it names is renamed (0.8).
+ */
+export function renameInCalls(draft: ProjectData, fns: readonly CallName[], oldName: string, newName: string): void {
+  if (oldName === newName || !oldName.trim() || !newName.trim()) return;
+  const fix = (src: string | undefined) => (src ? renameCallArg(src, fns, oldName, newName) : src);
+  for (const g of allGraphs(draft)) {
+    for (const e of g.edges ?? []) if (e.condition) e.condition = fix(e.condition);
+    for (const raw of g.nodes ?? []) {
+      const n = asStory(raw);
+      if (n.expr) n.expr = fix(n.expr);
+      for (const o of n.options ?? []) if (o.condition) o.condition = fix(o.condition)!;
+      for (const l of n.lines ?? []) if (l.condition) l.condition = fix(l.condition);
     }
   }
 }
@@ -183,7 +253,7 @@ export function markMentions(data: ProjectData): Map<string, MarkMention[]> {
   const out = new Map<string, MarkMention[]>();
   for (const g of allGraphs(data)) {
     for (const raw of g.nodes) {
-      for (const m of asStory(raw).marks ?? []) {
+      for (const m of plotMarks(asStory(raw))) {
         for (const id of m.variables) {
           const entry = { graph: g.id, node: raw.id, mark: m.id };
           const list = out.get(id);

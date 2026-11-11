@@ -195,6 +195,17 @@
             "left": { "$ref": "#/$defs/expr" },
             "right": { "$ref": "#/$defs/expr" }
           }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "fn", "arg", "ref"],
+          "description": "Since 0.8: a question to the game. has: the hero has an item; hired: a companion is hired; seen: the player saw a line or chose an option; notEmpty: a list variable is not empty. `arg` is the name as written, `ref` the id it names (entity, line or option, variable), null when nothing has that name.",
+          "properties": {
+            "kind": { "const": "call" },
+            "fn": { "enum": ["has", "hired", "seen", "notEmpty"] },
+            "arg": { "type": "string" },
+            "ref": { "type": ["string", "null"] }
+          }
         }
       ]
     },
@@ -253,7 +264,7 @@
           "description": "As written in expressions: Owner.name for a variable of a world card."
         },
         "type": {
-          "enum": ["bool", "int", "float", "string", "enum", "entity"]
+          "enum": ["bool", "int", "float", "string", "enum", "entity", "list"]
         },
         "initial": { "type": ["boolean", "number", "string", "null"] },
         "scope": {
@@ -268,7 +279,15 @@
         },
         "owner": { "type": ["string", "null"] },
         "values": { "type": ["array", "null"], "items": { "type": "string" } },
-        "description": { "type": "string" }
+        "description": { "type": "string" },
+        "key": {
+          "type": "string",
+          "description": "Since 0.8: the name in the game, present when it has one."
+        },
+        "memory": {
+          "enum": ["world", "game"],
+          "description": "Since 0.8: where the game keeps the variable: in the save (world) or outside saves (game)."
+        }
       }
     },
     "entity": {
@@ -314,6 +333,27 @@
               "description": { "type": "string" }
             }
           }
+        },
+        "key": {
+          "type": "string",
+          "description": "Since 0.8, like the fields below, present only when set: the name in the game."
+        },
+        "bubble": {
+          "type": "string",
+          "description": "Character: the shape of the speech bubble (palette id)."
+        },
+        "voice": {
+          "type": "string",
+          "description": "Character: the voice (palette id)."
+        },
+        "pitch": {
+          "type": "number",
+          "description": "Character: the pitch of the voice, 1 as recorded."
+        },
+        "faces": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Character: the faces drawn for them (palette ids)."
         }
       }
     },
@@ -325,7 +365,7 @@
         "from": { "type": "string" },
         "fromPort": {
           "type": "string",
-          "description": "Option id for a choice, yes/no for a condition, a side otherwise."
+          "description": "Option id for a choice, yes/no for a condition, a side otherwise. Since 0.8: a line id for the exit of an interrupted line, given/cancel/empty for a give node."
         },
         "to": { "type": "string" },
         "label": { "type": ["string", "null"] },
@@ -353,7 +393,9 @@
             "character",
             "location",
             "item",
-            "node"
+            "node",
+            "give",
+            "barks"
           ]
         },
         "title": { "type": "string" },
@@ -362,7 +404,10 @@
         "y": { "type": "number" },
         "comment": { "type": "string" },
         "plotRole": { "enum": ["consequence", "payoff"] },
-        "plotRoles": { "type": "array", "items": { "enum": ["consequence", "payoff"] } },
+        "plotRoles": {
+          "type": "array",
+          "items": { "enum": ["consequence", "payoff"] }
+        },
         "lines": {
           "type": "array",
           "items": {
@@ -371,7 +416,34 @@
             "properties": {
               "id": { "type": "string" },
               "speaker": { "type": ["string", "null"] },
-              "text": { "type": "string" }
+              "text": { "type": "string" },
+              "style": {
+                "type": "string",
+                "description": "Since 0.8, like the fields below, present only when set: the style of the whole line (palette id)."
+              },
+              "face": {
+                "type": "string",
+                "description": "The face the speaker's sprite takes (palette id)."
+              },
+              "gesture": { "$ref": "#/$defs/toward" },
+              "emote": { "$ref": "#/$defs/toward" },
+              "auto": {
+                "type": "number",
+                "description": "Seconds until the line goes on by itself; absent: waits for a press."
+              },
+              "interrupt": {
+                "type": "number",
+                "description": "Seconds the line can be interrupted for; absent: as the game decides, 0: cannot be interrupted."
+              },
+              "condition": {
+                "$ref": "#/$defs/condition",
+                "description": "The line is shown only when this holds."
+              },
+              "effects": {
+                "$ref": "#/$defs/effects",
+                "description": "Applied after the line."
+              },
+              "actions": { "$ref": "#/$defs/actions" }
             }
           }
         },
@@ -392,7 +464,16 @@
               "textEffects": {
                 "$ref": "#/$defs/effects",
                 "description": "Since 0.3: effects written in the option's text (in braces) and its comment, applied after `effects` when the option is chosen."
-              }
+              },
+              "secret": {
+                "type": "boolean",
+                "description": "Since 0.8: not shown to the player, taken when the choice's time runs out."
+              },
+              "once": {
+                "type": "boolean",
+                "description": "Since 0.8: shown once, gone after it was chosen."
+              },
+              "actions": { "$ref": "#/$defs/actions" }
             }
           }
         },
@@ -402,23 +483,15 @@
         },
         "marks": {
           "type": "array",
-          "description": "Since 0.3: plot devices laid over the node, an option or a line, or words of their text.",
+          "description": "Since 0.3: plot devices laid over the node, an option or a line, or words of their text. Since 0.8 also the game's marks on dialogue lines: `style` (how words look; `props`) and `cue` (something at a point of the line: `range.start` = `range.end`; `props`); these have `props` instead of links, note and variables.",
           "items": {
             "type": "object",
-            "required": [
-              "id",
-              "device",
-              "anchor",
-              "range",
-              "links",
-              "note",
-              "variables"
-            ],
+            "required": ["id", "device", "anchor", "range"],
             "properties": {
               "id": { "type": "string" },
               "device": {
                 "type": "string",
-                "description": "gun or butterfly; more devices may follow."
+                "description": "gun or butterfly (plot devices); since 0.8 style or cue (the game's marks)."
               },
               "anchor": {
                 "type": "object",
@@ -447,7 +520,50 @@
                 "items": { "$ref": "#/$defs/nodeRef" }
               },
               "note": { "type": "string" },
-              "variables": { "type": "array", "items": { "type": "string" } }
+              "variables": { "type": "array", "items": { "type": "string" } },
+              "props": {
+                "type": "object",
+                "description": "Since 0.8. style: style, color (#rrggbb), size, bold, effect, speed (times faster), reveal. cue: exactly one of pause (seconds), shake (strength), sound, gesture, emote, face; gesture and emote are a palette id or {id, to}.",
+                "properties": {
+                  "style": { "type": "string" },
+                  "color": { "type": "string" },
+                  "size": { "type": "string" },
+                  "bold": { "type": "boolean" },
+                  "effect": { "type": "string" },
+                  "speed": { "type": "number" },
+                  "reveal": { "type": "string" },
+                  "pause": { "type": "number" },
+                  "shake": { "type": "number" },
+                  "sound": { "type": "string" },
+                  "face": { "type": "string" },
+                  "gesture": {
+                    "oneOf": [
+                      { "type": "string" },
+                      {
+                        "type": "object",
+                        "required": ["id"],
+                        "properties": {
+                          "id": { "type": "string" },
+                          "to": { "type": ["string", "null"] }
+                        }
+                      }
+                    ]
+                  },
+                  "emote": {
+                    "oneOf": [
+                      { "type": "string" },
+                      {
+                        "type": "object",
+                        "required": ["id"],
+                        "properties": {
+                          "id": { "type": "string" },
+                          "to": { "type": ["string", "null"] }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
             }
           }
         },
@@ -461,9 +577,33 @@
         "target": {
           "oneOf": [{ "$ref": "#/$defs/nodeRef" }, { "type": "null" }]
         },
-        "graph": { "type": ["string", "null"] },
+        "graph": {
+          "type": ["string", "null"],
+          "description": "Since 0.8 also the graph of a set of lines (barks)."
+        },
         "image": { "type": ["string", "null"] },
-        "entity": { "type": ["string", "null"] }
+        "entity": { "type": ["string", "null"] },
+        "timer": {
+          "type": "number",
+          "description": "Since 0.8, choice: seconds to choose; absent: no timer. When it runs out the game takes the option the player is on (or the secret one)."
+        },
+        "checkpoint": {
+          "type": "boolean",
+          "description": "Since 0.8, choice: the game saves before it."
+        },
+        "actions": { "$ref": "#/$defs/actions" },
+        "store": {
+          "type": ["string", "null"],
+          "description": "Since 0.8, give: the variable that gets what was given (id)."
+        },
+        "keep": {
+          "type": ["string", "null"],
+          "description": "Since 0.8, give: the list variable what was given is added to (id)."
+        },
+        "when": {
+          "type": "string",
+          "description": "Since 0.8, a dialogue node of a set of lines (barks): when the game says them."
+        }
       }
     },
     "graph": {
@@ -471,14 +611,65 @@
       "required": ["id", "kind", "name", "parent", "start", "nodes", "edges"],
       "properties": {
         "id": { "type": "string" },
-        "kind": { "enum": ["story", "chapter"] },
+        "kind": { "enum": ["story", "chapter", "barks"] },
         "name": { "type": "string" },
         "parent": {
           "oneOf": [{ "$ref": "#/$defs/nodeRef" }, { "type": "null" }]
         },
         "start": { "type": ["string", "null"] },
         "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
-        "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" } }
+        "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" } },
+        "key": {
+          "type": "string",
+          "description": "Since 0.8: the name of the conversation in the game, present when it has one."
+        }
+      }
+    },
+    "toward": {
+      "type": "object",
+      "required": ["id", "to"],
+      "properties": {
+        "id": { "type": "string" },
+        "to": {
+          "type": ["string", "null"],
+          "description": "The entity it is aimed at, or null."
+        }
+      },
+      "description": "Since 0.8: a gesture or an emote (palette id), optionally aimed at another participant."
+    },
+    "actions": {
+      "type": "array",
+      "description": "Since 0.8: what the game does besides changing variables.",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "enum": [
+              "give_item",
+              "take_item",
+              "hire",
+              "dismiss",
+              "list_add",
+              "give_list",
+              "save",
+              "event",
+              "start_quest"
+            ]
+          },
+          "ref": {
+            "type": "string",
+            "description": "give_item, take_item: an item; hire, dismiss: a character; list_add, give_list: a list variable (ids)."
+          },
+          "item": {
+            "type": "string",
+            "description": "list_add: the item put on the list (entity id)."
+          },
+          "value": {
+            "type": "string",
+            "description": "list_add: a value of its own; event, start_quest: the key the game knows."
+          }
+        }
       }
     }
   }

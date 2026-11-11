@@ -6,6 +6,12 @@
 // Keywords have English and Russian spellings (and/и, or/или, not/не, true/истина, false/ложь); the tree
 // is language-neutral, so exporters see one form. Errors carry a code and a position: the interface turns
 // the code into a sentence in the current language and underlines the place.
+//
+// Since 0.8 a condition can also ask the game four things, by the names of the database:
+//   есть(кольцо)        has(ring)         the hero has the item
+//   нанят(Тень)         hired(Shadow)     the companion is hired
+//   видел(<id>)         seen(<id>)        the player saw a line or chose an option (its id)
+//   непусто(подношения) notempty(gifts)   a list variable is not empty
 
 export type ValueType = 'bool' | 'number' | 'string';
 export type Value = boolean | number | string;
@@ -13,8 +19,32 @@ export type Value = boolean | number | string;
 export type Expr =
   | { kind: 'literal'; value: Value; pos: number }
   | { kind: 'var'; name: string; pos: number }
+  | { kind: 'call'; fn: CallName; arg: string; pos: number; len: number }
   | { kind: 'unary'; op: 'not' | 'neg'; arg: Expr; pos: number }
   | { kind: 'binary'; op: BinaryOp; left: Expr; right: Expr; pos: number };
+
+/** What a condition can ask the game (0.8). */
+export type CallName = 'has' | 'hired' | 'seen' | 'notEmpty';
+
+const CALLS: Record<string, CallName> = {
+  есть: 'has',
+  has: 'has',
+  нанят: 'hired',
+  нанята: 'hired',
+  hired: 'hired',
+  видел: 'seen',
+  seen: 'seen',
+  непусто: 'notEmpty',
+  notempty: 'notEmpty',
+};
+
+/** How each question is written in Russian and in English, for menus and hints. */
+export const CALL_WORDS: Record<CallName, { ru: string; en: string }> = {
+  has: { ru: 'есть', en: 'has' },
+  hired: { ru: 'нанят', en: 'hired' },
+  seen: { ru: 'видел', en: 'seen' },
+  notEmpty: { ru: 'непусто', en: 'notempty' },
+};
 
 export type BinaryOp = 'or' | 'and' | '==' | '!=' | '<' | '<=' | '>' | '>=' | '+' | '-' | '*' | '/' | '%';
 export type EffectOp = '=' | '+=' | '-=';
@@ -47,7 +77,12 @@ export type DiagnosticCode =
   | 'conditionNotBool'
   | 'effectNumbersOnly'
   | 'assignType'
-  | 'notInList';
+  | 'notInList'
+  | 'callEmpty'
+  | 'unknownItem'
+  | 'unknownCharacter'
+  | 'unknownLine'
+  | 'unknownListVar';
 
 export interface Diagnostic {
   code: DiagnosticCode;
@@ -70,7 +105,7 @@ const fail = (code: DiagnosticCode, from: number, to: number, params: Record<str
 
 // ---------- lexer ----------
 
-type TokenKind = 'num' | 'str' | 'bool' | 'ident' | 'op' | 'eof';
+type TokenKind = 'num' | 'str' | 'bool' | 'ident' | 'call' | 'op' | 'eof';
 export interface Token {
   kind: TokenKind;
   text: string;
@@ -161,6 +196,22 @@ export function lex(src: string): Token[] {
       // Dotted names address variables owned by an entity: Мира.доверие
       while (j < src.length && (IDENT_PART.test(src[j]) || (src[j] === '.' && IDENT_START.test(src[j + 1] ?? '')))) j++;
       const text = src.slice(i, j);
+      // есть(кольцо): the name inside is taken as written, spaces and all, up to the bracket.
+      const fn = CALLS[text.toLowerCase()];
+      const open = fn ? /^[ \t]*\(/.exec(src.slice(j)) : null;
+      if (fn && open) {
+        const from = j + open[0].length;
+        const close = src.indexOf(')', from);
+        if (close < 0 || src.slice(from, close).includes('\n')) fail('missingParen', i, src.length);
+        const arg = src
+          .slice(from, close)
+          .trim()
+          .replace(/^(["'«])(.*)(["'»])$/, '$2')
+          .trim();
+        tokens.push({ kind: 'call', text: fn, value: arg, pos: i, len: close + 1 - i });
+        i = close + 1;
+        continue;
+      }
       const kw = KEYWORDS[text.toLowerCase()];
       if (kw?.kind === 'bool') tokens.push({ kind: 'bool', text, value: kw.norm as boolean, pos: i, len: j - i });
       else if (kw) tokens.push({ kind: 'op', text: kw.norm as string, pos: i, len: j - i });
@@ -251,6 +302,10 @@ class Parser {
     if (t.kind === 'num' || t.kind === 'str' || t.kind === 'bool')
       return { kind: 'literal', value: t.value!, pos: t.pos };
     if (t.kind === 'ident') return { kind: 'var', name: t.text, pos: t.pos };
+    if (t.kind === 'call') {
+      if (!t.value) this.failAt(t, 'callEmpty');
+      return { kind: 'call', fn: t.text as CallName, arg: String(t.value), pos: t.pos, len: t.len };
+    }
     if (t.kind === 'op' && t.text === '(') {
       const e = this.expression();
       const close = this.next();
@@ -308,6 +363,19 @@ export interface RegistryEntry {
 /** Variable names visible in one place (a graph), with their types. Keys are names as written. */
 export type Registry = ReadonlyMap<string, RegistryEntry>;
 
+/**
+ * What есть(), нанят(), видел() and непусто() may name: is there such an item, character, line or option,
+ * list variable. Without it the names are not checked.
+ */
+export type CallWorld = (fn: CallName, arg: string) => boolean;
+
+const CALL_PROBLEM: Record<CallName, DiagnosticCode> = {
+  has: 'unknownItem',
+  hired: 'unknownCharacter',
+  seen: 'unknownLine',
+  notEmpty: 'unknownListVar',
+};
+
 function distance(a: string, b: string): number {
   const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array<number>(b.length).fill(0)]);
   for (let j = 1; j <= b.length; j++) d[0][j] = j;
@@ -348,24 +416,27 @@ function checkListValue(a: Expr, b: Expr, registry: Registry): void {
   }
 }
 
-export function typeOf(e: Expr, registry: Registry): ValueType {
+export function typeOf(e: Expr, registry: Registry, world?: CallWorld): ValueType {
   switch (e.kind) {
     case 'literal':
       return typeof e.value === 'boolean' ? 'bool' : typeof e.value === 'number' ? 'number' : 'string';
+    case 'call':
+      if (world && !world(e.fn, e.arg)) fail(CALL_PROBLEM[e.fn], e.pos, e.pos + e.len, { name: e.arg });
+      return 'bool';
     case 'var': {
       const v = registry.get(e.name);
       if (!v) return unknown(e.name, e.pos, registry);
       return v.type;
     }
     case 'unary': {
-      const t = typeOf(e.arg, registry);
+      const t = typeOf(e.arg, registry, world);
       const want: ValueType = e.op === 'not' ? 'bool' : 'number';
       if (t !== want) fail(e.op === 'not' ? 'notNeedsBool' : 'negNeedsNumber', e.pos, e.pos + 1, { type: t });
       return want;
     }
     case 'binary': {
-      const l = typeOf(e.left, registry);
-      const r = typeOf(e.right, registry);
+      const l = typeOf(e.left, registry, world);
+      const r = typeOf(e.right, registry, world);
       const from = e.pos;
       const to = e.pos + (e.op === 'and' || e.op === 'or' ? 2 : e.op.length);
       if (e.op === 'and' || e.op === 'or') {
@@ -386,10 +457,10 @@ export function typeOf(e: Expr, registry: Registry): ValueType {
 }
 
 /** Null when the condition is fine (or blank: no condition), else the first problem. */
-export function checkCondition(src: string, registry: Registry): Diagnostic | null {
+export function checkCondition(src: string, registry: Registry, world?: CallWorld): Diagnostic | null {
   if (isBlank(src)) return null;
   try {
-    const t = typeOf(parseCondition(src), registry);
+    const t = typeOf(parseCondition(src), registry, world);
     if (t !== 'bool') return { code: 'conditionNotBool', params: { type: t }, from: 0, to: src.length };
     return null;
   } catch (err) {
@@ -398,14 +469,14 @@ export function checkCondition(src: string, registry: Registry): Diagnostic | nu
   }
 }
 
-export function checkEffects(src: string, registry: Registry): Diagnostic | null {
+export function checkEffects(src: string, registry: Registry, world?: CallWorld): Diagnostic | null {
   if (isBlank(src)) return null;
   try {
     for (const eff of parseEffects(src)) {
       const target = registry.get(eff.target);
       if (!target) unknown(eff.target, eff.pos, registry);
       const to = eff.pos + eff.target.length;
-      const t = typeOf(eff.value, registry);
+      const t = typeOf(eff.value, registry, world);
       if (eff.op !== '=' && target!.type !== 'number') {
         fail('effectNumbersOnly', eff.pos, to, { op: eff.op, name: eff.target, type: target!.type });
       }
@@ -443,6 +514,53 @@ export function namesInEffects(src: string): { writes: string[]; reads: string[]
   } catch {
     return { writes: [], reads: [] };
   }
+}
+
+/** The questions to the game a condition or an effect list asks (empty when it does not parse). */
+export function callsIn(
+  src: string | undefined,
+  kind: 'condition' | 'effects' = 'condition',
+): { fn: CallName; arg: string }[] {
+  if (isBlank(src)) return [];
+  const out: { fn: CallName; arg: string }[] = [];
+  const walk = (e: Expr) => {
+    if (e.kind === 'call') out.push({ fn: e.fn, arg: e.arg });
+    else if (e.kind === 'unary') walk(e.arg);
+    else if (e.kind === 'binary') {
+      walk(e.left);
+      walk(e.right);
+    }
+  };
+  try {
+    if (kind === 'condition') walk(parseCondition(src!));
+    else for (const eff of parseEffects(src!)) walk(eff.value);
+  } catch {
+    return [];
+  }
+  return out;
+}
+
+/**
+ * The source with the name inside есть(), нанят()… changed: `fns` are the questions the old name belongs to.
+ * Returns the source unchanged when it does not split into tokens.
+ */
+export function renameCallArg(src: string, fns: readonly CallName[], from: string, to: string): string {
+  let tokens: Token[];
+  try {
+    tokens = lex(src);
+  } catch {
+    return src;
+  }
+  let out = '';
+  let last = 0;
+  for (const t of tokens) {
+    if (t.kind !== 'call' || t.value !== from || !fns.includes(t.text as CallName)) continue;
+    const text = src.slice(t.pos, t.pos + t.len);
+    const open = text.indexOf('(');
+    out += `${src.slice(last, t.pos)}${text.slice(0, open + 1)}${to})`;
+    last = t.pos + t.len;
+  }
+  return out + src.slice(last);
 }
 
 function collect(e: Expr, out: string[] = []): string[] {
@@ -483,22 +601,24 @@ export function renameVariable(src: string, from: string, to: string): string {
 export type State = Map<string, Value>;
 
 /** Division by zero gives 0 instead of an error: a playthrough must not stop on designer data (ADR-005). */
-export function evaluate(e: Expr, state: State): Value {
+export function evaluate(e: Expr, state: State, world?: CallWorld): Value {
   switch (e.kind) {
     case 'literal':
       return e.value;
+    case 'call':
+      return world ? world(e.fn, e.arg) : false;
     case 'var': {
       const v = state.get(e.name);
       if (v === undefined) throw new Error(`variable ${e.name} has no value`);
       return v;
     }
     case 'unary':
-      return e.op === 'not' ? !evaluate(e.arg, state) : -(evaluate(e.arg, state) as number);
+      return e.op === 'not' ? !evaluate(e.arg, state, world) : -(evaluate(e.arg, state, world) as number);
     case 'binary': {
-      if (e.op === 'and') return Boolean(evaluate(e.left, state)) && Boolean(evaluate(e.right, state));
-      if (e.op === 'or') return Boolean(evaluate(e.left, state)) || Boolean(evaluate(e.right, state));
-      const l = evaluate(e.left, state);
-      const r = evaluate(e.right, state);
+      if (e.op === 'and') return Boolean(evaluate(e.left, state, world)) && Boolean(evaluate(e.right, state, world));
+      if (e.op === 'or') return Boolean(evaluate(e.left, state, world)) || Boolean(evaluate(e.right, state, world));
+      const l = evaluate(e.left, state, world);
+      const r = evaluate(e.right, state, world);
       switch (e.op) {
         case '==':
           return l === r;
@@ -539,11 +659,12 @@ export function applyEffects(
   effects: Effect[],
   state: State,
   whole: (name: string) => boolean = () => false,
+  world?: CallWorld,
 ): Change[] {
   const changes: Change[] = [];
   for (const eff of effects) {
     const before = state.get(eff.target);
-    const value = evaluate(eff.value, state);
+    const value = evaluate(eff.value, state, world);
     let after: Value = eff.op === '=' ? value : (before as number) + (eff.op === '+=' ? 1 : -1) * (value as number);
     if (typeof after === 'number' && whole(eff.target)) after = Math.trunc(after);
     state.set(eff.target, after);
@@ -554,5 +675,7 @@ export function applyEffects(
 
 /** The tree without source positions, as exported (docs/format/export-v1.md). */
 export function stripPositions<T>(tree: T): T {
-  return JSON.parse(JSON.stringify(tree, (key, value: unknown) => (key === 'pos' ? undefined : value))) as T;
+  return JSON.parse(
+    JSON.stringify(tree, (key, value: unknown) => (key === 'pos' || key === 'len' ? undefined : value)),
+  ) as T;
 }

@@ -4,9 +4,11 @@ import {
   ArrowUp,
   ArrowUpRight,
   BookOpen,
+  ClipboardCopy,
   ImagePlus,
+  ListChecks,
+  MessagesSquare,
   Plus,
-  Sparkles,
   Trash,
   X,
 } from 'lucide-react';
@@ -17,13 +19,12 @@ import type { GraphDoc, GraphEdge } from '../../canvas/model';
 import { setNodeProps } from '../../canvas/ops';
 import type { ProjectData } from '../../core/project/types';
 import { useAtom, useStore } from '../../core/useStore';
-import { t, type MessageKey } from '../../i18n';
+import { getLocale, t, type MessageKey } from '../../i18n';
 import { platform } from '../../platform';
 import { openEntity } from '../../state/navigation';
-import { listEntities, newEntity, type WorldEntity } from '../../story/entities';
+import { listEntities, newEntity } from '../../story/entities';
 import { graphTitle, refKey } from '../../story/flow';
 import {
-  addMark,
   allSources,
   deviceOf,
   linkMark,
@@ -41,10 +42,9 @@ import {
   asStory,
   findNode,
   graphOf,
-  type DialogueLine,
+  plotMarks,
   type MarkAnchor,
   type NodeRef,
-  type PlotDevice,
   type PlotMark,
   type PlotRole as Role,
   type StoryNode,
@@ -54,19 +54,23 @@ import {
   addLine,
   addLink,
   addOption,
-  moveLine,
+  editActions,
   moveOption,
-  removeLine,
   removeLink,
   removeOption,
   setExpanded,
+  setNodeFields,
   setNodeText,
+  setOptionFields,
   storyNode,
-  updateLine,
   updateOption,
 } from '../../story/ops';
 import { knownNames } from '../../story/usage';
 import { fullName, registryFor } from '../../story/variables';
+import { graphKey } from '../../story/gameKey';
+import { gameFiles } from '../../state/gameFiles';
+import { graphTransfer, nodeTransfer } from '../../story/transfer';
+import { listVariables } from '../../story/variables';
 import {
   Button,
   IconButton,
@@ -84,8 +88,12 @@ import { PromptDialog, type PromptRequest } from '../canvas/PromptDialog';
 import { IMAGE_FILTERS } from '../start/filters';
 import { useStory } from './context';
 import { ExpressionField } from './ExpressionField';
+import { ActionsEditor, GameKeyField, NumberBlank } from './game';
+import { LineRow } from './LineEditor';
 import { MarkedTextArea, textHighlights, useTextMenu } from './MarkedText';
 import { NodePicker } from './NodePicker';
+import { DeviceMenu, useAddDevice } from './plotTools';
+import { TransferBadge } from './TransferBadge';
 
 export interface InspectFocus {
   node: string;
@@ -144,7 +152,7 @@ function Section({ title, children, field }: { title: string; children: ReactNod
 }
 
 function NodeInspector({ node }: { node: StoryNode }) {
-  const { project, edit, openChapter } = useStory();
+  const { project, graphId, edit, openChapter, task } = useStory();
   const readOnly = project.readOnly;
   const kind = kindOf(node.kind);
   const set = (key: string, props: Partial<StoryNode>, label = t('story.step.edit')) =>
@@ -157,7 +165,11 @@ function NodeInspector({ node }: { node: StoryNode }) {
         : node.kind === 'chapter'
           ? t('story.inspector.description')
           : t('story.inspector.text');
-  const hasText = !['start', 'condition', 'effect', 'jump', 'dialogue'].includes(node.kind);
+  const hasText = !['start', 'condition', 'effect', 'jump', 'dialogue', 'give'].includes(node.kind);
+  const { status } = useAtom(gameFiles);
+  // The name is a plain value (a selector must not make a new object on every call); the status follows it.
+  const named = useStore(project.store, (s) => !!graphKey(graphOf(s, graphId)));
+  const transfer = named ? nodeTransfer(node, status[graphId]) : null;
 
   return (
     <>
@@ -166,9 +178,11 @@ function NodeInspector({ node }: { node: StoryNode }) {
           <KindIcon kind={node.kind} size={14} />
         </span>
         <span>{t(kind.label)}</span>
+        {transfer && <TransferBadge state={transfer.state} problems={transfer.problems.map((p) => p.text)} />}
       </header>
       <TextField
-        label={t('story.inspector.title')}
+        label={t(node.kind === 'give' ? 'give.title' : 'story.inspector.title')}
+        hint={node.kind === 'give' ? t('give.titleHint') : undefined}
         value={node.title}
         disabled={readOnly}
         data-field="title"
@@ -179,6 +193,24 @@ function NodeInspector({ node }: { node: StoryNode }) {
         <Button icon={<BookOpen size={16} />} onClick={() => openChapter(node.id)}>
           {t('story.chapter.open')}
         </Button>
+      )}
+      {node.kind === 'barks' && (
+        <>
+          <Button icon={<MessagesSquare size={16} />} onClick={() => openChapter(node.id)}>
+            {t('barks.open')}
+          </Button>
+          <p className="muted small">{t('barks.hint')}</p>
+        </>
+      )}
+      {node.kind === 'dialogue' && node.when !== undefined && (
+        <TextField
+          label={t('barks.when')}
+          hint={t('barks.whenHint')}
+          value={node.when}
+          disabled={readOnly}
+          data-field="when"
+          onChange={(e) => set('when', { when: e.target.value })}
+        />
       )}
       {hasText && <NodeText node={node} label={textLabel} />}
       {node.kind === 'dialogue' && <DialogueSection node={node} />}
@@ -196,9 +228,10 @@ function NodeInspector({ node }: { node: StoryNode }) {
           <p className="muted small">{t('story.condition.hint')}</p>
         </>
       )}
-      {(node.kind === 'effect' || node.kind === 'butterfly') && (
+      {node.kind === 'give' && <GiveSection node={node} />}
+      {(node.kind === 'effect' || node.kind === 'butterfly' || node.kind === 'give') && (
         <ExpressionField
-          label={t('story.effects')}
+          label={t(node.kind === 'give' ? 'give.effects' : 'story.effects')}
           kind="effects"
           field="effects"
           value={node.effects ?? ''}
@@ -206,6 +239,7 @@ function NodeInspector({ node }: { node: StoryNode }) {
           onChange={(effects) => set('effects', { effects }, t('story.step.effects'))}
         />
       )}
+      {(node.kind === 'effect' || node.kind === 'give') && <NodeActions node={node} />}
       {node.kind === 'butterfly' && (
         <LinksSection node={node} title={t('story.consequences')} add={t('story.consequences.add')} />
       )}
@@ -215,7 +249,9 @@ function NodeInspector({ node }: { node: StoryNode }) {
       {(node.kind === 'character' || node.kind === 'location' || node.kind === 'item') && (
         <RefSection node={node} kind={node.kind} />
       )}
-      {!['gun', 'butterfly', 'start'].includes(node.kind) && <MarksSection node={node} />}
+      {!['gun', 'butterfly', 'start', 'barks'].includes(node.kind) && node.when === undefined && (
+        <MarksSection node={node} />
+      )}
       <NoteField
         label={t('canvas.comment')}
         field="comment"
@@ -224,7 +260,74 @@ function NodeInspector({ node }: { node: StoryNode }) {
         onChange={(comment) => set('comment', { comment }, t('canvas.step.comment'))}
       />
       <p className="muted small">{t('story.textEffects.hint')}</p>
+      {['dialogue', 'choice', 'give'].includes(node.kind) && (
+        <button type="button" className="entity-link small" onClick={() => task({ node: node.id })}>
+          <ClipboardCopy size={12} /> {t('task.node')}
+        </button>
+      )}
     </>
+  );
+}
+
+/** Game actions of an effect or give node (0.8). */
+function NodeActions({ node }: { node: StoryNode }) {
+  const { project, edit } = useStory();
+  const data = useStore(project.store, (s) => s);
+  return (
+    <Section title={t('action.title')} field="actions">
+      <ActionsEditor
+        actions={node.actions}
+        data={data}
+        disabled={project.readOnly}
+        onChange={(actions) =>
+          edit(t('action.step'), (g) => {
+            const n = storyNode(g, node.id);
+            if (n) editActions(n, (list) => list.splice(0, list.length, ...actions));
+          })
+        }
+      />
+    </Section>
+  );
+}
+
+/** "Give an item" (0.8): where the game writes what was given. */
+function GiveSection({ node }: { node: StoryNode }) {
+  const { project, edit } = useStory();
+  const variables = useStore(project.store, (s) => s.variables);
+  const all = listVariables({ variables } as ProjectData);
+  const pick = (key: 'store' | 'keep', label: string, hint: string, list: typeof all) => {
+    const value = node[key] ?? '';
+    return (
+      <SelectField
+        label={label}
+        hint={hint}
+        value={value}
+        disabled={project.readOnly}
+        options={[
+          { value: '', label: t('give.none') },
+          ...list.map((v) => ({ value: v.id, label: v.name })),
+          ...(value && !list.some((v) => v.id === value) ? [{ value, label: t('plot.variableGone') }] : []),
+        ]}
+        onChange={(id) => edit(t('story.step.edit'), (g) => setNodeFields(g, node.id, { [key]: id || null }))}
+      />
+    );
+  };
+  return (
+    <div data-field="give">
+      {pick(
+        'store',
+        t('give.store'),
+        t('give.storeHint'),
+        all.filter((v) => v.type === 'entity' || v.type === 'string'),
+      )}
+      {pick(
+        'keep',
+        t('give.keep'),
+        t('give.keepHint'),
+        all.filter((v) => v.type === 'list'),
+      )}
+      <p className="muted small">{t('give.exits')}</p>
+    </div>
   );
 }
 
@@ -283,102 +386,6 @@ function DialogueSection({ node }: { node: StoryNode }) {
   );
 }
 
-function LineRow({
-  line,
-  index,
-  last,
-  node,
-  maxChars,
-  characters,
-  entities,
-  readOnly,
-}: {
-  line: DialogueLine;
-  index: number;
-  last: boolean;
-  node: StoryNode;
-  maxChars: number;
-  characters: WorldEntity[];
-  entities: ProjectData['entities'];
-  readOnly: boolean;
-}) {
-  const { edit } = useStory();
-  const nodeId = node.id;
-  const anchor: MarkAnchor = { kind: 'line', id: line.id };
-  const addDevice = useAddDevice(node.id);
-  const menu = useTextMenu({ readOnly, onDevice: (device, sel) => addDevice(device, anchor, sel) });
-  const chars = [...line.text].length;
-  const unknownSpeaker = line.speaker && !entities[line.speaker];
-  return (
-    <div className="iline" data-line={line.id}>
-      <div className="iline-head">
-        <select
-          className="input iline-speaker"
-          value={line.speaker ?? ''}
-          disabled={readOnly}
-          aria-label={t('story.lines.speaker')}
-          onChange={(e) =>
-            edit(t('story.step.lines'), (g) => updateLine(g, nodeId, line.id, { speaker: e.target.value || null }))
-          }
-        >
-          <option value="">{t('story.narrator')}</option>
-          {characters.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name || t('story.untitled')}
-            </option>
-          ))}
-          {unknownSpeaker && <option value={line.speaker!}>{t('story.lines.deletedSpeaker')}</option>}
-        </select>
-        <span className={['small', chars > maxChars ? 'text-warning' : 'muted'].join(' ')}>
-          {t('story.lines.chars', { count: chars, max: maxChars })}
-        </span>
-        {!readOnly && (
-          <span className="iline-tools">
-            <IconButton
-              size="sm"
-              label={t('story.up')}
-              icon={<ArrowUp size={14} />}
-              disabled={index === 0}
-              onClick={() => edit(t('story.step.lines'), (g) => moveLine(g, nodeId, index, index - 1))}
-            />
-            <IconButton
-              size="sm"
-              label={t('story.down')}
-              icon={<ArrowDown size={14} />}
-              disabled={last}
-              onClick={() => edit(t('story.step.lines'), (g) => moveLine(g, nodeId, index, index + 1))}
-            />
-            <DeviceMenu onDevice={(device) => addDevice(device, anchor)} />
-            <IconButton
-              size="sm"
-              label={t('story.lines.remove')}
-              icon={<Trash size={14} />}
-              onClick={() => edit(t('story.step.lines'), (g) => removeLine(g, nodeId, line.id))}
-            />
-          </span>
-        )}
-      </div>
-      <MarkedTextArea
-        className={['iline-text', chars > maxChars && 'iline-over'].filter(Boolean).join(' ')}
-        value={line.text}
-        highlights={textHighlights(line.text, node, anchor)}
-        rows={1}
-        readOnly={readOnly}
-        aria-label={t('story.lines.text', { n: index + 1 })}
-        onContextMenu={menu.onContextMenu}
-        onChange={(e) =>
-          edit(
-            t('story.step.lines'),
-            (g) => updateLine(g, nodeId, line.id, { text: e.target.value }),
-            `line:${line.id}`,
-          )
-        }
-      />
-      {menu.menu}
-    </div>
-  );
-}
-
 // ---------- choice ----------
 
 function ChoiceSection({ node }: { node: StoryNode }) {
@@ -387,6 +394,26 @@ function ChoiceSection({ node }: { node: StoryNode }) {
   const options = node.options ?? [];
   return (
     <Section title={t('story.options')} field="options">
+      <div className="iline-times">
+        <NumberBlank
+          label={t('choice.timer')}
+          value={node.timer}
+          placeholder={t('choice.timerBlank')}
+          disabled={readOnly}
+          onChange={(timer) =>
+            edit(t('story.step.options'), (g) => setNodeFields(g, node.id, { timer }), `timer:${node.id}`)
+          }
+        />
+        <Switch
+          label={t('choice.checkpoint')}
+          checked={node.checkpoint === true}
+          disabled={readOnly}
+          onChange={(on) => edit(t('story.step.options'), (g) => setNodeFields(g, node.id, { checkpoint: on }))}
+        />
+      </div>
+      {options.some((o) => o.secret) && !node.timer && (
+        <p className="text-warning small">{t('choice.secretNoTimer')}</p>
+      )}
       {options.map((o, i) => (
         <OptionRow key={o.id} node={node} index={i} />
       ))}
@@ -414,57 +441,6 @@ function useKnown(): (name: string) => boolean {
   const { project, graphId } = useStory();
   const data = useStore(project.store, (s) => s);
   return knownNames(data, graphId);
-}
-
-/** Lays a plot device over a node, option, line or words; the inspector then shows the new mark. */
-function useAddDevice(nodeId: string) {
-  const { edit, inspect } = useStory();
-  return (device: PlotDevice, anchor: MarkAnchor, selection: { start: number; end: number } | null = null) => {
-    let id: string | null = null;
-    edit(t(device === 'gun' ? 'plot.step.gun' : 'plot.step.butterfly'), (g) => {
-      const n = storyNode(g, nodeId);
-      if (n) id = addMark(n, device, anchor, selection)?.id ?? null;
-    });
-    if (id) inspect(nodeId, `mark:${id}`);
-  };
-}
-
-/** A small menu button: lay Chekhov's gun or the butterfly effect over this option or line. */
-function DeviceMenu({ onDevice }: { onDevice: (device: PlotDevice) => void }) {
-  const [at, setAt] = useState<{ x: number; y: number; anchor: HTMLElement } | null>(null);
-  return (
-    <>
-      <IconButton
-        size="sm"
-        label={t('plot.add')}
-        icon={<Sparkles size={14} />}
-        aria-haspopup="menu"
-        onClick={(e) => {
-          const anchor = e.currentTarget;
-          const r = anchor.getBoundingClientRect();
-          setAt(at ? null : { x: r.left, y: r.bottom + 4, anchor });
-        }}
-      />
-      {at && (
-        <Menu
-          x={at.x}
-          y={at.y}
-          anchor={at.anchor}
-          label={t('plot.add')}
-          onClose={() => setAt(null)}
-          entries={[
-            { id: 'gun', label: t('plot.gun'), icon: <DeviceIcon device="gun" />, onSelect: () => onDevice('gun') },
-            {
-              id: 'butterfly',
-              label: t('plot.butterfly'),
-              icon: <DeviceIcon device="butterfly" />,
-              onSelect: () => onDevice('butterfly'),
-            },
-          ]}
-        />
-      )}
-    </>
-  );
 }
 
 /** The node's own text: marked words are highlighted, and selected words can carry a plot device. */
@@ -619,6 +595,44 @@ function OptionRow({ node, index: i }: { node: StoryNode; index: number }) {
           edit(t('story.step.options'), (g) => updateOption(g, node.id, o.id, { note }), `note:${o.id}`)
         }
       />
+      <div className="ioption-flags">
+        <Switch
+          label={t('choice.once')}
+          checked={o.once === true}
+          disabled={readOnly}
+          onChange={(on) => edit(t('story.step.options'), (g) => setOptionFields(g, node.id, o.id, { once: on }))}
+        />
+        <Switch
+          label={t('choice.secret')}
+          checked={o.secret === true}
+          disabled={readOnly || (!o.secret && options.some((x) => x.secret))}
+          onChange={(on) => edit(t('story.step.options'), (g) => setOptionFields(g, node.id, o.id, { secret: on }))}
+        />
+      </div>
+      <OptionActions node={node} optionId={o.id} />
+    </div>
+  );
+}
+
+function OptionActions({ node, optionId }: { node: StoryNode; optionId: string }) {
+  const { project, edit } = useStory();
+  const data = useStore(project.store, (s) => s);
+  const option = node.options?.find((o) => o.id === optionId);
+  return (
+    <div className="field">
+      <span className="field-label">{t('action.title')}</span>
+      <ActionsEditor
+        actions={option?.actions}
+        data={data}
+        disabled={project.readOnly}
+        field={`option:${optionId}:actions`}
+        onChange={(actions) =>
+          edit(t('action.step'), (g) => {
+            const o = storyNode(g, node.id)?.options?.find((x) => x.id === optionId);
+            if (o) editActions(o, (list) => list.splice(0, list.length, ...actions));
+          })
+        }
+      />
     </div>
   );
 }
@@ -641,7 +655,7 @@ function anchorName(node: StoryNode, m: PlotMark): string {
 function MarksSection({ node }: { node: StoryNode }) {
   const { project } = useStory();
   const addDevice = useAddDevice(node.id);
-  const marks = node.marks ?? [];
+  const marks = plotMarks(node);
   return (
     <Section title={t('story.plot')} field="plot">
       {marks.length === 0 && <p className="muted small">{t('plot.hint')}</p>}
@@ -1110,16 +1124,64 @@ function EdgeInspector({ edge, graph }: { edge: GraphEdge; graph: GraphDoc }) {
 }
 
 function GraphInspector({ graph }: { graph: GraphDoc }) {
-  const { project } = useStory();
+  const { project, edit, task, check } = useStory();
   const title = useStore(project.store, (s) => graphTitle(s, graph.id));
+  const { status, paletteFound, paletteOk, statusOk } = useAtom(gameFiles);
   const counts = new Map<string, number>();
   for (const n of graph.nodes) counts.set(n.kind, (counts.get(n.kind) ?? 0) + 1);
+  const key = graphKey(graph);
+  const info = status[graph.id];
+  const state = graphTransfer(graph, info);
   return (
     <>
       <header className="insp-title">
         <span>{title || t('module.story')}</span>
+        {state && <TransferBadge state={state} problems={info?.problems.map((p) => p.text) ?? []} />}
       </header>
       <p className="muted small">{t('story.inspector.nothing')}</p>
+      <Section title={t('game.title')} field="game">
+        <GameKeyField
+          value={key}
+          title={title || graph.name}
+          among="graphs"
+          id={graph.id}
+          data={() => project.store.getState()}
+          disabled={project.readOnly}
+          onChange={(next) =>
+            edit(
+              t('gameKey.step'),
+              (g) => {
+                if (next) (g as { key?: string }).key = next;
+                else delete (g as { key?: string }).key;
+              },
+              `key:${graph.id}`,
+            )
+          }
+        />
+        <p className="muted small">{t('game.graphHint')}</p>
+        {info && (
+          <p className="small">
+            {t('game.transferred', { date: new Date(info.at).toLocaleString(getLocale()), lines: info.lines ?? '—' })}
+          </p>
+        )}
+        <div className="insp-actions">
+          <Button size="sm" icon={<ListChecks size={14} />} onClick={check}>
+            {t('check.dialogue')}
+          </Button>
+          <Button size="sm" icon={<ClipboardCopy size={14} />} disabled={!key} onClick={() => task({})}>
+            {t('task.button')}
+          </Button>
+        </div>
+        <p className={['small', paletteOk && statusOk ? 'muted' : 'text-warning'].join(' ')}>
+          {!paletteOk
+            ? t('palette.broken')
+            : !statusOk
+              ? t('game.importBroken')
+              : paletteFound
+                ? t('palette.found')
+                : t('palette.missing')}
+        </p>
+      </Section>
       <ul className="insp-counts">
         {[...counts].map(([kind, count]) => (
           <li key={kind}>

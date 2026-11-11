@@ -5,14 +5,23 @@ import { t } from '../../i18n';
 import type { Value } from '../../story/expr';
 import { graphTitle } from '../../story/flow';
 import { refKey } from '../../story/flow';
-import { findNode } from '../../story/model';
+import { listEntities } from '../../story/entities';
+import { findNode, plotMarks } from '../../story/model';
 import { markLabel } from '../../story/marks';
-import { playAct, playActions, playSetVariable, playText, type LogEntry, type PlayState } from '../../story/play';
+import {
+  playAct,
+  playActions,
+  playSetItem,
+  playSetVariable,
+  playText,
+  type LogEntry,
+  type PlayState,
+} from '../../story/play';
 import { listVariables, registryFor, valueText } from '../../story/variables';
 import { Button, IconButton, Switch } from '../components';
 import { DeviceIcon, KindIcon, LandingIcon } from '../canvas/kindIcons';
 import { storyIndex, useStory } from './context';
-import { playProblemText } from './messages';
+import { ACTION_NAMES, playProblemText } from './messages';
 import { ValueInput } from './ValueInput';
 
 /** States of a run, the last one current: "step back" drops the last. */
@@ -49,6 +58,9 @@ export function PlayPanel({
   const shown = actions.filter((a) => a.kind !== 'option' || a.enabled || showHidden);
   const deadEnd = state.status === 'running' && actions.length === 0 && node?.kind !== 'end';
   const hasHidden = actions.some((a) => a.kind === 'option' && !a.enabled);
+  /** Ordinary ways on (not the exits of interrupted lines): one of them alone is "Next". */
+  const plain = actions.filter((a) => a.kind === 'exit' && !a.interrupt).length;
+  const items = useMemo(() => listEntities(data, 'item'), [data]);
   const incoming = useAtomSelect(storyIndex, (i) => (state.pos ? i.incoming.get(refKey(state.pos)) : undefined));
   const say = (text: string) =>
     state.pos ? playText(data, state, state.pos.graph, text, t('var.yes'), t('var.no')) : text;
@@ -84,18 +96,21 @@ export function PlayPanel({
             </h3>
             {node.kind === 'dialogue' ? (
               <div className="play-lines">
-                {(node.lines ?? []).map((l) => (
-                  <p key={l.id}>
-                    <strong>{speakerName(l.speaker)}:</strong> {say(l.text)}
-                  </p>
-                ))}
+                {/* 0.8: only the lines whose conditions held when the player came here. */}
+                {(node.lines ?? [])
+                  .filter((l) => state.shown.includes(l.id))
+                  .map((l) => (
+                    <p key={l.id}>
+                      <strong>{speakerName(l.speaker)}:</strong> {say(l.text)}
+                    </p>
+                  ))}
               </div>
             ) : (
               node.text && <p className="play-text">{say(node.text)}</p>
             )}
-            {((node.marks?.length ?? 0) > 0 || (incoming?.length ?? 0) > 0) && (
+            {(plotMarks(node).length > 0 || (incoming?.length ?? 0) > 0) && (
               <ul className="play-plot">
-                {node.marks?.map((m) => (
+                {plotMarks(node).map((m) => (
                   <li key={m.id} className={`plot-${m.device}`}>
                     <DeviceIcon device={m.device} size={14} />
                     {t(m.device === 'gun' ? 'play.plot.gun' : 'play.plot.butterfly', { title: markLabel(node, m) })}
@@ -137,19 +152,42 @@ export function PlayPanel({
                   key={a.id}
                   className="play-option"
                   disabled={!a.enabled}
-                  title={a.enabled ? undefined : t('play.hiddenOption')}
+                  title={a.enabled ? (a.secret ? t('play.secretHint') : undefined) : t('play.hiddenOption')}
                   onClick={() => push(playAct(data, state, a))}
                 >
-                  {say(a.label) || t('story.untitled')}
+                  {a.secret ? t('play.secret', { text: say(a.label) }) : say(a.label) || t('story.untitled')}
+                </Button>
+              ) : a.kind === 'give' ? (
+                <Button
+                  key={`${a.port}-${a.item ?? ''}`}
+                  variant={a.port === 'given' ? 'secondary' : 'ghost'}
+                  className="play-option"
+                  onClick={() => push(playAct(data, state, a))}
+                >
+                  {a.port === 'given'
+                    ? t('play.give', { name: a.label || t('story.untitled') })
+                    : t(a.port === 'cancel' ? 'play.giveCancel' : 'play.giveEmpty')}
+                </Button>
+              ) : a.interrupt ? (
+                <Button
+                  key={a.edge}
+                  variant="ghost"
+                  className="play-option"
+                  onClick={() => push(playAct(data, state, a))}
+                >
+                  {t('play.interrupt', {
+                    n: (node?.lines ?? []).findIndex((l) => l.id === a.interrupt) + 1,
+                    label: a.label || t('story.untitled'),
+                  })}
                 </Button>
               ) : (
                 <Button
                   key={a.edge}
-                  variant={actions.length === 1 ? 'primary' : 'secondary'}
+                  variant={plain === 1 ? 'primary' : 'secondary'}
                   className="play-option"
                   onClick={() => push(playAct(data, state, a))}
                 >
-                  {actions.length === 1 ? t('play.next') : a.label || t('story.untitled')}
+                  {plain === 1 ? t('play.next') : a.label || t('story.untitled')}
                 </Button>
               ),
             )}
@@ -180,6 +218,29 @@ export function PlayPanel({
           );
         })}
       </section>
+
+      {(items.length > 0 || state.hired.length > 0) && (
+        <section className="play-vars play-items">
+          <h3 className="insp-heading">{t('play.items')}</h3>
+          <div className="play-item-list">
+            {items.map((e) => (
+              <label key={e.id} className="play-item">
+                <input
+                  type="checkbox"
+                  checked={state.items.includes(e.id)}
+                  onChange={(ev) => push(playSetItem(state, e.id, ev.target.checked))}
+                />
+                <span>{e.name || t('story.untitled')}</span>
+              </label>
+            ))}
+          </div>
+          {state.hired.length > 0 && (
+            <p className="small muted">
+              {t('play.hired', { names: state.hired.map((id) => (entities[id]?.name as string) ?? '?').join(', ') })}
+            </p>
+          )}
+        </section>
+      )}
 
       <section className="play-log">
         <h3 className="insp-heading">{t('play.history')}</h3>
@@ -215,6 +276,10 @@ function logText(e: LogEntry): string {
         .join('; ');
     case 'manual':
       return t('play.log.manual', { name: e.name, value: valueText(e.value, yes, no, none) });
+    case 'action':
+      return e.name ? `${t(ACTION_NAMES[e.action])}: ${e.name}` : t(ACTION_NAMES[e.action]);
+    case 'gave':
+      return t('play.log.gave', { name: e.name });
     case 'enter':
       return t('play.log.enter', { title: e.title });
     case 'leave':

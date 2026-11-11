@@ -9,12 +9,17 @@ import type { ProjectData } from '../core/project/types';
 import {
   allGraphs,
   asStory,
+  plotMarks,
+  textMarks,
+  type CueProps,
   type MarkAnchor,
   type NodeRef,
   type PlotDevice,
   type PlotMark,
   type PlotRole,
   type StoryNode,
+  type StyleProps,
+  type TextMark,
   type TextRange,
 } from './model';
 
@@ -29,12 +34,83 @@ export function anchorText(n: StoryNode, a: MarkAnchor): string | undefined {
   return n.lines?.find((l) => l.id === a.id)?.text;
 }
 
+/** Plot devices on an anchor (the game's marks are apart: textMarksOn). */
 export function marksOn(n: StoryNode, a: MarkAnchor): PlotMark[] {
-  return (n.marks ?? []).filter((m) => sameAnchor(m.anchor, a));
+  return plotMarks(n).filter((m) => sameAnchor(m.anchor, a));
 }
 
 export function markOf(n: StoryNode | undefined, id: string): PlotMark | undefined {
-  return n?.marks?.find((m) => m.id === id);
+  return plotMarks(n).find((m) => m.id === id);
+}
+
+// ---------- the game's marks on dialogue lines (0.8) ----------
+
+export function textMarksOn(n: StoryNode, a: MarkAnchor): TextMark[] {
+  return textMarks(n).filter((m) => sameAnchor(m.anchor, a));
+}
+
+export function textMarkOf(n: StoryNode | undefined, id: string): TextMark | undefined {
+  return textMarks(n).find((m) => m.id === id);
+}
+
+/** Where a cue is in its line now: its offset, kept inside the text. */
+export function cueAt(text: string, m: TextMark): number {
+  return Math.max(0, Math.min(text.length, m.range?.start ?? text.length));
+}
+
+/** Marks words of a line with a look; null when nothing but spaces was selected. */
+export function addStyleMark(
+  n: StoryNode,
+  lineId: string,
+  selection: { start: number; end: number },
+  props: StyleProps,
+): TextMark | null {
+  const anchor: MarkAnchor = { kind: 'line', id: lineId };
+  const text = anchorText(n, anchor);
+  const range = text === undefined ? null : tightRange(text, selection.start, selection.end);
+  if (!range) return null;
+  const mark: TextMark = { id: newId(), device: 'style', anchor, range, props };
+  (n.marks ??= []).push(mark);
+  return mark;
+}
+
+/** Puts a cue at a point of a line. */
+export function addCueMark(n: StoryNode, lineId: string, at: number, props: CueProps): TextMark | null {
+  const anchor: MarkAnchor = { kind: 'line', id: lineId };
+  const text = anchorText(n, anchor);
+  if (text === undefined) return null;
+  const pos = Math.max(0, Math.min(text.length, at));
+  const mark: TextMark = { id: newId(), device: 'cue', anchor, range: { start: pos, end: pos, quote: '' }, props };
+  (n.marks ??= []).push(mark);
+  return mark;
+}
+
+/** Replaces what a style or cue mark says (inside a Store recipe). */
+export function setMarkProps(n: StoryNode, id: string, props: StyleProps | CueProps): void {
+  const m = textMarkOf(n, id);
+  if (m) m.props = props;
+}
+
+/**
+ * Bold on or off for the selected words: a bold mark exactly over them is removed, otherwise one is made.
+ */
+export function toggleBold(n: StoryNode, lineId: string, selection: { start: number; end: number }): void {
+  const anchor: MarkAnchor = { kind: 'line', id: lineId };
+  const text = anchorText(n, anchor);
+  const range = text === undefined ? null : tightRange(text, selection.start, selection.end);
+  if (!range || text === undefined) return;
+  const same = textMarksOn(n, anchor).find((m) => {
+    if (m.device !== 'style' || !m.props.bold) return false;
+    const r = resolveRange(text, m.range);
+    return r?.start === range.start && r.end === range.end;
+  });
+  if (!same) {
+    addStyleMark(n, lineId, range, { bold: true });
+  } else if (same.device === 'style' && Object.keys(same.props).some((k) => k !== 'bold')) {
+    delete same.props.bold;
+  } else {
+    removeMark(n, same.id);
+  }
 }
 
 /** A selection without the spaces around it; null when nothing is left (the mark covers the whole text). */
@@ -114,7 +190,7 @@ export function resolveRange(text: string, r: TextRange | null): { start: number
  */
 export function followText(n: StoryNode, anchor: MarkAnchor, before: string, after: string): void {
   if (before === after) return;
-  const marks = marksOn(n, anchor).filter((m) => m.range);
+  const marks = (n.marks ?? []).filter((m) => sameAnchor(m.anchor, anchor) && m.range);
   if (!marks.length) return;
   let p = 0;
   const max = Math.min(before.length, after.length);
@@ -124,16 +200,29 @@ export function followText(n: StoryNode, anchor: MarkAnchor, before: string, aft
   const oldEnd = before.length - s;
   const newEnd = after.length - s;
   const delta = newEnd - oldEnd;
+  const gone: string[] = [];
   for (const m of marks) {
+    if (m.device === 'cue') {
+      // A point: it stays before what is typed at it, and goes to the start of a cut that took it.
+      const at = Math.max(0, Math.min(before.length, m.range!.start));
+      const pos = at <= p ? at : at >= oldEnd ? at + delta : p;
+      m.range = { start: pos, end: pos, quote: '' };
+      continue;
+    }
     const r = resolveRange(before, m.range);
     if (!r) {
-      m.range = null;
+      if (m.device === 'style') gone.push(m.id);
+      else m.range = null;
       continue;
     }
     const start = r.start < p ? r.start : r.start >= oldEnd ? r.start + delta : newEnd;
     const end = r.end <= p ? r.end : r.end >= oldEnd ? r.end + delta : p;
-    m.range = start < end ? { start, end, quote: after.slice(start, end) } : null;
+    if (start < end) m.range = { start, end, quote: after.slice(start, end) };
+    // A plot device stays on the whole line; a look without its words is nothing.
+    else if (m.device === 'style') gone.push(m.id);
+    else m.range = null;
   }
+  if (gone.length) n.marks = n.marks!.filter((m) => !gone.includes(m.id));
 }
 
 /** Short text that names a mark in lists: its fragment, else the option or line, else the node title. */
@@ -162,7 +251,7 @@ export function plotSources(g: GraphDoc): PlotSource[] {
     if (n.kind === 'gun' || n.kind === 'butterfly') {
       out.push({ device: n.kind, at, mark: null, links: n.links ?? [], title: n.title });
     }
-    for (const m of n.marks ?? []) {
+    for (const m of plotMarks(n)) {
       if (anchorText(n, m.anchor) === undefined) continue;
       out.push({ device: m.device, at, mark: m, links: m.links, title: markLabel(n, m) });
     }
@@ -213,7 +302,7 @@ export function unlinkAllTo(d: ProjectData, to: NodeRef, device: PlotDevice): vo
     for (const raw of g.nodes) {
       const n = asStory(raw);
       if (n.kind === device && n.links?.some((l) => !other(l))) n.links = n.links.filter(other);
-      for (const m of n.marks ?? []) {
+      for (const m of plotMarks(n)) {
         if (m.device === device && m.links.some((l) => !other(l))) m.links = m.links.filter(other);
       }
     }

@@ -6,6 +6,8 @@ import { t, type MessageKey } from '../../i18n';
 import type { Problem, ProblemCode } from '../../story/checks';
 import type { Diagnostic, DiagnosticCode, ValueType } from '../../story/expr';
 import { graphTitle } from '../../story/flow';
+import type { ActionType } from '../../story/model';
+import type { PaletteList } from '../../story/palette';
 import type { PlayProblem, PlayProblemCode } from '../../story/play';
 
 const EXPR: Record<DiagnosticCode, MessageKey> = {
@@ -30,6 +32,11 @@ const EXPR: Record<DiagnosticCode, MessageKey> = {
   effectNumbersOnly: 'expr.effectNumbersOnly',
   assignType: 'expr.assignType',
   notInList: 'expr.notInList',
+  callEmpty: 'expr.callEmpty',
+  unknownItem: 'expr.unknownItem',
+  unknownCharacter: 'expr.unknownCharacter',
+  unknownLine: 'expr.unknownLine',
+  unknownListVar: 'expr.unknownListVar',
 };
 
 const TYPES: Record<ValueType, MessageKey> = { bool: 'type.bool', number: 'type.number', string: 'type.string' };
@@ -73,12 +80,64 @@ const CHECKS: Record<ProblemCode, MessageKey> = {
   jumpNoTarget: 'check.jumpNoTarget',
   chapterNoGraph: 'check.chapterNoGraph',
   refMissing: 'check.refMissing',
+  giveNoExit: 'check.giveNoExit',
+  noGraphKey: 'check.noGraphKey',
+  badKey: 'check.badKey',
+  refNoKey: 'check.refNoKey',
+  lineEmpty: 'check.lineEmpty',
+  lineNoSpeaker: 'check.lineNoSpeaker',
+  choiceNoFallback: 'check.choiceNoFallback',
+  secretNoTimer: 'check.secretNoTimer',
+  manySecrets: 'check.manySecrets',
+  notInPalette: 'check.notInPalette',
+  faceNotDrawn: 'check.faceNotDrawn',
+  towardOutsider: 'check.towardOutsider',
+  actionNoRef: 'check.actionNoRef',
+  emptyCycle: 'check.emptyCycle',
+  gameSaid: 'check.gameSaid',
+};
+
+/** The lists of the game's palette, as the checks name them. */
+export const PALETTE_LIST_NAMES: Record<PaletteList, MessageKey> = {
+  styles: 'palette.styles',
+  sizes: 'palette.sizes',
+  reveals: 'palette.reveals',
+  effects: 'palette.effects',
+  bubbles: 'palette.bubbles',
+  faces: 'palette.faces',
+  gestures: 'palette.gestures',
+  emotes: 'palette.emotes',
+  voices: 'palette.voices',
+  sounds: 'palette.sounds',
+};
+
+export const ACTION_NAMES: Record<ActionType, MessageKey> = {
+  give_item: 'action.give_item',
+  take_item: 'action.take_item',
+  hire: 'action.hire',
+  dismiss: 'action.dismiss',
+  list_add: 'action.list_add',
+  give_list: 'action.give_list',
+  save: 'action.save',
+  event: 'action.event',
+  start_quest: 'action.start_quest',
+};
+
+const GIVE_BRANCH: Record<string, MessageKey> = {
+  given: 'story.port.given',
+  cancel: 'story.port.cancel',
+  empty: 'story.port.empty',
 };
 
 export function problemText(p: Problem, data: ProjectData): string {
   const params: Record<string, string | number> = { ...p.params };
   if (p.graph) params.graph = graphTitle(data, p.graph);
   if (p.code === 'conditionNoBranch') params.branch = t(p.params.branch === 'yes' ? 'story.port.yes' : 'story.port.no');
+  if (p.code === 'giveNoExit') params.branch = t(GIVE_BRANCH[String(p.params.branch)] ?? 'story.port.given');
+  if (p.code === 'notInPalette') params.list = t(PALETTE_LIST_NAMES[p.params.list as PaletteList]);
+  if (p.code === 'actionNoRef') params.action = t(ACTION_NAMES[p.params.action as ActionType]);
+  if (p.code === 'refNoKey')
+    params.what = t(p.params.what === 'variable' ? 'check.what.variable' : 'check.what.entity');
   if (p.diagnostic) params.message = diagnosticText(p.diagnostic);
   return t(CHECKS[p.code], params);
 }

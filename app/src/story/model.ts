@@ -11,11 +11,67 @@ export interface NodeRef {
   node: string;
 }
 
+/**
+ * A gesture or an emote, optionally aimed at another participant of the conversation (0.8). In files: the
+ * palette id alone ("wave"), or `{ "id": "question", "to": "<entity id>" }` when it is aimed at somebody.
+ */
+export interface Toward {
+  id: string;
+  to?: string | null;
+}
+export type TowardValue = string | Toward;
+
+/** What the game does besides changing variables (0.8): on a line, an option, an effect or a give node. */
+export type ActionType =
+  'give_item' | 'take_item' | 'hire' | 'dismiss' | 'list_add' | 'give_list' | 'save' | 'event' | 'start_quest';
+export const ACTION_TYPES: readonly ActionType[] = [
+  'give_item',
+  'take_item',
+  'hire',
+  'dismiss',
+  'list_add',
+  'give_list',
+  'save',
+  'event',
+  'start_quest',
+];
+
+export interface GameAction {
+  type: ActionType;
+  /** give_item, take_item: an item; hire, dismiss: a character; list_add, give_list: a list variable (ids). */
+  ref?: string | null;
+  /** list_add: the item put on the list (entity id)… */
+  item?: string | null;
+  /** …or a value of its own; event, start_quest: the key the game knows. */
+  value?: string;
+  [extra: string]: unknown;
+}
+
 export interface DialogueLine {
   id: string;
   /** Entity id of the speaker, or null for narration. */
   speaker: string | null;
   text: string;
+  // 0.8, all optional: what the game needs to play the line (ids of data/dialogue_palette.json).
+  /** Style of the whole line. */
+  style?: string;
+  /** The face the speaker's sprite takes. */
+  face?: string;
+  gesture?: TowardValue;
+  emote?: TowardValue;
+  /** Seconds until the line goes on by itself; absent: waits for a press. */
+  auto?: number;
+  /** Seconds the line can be interrupted for; absent: as the game decides, 0: cannot be interrupted. */
+  interrupt?: number;
+  /** The line has an "interrupted" exit of its own: a port with the line's id on the dialogue node. */
+  interruptExit?: boolean;
+  /** Shown only when this holds (blank: always). */
+  condition?: string;
+  /** Applied after the line. */
+  effects?: string;
+  actions?: GameAction[];
+  /** For the translator; never sent to the game. */
+  note?: string;
 }
 
 export interface ChoiceOption {
@@ -27,6 +83,12 @@ export interface ChoiceOption {
   effects: string;
   /** The designer's comment; "x = 1" written in it is applied when the option is chosen (textEffects.ts). */
   note?: string;
+  // 0.8:
+  /** Not shown to the player: taken when the choice's time runs out. At most one per choice. */
+  secret?: boolean;
+  /** Shown once: gone after it was chosen. */
+  once?: boolean;
+  actions?: GameAction[];
 }
 
 export type WorldKind = 'character' | 'location' | 'item';
@@ -65,6 +127,47 @@ export interface PlotMark {
   variables: string[];
 }
 
+/** How marked words of a line look and sound in the game (0.8); ids of the palette. */
+export interface StyleProps {
+  style?: string;
+  /** "#rrggbb". */
+  color?: string;
+  size?: string;
+  bold?: boolean;
+  effect?: string;
+  /** How many times faster (or slower, below 1) the words are typed. */
+  speed?: number;
+  reveal?: string;
+}
+
+/** Something that happens at a point between the words of a line (0.8): exactly one of these. */
+export interface CueProps {
+  /** Seconds of silence. */
+  pause?: number;
+  /** How hard the screen shakes. */
+  shake?: number;
+  sound?: string;
+  gesture?: TowardValue;
+  emote?: TowardValue;
+  /** Held until the end of the line. */
+  face?: string;
+}
+export const CUE_KINDS = ['pause', 'shake', 'sound', 'gesture', 'emote', 'face'] as const;
+export type CueKind = (typeof CUE_KINDS)[number];
+
+/**
+ * Marks of the game's own (0.8), kept among the plot marks: "style" over words of a dialogue line, "cue" at
+ * a point of it (its range has start = end). They have no links; plot devices never see them (plotMarks).
+ */
+export type TextMark =
+  | { id: string; device: 'style'; anchor: MarkAnchor; range: TextRange | null; props: StyleProps }
+  | { id: string; device: 'cue'; anchor: MarkAnchor; range: TextRange | null; props: CueProps };
+
+export type NodeMark = PlotMark | TextMark;
+
+export const isTextMark = (m: NodeMark): m is TextMark => m.device === 'style' || m.device === 'cue';
+export const isPlotMark = (m: NodeMark): m is PlotMark => m.device === 'gun' || m.device === 'butterfly';
+
 export interface StoryNode extends GraphNode {
   /** Dialogue. */
   lines?: DialogueLine[];
@@ -90,8 +193,20 @@ export interface StoryNode extends GraphNode {
   plotRole?: PlotRole | null;
   /** Expected roles (a node can be both a payoff and a consequence), for checks; see rolesOf(). */
   plotRoles?: PlotRole[];
-  /** Plot devices laid over this node, its options or its lines. */
-  marks?: PlotMark[];
+  /** Plot devices laid over this node, its options or its lines; and the game's marks on lines (0.8). */
+  marks?: NodeMark[];
+  // 0.8:
+  /** Choice: seconds to choose; absent: no timer. When it runs out the game takes the option the player is on. */
+  timer?: number;
+  /** Choice: the game saves before it. */
+  checkpoint?: boolean;
+  /** Give: the variable that gets what was given (id), and the list variable it is added to. */
+  store?: string | null;
+  keep?: string | null;
+  /** Effect and give nodes: what the game does besides changing variables. */
+  actions?: GameAction[];
+  /** A dialogue node of a set of lines (barks): when the game says them. */
+  when?: string;
 }
 
 export const asStory = (n: GraphNode): StoryNode => n as StoryNode;
@@ -102,6 +217,37 @@ export function graphOf(data: ProjectData, id: string): GraphDoc | undefined {
 
 export function allGraphs(data: ProjectData): GraphDoc[] {
   return Object.values(data.graphs) as unknown as GraphDoc[];
+}
+
+/** Graphs the story flows through; sets of lines (barks, 0.8) are not among them. */
+export const isFlowGraph = (g: Pick<GraphDoc, 'kind'>): boolean => g.kind === 'story' || g.kind === 'chapter';
+
+/** Nodes that own a graph: a chapter, a set of lines. */
+export const ownsGraph = (n: Pick<GraphNode, 'kind'>): boolean => n.kind === 'chapter' || n.kind === 'barks';
+
+/** Plot devices among the marks of a node. */
+export function plotMarks(n: StoryNode | undefined): PlotMark[] {
+  return (n?.marks ?? []).filter(isPlotMark);
+}
+
+/** The game's marks (style, cue) among the marks of a node. */
+export function textMarks(n: StoryNode | undefined): TextMark[] {
+  return (n?.marks ?? []).filter(isTextMark);
+}
+
+/** A gesture or an emote read from either form; null when there is none. */
+export function toward(v: TowardValue | null | undefined): Toward | null {
+  if (typeof v === 'string') return v ? { id: v } : null;
+  if (v && typeof v === 'object' && typeof v.id === 'string' && v.id) {
+    return typeof v.to === 'string' && v.to ? { id: v.id, to: v.to } : { id: v.id };
+  }
+  return null;
+}
+
+/** As it is stored: the id alone, or the id and whom it is aimed at. */
+export function towardValue(id: string, to?: string | null): TowardValue | undefined {
+  if (!id) return undefined;
+  return to ? { id, to } : id;
 }
 
 /** The top of the story: the chapter overview graph. */
@@ -128,7 +274,11 @@ export function findNode(data: ProjectData, ref: NodeRef | null | undefined): St
 export const PASS_THROUGH = new Set(['start', 'condition', 'effect', 'jump', 'chapter']);
 
 /** Kinds outside the flow: never "unreachable" and never a dead end. */
-export const OFF_FLOW = new Set(['sticker']);
+export const OFF_FLOW = new Set(['sticker', 'barks']);
+
+/** Exits of a give node (0.8): gave, refused, had nothing to give. */
+export const GIVE_PORTS = ['given', 'cancel', 'empty'] as const;
+export type GivePort = (typeof GIVE_PORTS)[number];
 
 export const DIALOGUE_LINE_H = 22;
 /** Space above the first line of a dialogue card (keep in step with .cdialogue in story.css). */

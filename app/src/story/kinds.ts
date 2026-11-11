@@ -8,12 +8,16 @@ import {
   CHOICE_ROW_H,
   DIALOGUE_LINE_H,
   DIALOGUE_TOP,
+  GIVE_PORTS,
+  plotMarks,
+  type NodeMark,
   type PlotDevice,
-  type PlotMark,
   type StoryNode,
 } from './model';
 
 const STORY_GRAPHS = ['story', 'chapter'] as const;
+/** Dialogue nodes also make up sets of lines (barks, 0.8), where nothing else is made. */
+const LINE_GRAPHS = ['story', 'chapter', 'barks'] as const;
 
 /** Dialogue lines shown on a folded dialogue node. */
 export const FOLDED_LINES = 3;
@@ -24,7 +28,7 @@ export const CHOICE_PROMPT_H = 40;
 export const PLOT_COLORS: Record<PlotDevice, string> = { gun: '#e8b931', butterfly: '#e0609f' };
 
 /** Where a mark's line leaves its card: level with its option or line (hidden lines: the "more" row). */
-export function markRowY(n: StoryNode, m: PlotMark): number | undefined {
+export function markRowY(n: StoryNode, m: Pick<NodeMark, 'anchor'>): number | undefined {
   if (m.anchor.kind === 'option') {
     const id = m.anchor.id;
     const i = (n.options ?? []).findIndex((o) => o.id === id);
@@ -49,7 +53,7 @@ function storyLinks(n: GraphNode): KindLink[] {
     const color = colorHex(n.color, n.kind === 'gun' ? '#8c6b4f' : '#b8458a');
     for (const to of s.links) out.push({ key: `${to.graph}/${to.node}`, to, color });
   }
-  for (const m of s.marks ?? []) {
+  for (const m of plotMarks(s)) {
     const y = markRowY(s, m);
     for (const to of m.links) {
       out.push({ key: `${m.id}/${to.graph}/${to.node}`, to, color: PLOT_COLORS[m.device], y, trail: true });
@@ -93,6 +97,51 @@ function conditionPorts(n: GraphNode): Port[] {
   ];
 }
 
+/** Where a dialogue line is on its card: its row, or the "more" row when it is folded away. */
+export function lineRowY(n: StoryNode, lineId: string): number | undefined {
+  return markRowY(n, { anchor: { kind: 'line', id: lineId } });
+}
+
+/**
+ * Dialogue (0.8): the four sides as before, and an "interrupted" exit for every line that has one, level
+ * with the line; then the ordinary exit on the right moves up to the header, out of their way. A set of
+ * lines (a node with "when") connects to nothing.
+ */
+export function dialoguePorts(n: GraphNode): Port[] {
+  const s = asStory(n);
+  if (s.when !== undefined) return [];
+  const exits = (s.lines ?? []).filter((l) => l.interruptExit);
+  if (!exits.length) return sideAnchors(n);
+  return [
+    ...sideAnchors(n).map((p) => (p.id === 'out' ? { ...p, y: HEADER_H / 2 } : p)),
+    ...exits.map((l): Port => ({
+      id: l.id,
+      side: 'out',
+      face: 'right',
+      x: n.w,
+      y: lineRowY(s, l.id) ?? HEADER_H,
+      hint: 'story.port.interrupted',
+    })),
+  ];
+}
+
+/** Give (0.8): inputs on three sides; "gave", "refused", "nothing to give" on the right. */
+export const GIVE_ROW_H = 26;
+export const GIVE_TOP = HEADER_H + 14;
+function givePorts(n: GraphNode): Port[] {
+  const top = GIVE_TOP;
+  return [
+    ...sideAnchors(n, 'in', ['left', 'top', 'bottom']),
+    ...GIVE_PORTS.map((id, i) => ({
+      id,
+      side: 'out' as const,
+      face: 'right' as const,
+      x: n.w,
+      y: top + GIVE_ROW_H * (i + 0.5),
+    })),
+  ];
+}
+
 export function dialogueHeight(lineCount: number, expanded: boolean): number {
   const shown = expanded ? lineCount : Math.min(lineCount, FOLDED_LINES);
   const more = !expanded && lineCount > FOLDED_LINES ? 1 : 0;
@@ -122,8 +171,8 @@ registerKind({
   label: 'story.kind.dialogue',
   color: '#23917f',
   size: { w: 300, h: dialogueHeight(0, false) },
-  ports: both,
-  graphs: STORY_GRAPHS,
+  ports: dialoguePorts,
+  graphs: LINE_GRAPHS,
   menu: { group: 'flow', order: 2 },
   fit: (n) => {
     const s = asStory(n);
@@ -168,6 +217,24 @@ registerKind({
   ports: both,
   graphs: STORY_GRAPHS,
   menu: { group: 'flow', order: 6 },
+});
+registerKind({
+  id: 'barks',
+  label: 'story.kind.barks',
+  color: '#3f8f9b',
+  size: { w: 260, h: 120 },
+  ports: () => [],
+  graphs: STORY_GRAPHS,
+  menu: { group: 'flow', order: 7 },
+});
+registerKind({
+  id: 'give',
+  label: 'story.kind.give',
+  color: '#a8643c',
+  size: { w: 260, h: GIVE_TOP + GIVE_ROW_H * 3 + 10 },
+  ports: givePorts,
+  graphs: STORY_GRAPHS,
+  menu: { group: 'logic', order: 2 },
 });
 registerKind({
   id: 'condition',
