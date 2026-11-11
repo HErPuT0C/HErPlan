@@ -10,20 +10,15 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardCopy,
-  Hand,
   Paintbrush,
-  Smile,
-  Timer,
+  Play,
   Trash,
-  UserRound,
-  Vibrate,
-  Volume2,
   X,
 } from 'lucide-react';
-import { Fragment, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { Fragment, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { ProjectData } from '../../core/project/types';
 import { useAtom, useStore } from '../../core/useStore';
-import { t, type MessageKey } from '../../i18n';
+import { t } from '../../i18n';
 import { gameFiles } from '../../state/gameFiles';
 import type { WorldEntity } from '../../story/entities';
 import { visibleLength } from '../../story/game';
@@ -39,7 +34,6 @@ import {
 } from '../../story/marks';
 import {
   CUE_KINDS,
-  toward,
   type CueKind,
   type CueProps,
   type DialogueLine,
@@ -57,36 +51,16 @@ import {
   storyNode,
   updateLine,
 } from '../../story/ops';
-import { paletteEntry, paletteName, type Palette } from '../../story/palette';
+import { paletteEntry, type Palette } from '../../story/palette';
+import { translationsOf, type Translations } from '../../story/translation';
 import { IconButton, Switch, type MenuEntry } from '../components';
 import { useStory } from './context';
 import { ExpressionField } from './ExpressionField';
 import { ActionsEditor, NumberBlank, PaletteInput, TowardInput } from './game';
-import { highlightPieces, MarkedTextArea, pieceStyle, textHighlights, useTextMenu, type Highlight } from './MarkedText';
+import { CUE_ICONS, CUE_NAMES, cueKind, cueText, gameMarks, styleCss } from './lineLook';
+import { highlightPieces, MarkedTextArea, pieceStyle, textHighlights, useTextMenu } from './MarkedText';
 import { DeviceMenu, useAddDevice } from './plotTools';
-
-const CUE_ICONS: Record<CueKind, typeof Timer> = {
-  pause: Timer,
-  shake: Vibrate,
-  sound: Volume2,
-  gesture: Hand,
-  emote: Smile,
-  face: UserRound,
-};
-
-const CUE_NAMES: Record<CueKind, MessageKey> = {
-  pause: 'cue.pause',
-  shake: 'cue.shake',
-  sound: 'cue.sound',
-  gesture: 'cue.gesture',
-  emote: 'cue.emote',
-  face: 'cue.face',
-};
-
-/** What a cue is: the first of the kinds its props hold. */
-export function cueKind(props: CueProps): CueKind {
-  return CUE_KINDS.find((k) => props[k] !== undefined) ?? 'pause';
-}
+import { TypingPreview } from './TypingPreview';
 
 const CUE_DEFAULT: Record<CueKind, CueProps> = {
   pause: { pause: 0.4 },
@@ -96,55 +70,6 @@ const CUE_DEFAULT: Record<CueKind, CueProps> = {
   emote: { emote: '' },
   face: { face: '' },
 };
-
-/** What a cue does, in words: "pause 0.4 s", "sound: Bell", "emote: Question → Hero". */
-export function cueText(props: CueProps, palette: Palette, nameOf: (id: string) => string): string {
-  const kind = cueKind(props);
-  const name = t(CUE_NAMES[kind]);
-  if (kind === 'pause') return t('cue.pauseText', { seconds: props.pause ?? 0 });
-  if (kind === 'shake') return `${name} ${props.shake ?? 0}`;
-  if (kind === 'sound') return `${name}: ${paletteName(palette, 'sounds', props.sound) || '—'}`;
-  if (kind === 'face') return `${name}: ${paletteName(palette, 'faces', props.face) || '—'}`;
-  const x = toward(props[kind]);
-  const what = paletteName(palette, kind === 'gesture' ? 'gestures' : 'emotes', x?.id) || '—';
-  return x?.to ? `${name}: ${what} → ${nameOf(x.to)}` : `${name}: ${what}`;
-}
-
-/** How marked words look in the editor: the colour (their own, else their style's) and the weight. */
-export function styleCss(props: StyleProps, palette: Palette, real = false): CSSProperties {
-  const color = props.color || paletteEntry(palette, 'styles', props.style)?.color;
-  const css: CSSProperties = {};
-  if (color) css.color = color;
-  if (real) {
-    if (props.bold) css.fontWeight = 700;
-    if (props.size === 'big') css.fontSize = '1.25em';
-    if (props.size === 'small') css.fontSize = '0.8em';
-  }
-  return css;
-}
-
-/** Highlights of a line's words that have a look in the game, and where its cues are. */
-export function gameMarks(node: StoryNode, anchor: MarkAnchor, text: string, palette: Palette, real = false) {
-  const highlights: Highlight[] = [];
-  const cues: { at: number; mark: TextMark }[] = [];
-  for (const m of textMarksOn(node, anchor)) {
-    if (m.device === 'cue') {
-      cues.push({ at: cueAt(text, m), mark: m });
-      continue;
-    }
-    const r = resolveRange(text, m.range);
-    if (!r) continue;
-    const cls = [
-      'hl-style',
-      m.props.bold && 'hl-bold',
-      m.props.size && `hl-size-${m.props.size}`,
-      m.props.effect && 'hl-fx',
-    ];
-    highlights.push({ ...r, className: cls.filter(Boolean).join(' '), style: styleCss(m.props, palette, real) });
-  }
-  cues.sort((a, b) => a.at - b.at);
-  return { highlights, cues };
-}
 
 /** The line as the game shows it: real weights and sizes, and an icon for every cue, explained on hover. */
 function LinePreview({
@@ -214,7 +139,8 @@ export function LineRow({
   readOnly: boolean;
 }) {
   const { edit, task } = useStory();
-  const { palette } = useAtom(gameFiles);
+  const { palette, translations } = useAtom(gameFiles);
+  const [previewing, setPreviewing] = useState(false);
   const nodeId = node.id;
   const anchor: MarkAnchor = { kind: 'line', id: line.id };
   const addDevice = useAddDevice(node.id);
@@ -327,6 +253,13 @@ export function LineRow({
         >
           {t('story.lines.chars', { count: chars, max: maxChars })}
         </span>
+        <IconButton
+          size="sm"
+          label={t('preview.line')}
+          icon={<Play size={14} />}
+          disabled={!line.text.trim()}
+          onClick={() => setPreviewing(true)}
+        />
         {!readOnly && (
           <span className="iline-tools">
             <IconButton
@@ -374,7 +307,11 @@ export function LineRow({
         }
       />
       {menu.menu}
+      <Translation translations={translations} id={line.id} edited={(line as { edited?: string }).edited} />
       <LinePreview node={node} line={line} palette={palette} nameOf={nameOf} />
+      {previewing && (
+        <TypingPreview node={node} start={index} only entities={entities} onClose={() => setPreviewing(false)} />
+      )}
       <div className="iline-game">
         <PaletteInput
           palette={palette}
@@ -504,6 +441,28 @@ export function LineRow({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The line in the game's other languages (0.8, item 20 of "Dialogues"): read-only, from the game's file;
+ * marked when the line was changed after it was translated.
+ */
+export function Translation({ translations, id, edited }: { translations: Translations; id: string; edited?: string }) {
+  const found = translationsOf(translations, id, edited);
+  if (!found.length) return null;
+  return (
+    <div className="translation" aria-label={t('translation.label')}>
+      {found.map((x) => (
+        <div key={x.lang} className={['translation-row', x.stale && 'translation-stale'].filter(Boolean).join(' ')}>
+          <span className="translation-lang" title={t('translation.hint')}>
+            {x.lang.toUpperCase()}
+          </span>
+          <span className="translation-text">{x.text || '…'}</span>
+          {x.stale && <span className="small text-warning">{t('translation.stale')}</span>}
+        </div>
+      ))}
     </div>
   );
 }

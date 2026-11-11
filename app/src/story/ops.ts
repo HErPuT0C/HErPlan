@@ -8,6 +8,7 @@ import { createNode } from '../canvas/ops';
 import { current, isDraft } from 'immer';
 import { newId } from '../core/ids';
 import type { ProjectData } from '../core/project/types';
+import { renameCallArg } from './expr';
 import { dropMarksOn, followText } from './marks';
 import {
   asStory,
@@ -254,6 +255,73 @@ export function chapterGraphsOf(data: ProjectData, nodes: readonly GraphNode[]):
   return ids.map((id) => structuredClone(graphOf(data, id)!));
 }
 
+/**
+ * Pasted copies of dialogue and choice nodes get new ids for their lines and options (0.8): ids are what the
+ * game knows a line by, and видел(<id>) asks about one line, so a copy must not share them with the
+ * original. Everything that pointed at a copied line or option follows: the marks on it (the look of words,
+ * cues, plot devices), the edges from its port ("interrupted", an option's exit), видел() in the copies. The
+ * times of the last edit are not copied: the copy is new.
+ */
+export function renewParts(copies: readonly { g: GraphDoc; nodes: readonly GraphNode[] }[]): Map<string, string> {
+  const ids = new Map<string, string>();
+  const fresh = (old: string) => {
+    let id = ids.get(old);
+    if (!id) ids.set(old, (id = newId()));
+    return id;
+  };
+  for (const { g, nodes } of copies) {
+    for (const raw of nodes) {
+      const n = asStory(raw) as StoryNode & { edited?: string; created?: string };
+      delete n.edited;
+      delete n.created;
+      const own = new Map<string, string>();
+      for (const l of n.lines ?? []) {
+        own.set(l.id, (l.id = fresh(l.id)));
+        delete (l as { edited?: string }).edited;
+      }
+      for (const o of n.options ?? []) {
+        own.set(o.id, (o.id = fresh(o.id)));
+        delete (o as { edited?: string }).edited;
+      }
+      if (!own.size) continue;
+      for (const m of n.marks ?? []) {
+        if (m.anchor.kind !== 'node' && own.has(m.anchor.id))
+          m.anchor = { kind: m.anchor.kind, id: own.get(m.anchor.id)! };
+        m.id = newId();
+      }
+      for (const e of g.edges) {
+        if (e.from.node === n.id && own.has(e.from.port)) e.from = { ...e.from, port: own.get(e.from.port)! };
+      }
+    }
+  }
+  if (!ids.size) return ids;
+  // видел(<id>) in the copies now asks about the copied line.
+  const seen = (src: string | undefined) => {
+    if (!src || !/\(/.test(src)) return src;
+    let out = src;
+    for (const [from, to] of ids) out = renameCallArg(out, ['seen'], from, to);
+    return out;
+  };
+  for (const { g, nodes } of copies) {
+    const mine = new Set(nodes.map((n) => n.id));
+    for (const raw of nodes) {
+      const n = asStory(raw);
+      if (n.expr) n.expr = seen(n.expr);
+      if (n.effects) n.effects = seen(n.effects);
+      for (const l of n.lines ?? []) {
+        if (l.condition) l.condition = seen(l.condition);
+        if (l.effects) l.effects = seen(l.effects);
+      }
+      for (const o of n.options ?? []) {
+        o.condition = seen(o.condition) ?? '';
+        o.effects = seen(o.effects) ?? '';
+      }
+    }
+    for (const e of g.edges) if (mine.has(e.from.node) && e.condition) e.condition = seen(e.condition);
+  }
+  return ids;
+}
+
 /** Where the pasted nodes came from and went: references between copied nodes follow the copies. */
 export interface PasteContext {
   /** Graph the nodes were copied from (unknown for an old clipboard). */
@@ -324,6 +392,8 @@ export function pasteChapterGraphs(
     asStory(owner).graph = g.id;
     d.graphs[g.id] = g as unknown as ProjectData['graphs'][string];
   }
+  // Lines and options inside the copied chapters get ids of their own, like the pasted nodes (0.8).
+  renewParts(copies.map(({ g }) => ({ g, nodes: g.nodes })));
 
   // References between copied nodes point at the copies; references to anything else stay.
   const remap = (ref: NodeRef): NodeRef => {

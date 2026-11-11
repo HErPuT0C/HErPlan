@@ -38,7 +38,7 @@ import { listVariables } from '../../story/variables';
 import { knownNames } from '../../story/usage';
 import { useAsync } from '../useAsync';
 import { StoryContext, storyIndex, useStory, type StoryActions } from './context';
-import { gameMarks } from './LineEditor';
+import { gameMarks } from './lineLook';
 import { highlightPieces, pieceStyle, textHighlights } from './MarkedText';
 import { TransferBadge } from './TransferBadge';
 

@@ -28,6 +28,8 @@ export interface StoryActions {
   task: (scope: { node?: string; line?: string }) => void;
   /** "Check the dialogue" (0.8): what the game will stumble over in the conversation on the canvas. */
   check: () => void;
+  /** Saves the conversation on the canvas as plain text, a script (0.8). */
+  script: () => void;
 }
 
 export const StoryContext = createContext<StoryActions | null>(null);

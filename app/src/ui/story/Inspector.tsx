@@ -5,9 +5,11 @@ import {
   ArrowUpRight,
   BookOpen,
   ClipboardCopy,
+  FileText,
   ImagePlus,
   ListChecks,
   MessagesSquare,
+  Play,
   Plus,
   Trash,
   X,
@@ -89,11 +91,12 @@ import { IMAGE_FILTERS } from '../start/filters';
 import { useStory } from './context';
 import { ExpressionField } from './ExpressionField';
 import { ActionsEditor, GameKeyField, NumberBlank } from './game';
-import { LineRow } from './LineEditor';
+import { LineRow, Translation } from './LineEditor';
 import { MarkedTextArea, textHighlights, useTextMenu } from './MarkedText';
 import { NodePicker } from './NodePicker';
 import { DeviceMenu, useAddDevice } from './plotTools';
 import { TransferBadge } from './TransferBadge';
+import { TypingPreview } from './TypingPreview';
 
 export interface InspectFocus {
   node: string;
@@ -342,6 +345,7 @@ function DialogueSection({ node }: { node: StoryNode }) {
   const characters = listEntities({ entities, types }, 'character');
   const lines = node.lines ?? [];
   const over = lines.length > limits.maxLines;
+  const [previewing, setPreviewing] = useState(false);
   const add = () => {
     let id: string | null = null;
     // A new line goes to the other speaker of the last two lines: dialogues alternate.
@@ -375,6 +379,15 @@ function DialogueSection({ node }: { node: StoryNode }) {
           <Button size="sm" icon={<Plus size={14} />} onClick={add}>
             {t('story.lines.add')}
           </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<Play size={14} />}
+            disabled={!lines.some((l) => l.text.trim())}
+            onClick={() => setPreviewing(true)}
+          >
+            {t('preview.lines')}
+          </Button>
           <Switch
             label={t('story.lines.expanded')}
             checked={node.expanded === true}
@@ -382,6 +395,12 @@ function DialogueSection({ node }: { node: StoryNode }) {
           />
         </div>
       )}
+      {readOnly && lines.some((l) => l.text.trim()) && (
+        <Button size="sm" variant="ghost" icon={<Play size={14} />} onClick={() => setPreviewing(true)}>
+          {t('preview.lines')}
+        </Button>
+      )}
+      {previewing && <TypingPreview node={node} start={0} entities={entities} onClose={() => setPreviewing(false)} />}
     </Section>
   );
 }
@@ -511,6 +530,7 @@ function NoteField({
 
 function OptionRow({ node, index: i }: { node: StoryNode; index: number }) {
   const { project, edit } = useStory();
+  const { translations } = useAtom(gameFiles);
   const readOnly = project.readOnly;
   const options = node.options ?? [];
   const o = options[i];
@@ -566,6 +586,7 @@ function OptionRow({ node, index: i }: { node: StoryNode; index: number }) {
         )}
       </div>
       {menu.menu}
+      <Translation translations={translations} id={o.id} edited={(o as { edited?: string }).edited} />
       <ExpressionField
         label={t('story.options.condition')}
         kind="condition"
@@ -1124,7 +1145,7 @@ function EdgeInspector({ edge, graph }: { edge: GraphEdge; graph: GraphDoc }) {
 }
 
 function GraphInspector({ graph }: { graph: GraphDoc }) {
-  const { project, edit, task, check } = useStory();
+  const { project, edit, task, check, script } = useStory();
   const title = useStore(project.store, (s) => graphTitle(s, graph.id));
   const { status, paletteFound, paletteOk, statusOk } = useAtom(gameFiles);
   const counts = new Map<string, number>();
@@ -1170,6 +1191,9 @@ function GraphInspector({ graph }: { graph: GraphDoc }) {
           </Button>
           <Button size="sm" icon={<ClipboardCopy size={14} />} disabled={!key} onClick={() => task({})}>
             {t('task.button')}
+          </Button>
+          <Button size="sm" icon={<FileText size={14} />} onClick={script}>
+            {t('script.export')}
           </Button>
         </div>
         <p className={['small', paletteOk && statusOk ? 'muted' : 'text-warning'].join(' ')}>

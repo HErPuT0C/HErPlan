@@ -2,7 +2,7 @@ import Ajv2020 from 'ajv/dist/2020';
 import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
 import schema from '../../../docs/format/export-v1.schema.json';
-import { createNode, connect } from '../canvas/ops';
+import { connect, copySelection, createNode, pasteClipboard } from '../canvas/ops';
 import { emptyGraph, HEADER_H, type GraphDoc } from '../canvas/model';
 import { portsOf } from '../canvas/kinds';
 import { newProject } from '../core/project/create';
@@ -23,7 +23,12 @@ import { callWorld, entityGame, visibleLength } from './game';
 import { freeKey, isGameKey, keyProblem, suggestKey } from './gameKey';
 import { addCueMark, addStyleMark, cueAt, plotSources, textMarksOn, toggleBold } from './marks';
 import { graphOf, textMarks, toward, towardValue, type StoryNode } from './model';
-import { createBarksGraph, removeLine, setInterruptExit, setLineFields, updateLine } from './ops';
+import { createBarksGraph, removeLine, renewParts, setInterruptExit, setLineFields, updateLine } from './ops';
+import { searchLines } from './lineSearch';
+import { companionTalk, type CompanionWords } from './templates';
+import { parseTranslations, translationsOf } from './translation';
+import { BASE_CPS, syllableEnd, typedAt, typing } from './typing';
+import { conversationScript, talkOrder } from '../ui/story/script';
 import { emptyPalette, notInPalette, parsePalette } from './palette';
 import { playAct, playActions, playSetItem, startPlay, type PlayAction, type PlayState } from './play';
 import { applyStamps, editStamps, graphTransfer, nodeTransfer, parseImport, transferChanges } from './transfer';
@@ -670,5 +675,211 @@ describe('export (0.8 fields)', () => {
       pitch: null,
       faces: ['neutral', 'angry'],
     });
+  });
+});
+
+// ---------- section В of the spec ----------
+
+describe('the line typed out as in the game (19)', () => {
+  const syllables = (word: string) => {
+    const out: string[] = [];
+    for (let i = 0; i < word.length;) {
+      const j = syllableEnd(word, i);
+      out.push(word.slice(i, j));
+      i = j;
+    }
+    return out;
+  };
+
+  it('splits words into syllables the Russian way', () => {
+    expect(syllables('потревожил')).toEqual(['по', 'тре', 'во', 'жил']);
+    expect(syllables('кольцо')).toEqual(['коль', 'цо']);
+    expect(syllables('покой?')).toEqual(['по', 'кой', '?']);
+  });
+
+  it('letters at the base speed; faster words, words at once, pauses, hidden effects', () => {
+    const plain = typing('Ab cd', []);
+    expect(plain.steps.map((s) => s.upto)).toEqual([1, 2, 3, 4, 5]);
+    expect(plain.total).toBeCloseTo((5 / BASE_CPS) * 1000);
+
+    const mark = (props: Record<string, unknown>, start: number, end: number, device = 'style') =>
+      ({
+        id: `m${start}`,
+        device,
+        anchor: { kind: 'line', id: 'l' },
+        range: { start, end, quote: 'Ab cd'.slice(start, end) },
+        props,
+      }) as never;
+    const fast = typing('Ab cd', [mark({ speed: 2 }, 0, 2)]);
+    expect(fast.total).toBeCloseTo((4 / BASE_CPS) * 1000);
+    const words = typing('Ab cd', [mark({ reveal: 'word' }, 0, 5)]);
+    expect(words.steps.map((s) => s.upto)).toEqual([3, 5]);
+    const instant = typing('Ab cd', [mark({ reveal: 'instant' }, 3, 5)]);
+    expect(instant.steps.map((s) => s.upto)).toEqual([1, 2, 3, 5]);
+
+    const cues = typing('Ab cd', [mark({ pause: 0.5 }, 2, 2, 'cue'), mark({ shake: 2 }, 3, 3, 'cue')]);
+    expect(cues.total).toBeCloseTo((5 / BASE_CPS) * 1000 + 500);
+    expect(cues.steps.find((s) => s.cue)).toMatchObject({ upto: 3, cue: { shake: 2 } });
+    expect(typedAt(cues, 0).upto).toBe(0);
+    expect(typedAt(cues, (2 / BASE_CPS) * 1000 + 100).upto).toBe(2); // held by the pause
+    expect(typedAt(cues, cues.total)).toMatchObject({ upto: 5, cues: [{ cue: { shake: 2 } }] });
+
+    const effect = typing('Hi {x = 1}!', []);
+    expect(effect.hidden).toEqual([{ start: 3, end: 10 }]);
+    expect(effect.total).toBeCloseTo((4 / BASE_CPS) * 1000);
+  });
+});
+
+describe("the game's translations (20)", () => {
+  it('reads the file and tells a line changed after its translation', () => {
+    const { translations, ok } = parseTranslations(
+      JSON.stringify({
+        en: { l1: 'Who disturbed my rest?', l3: { text: 'Leave!', at: '2026-11-12T10:00:00Z' }, bad: 5 },
+        'not a language': { l1: 'x' },
+      }),
+    );
+    expect(ok).toBe(true);
+    expect(Object.keys(translations)).toEqual(['en']);
+    expect(translationsOf(translations, 'l1')).toEqual([{ lang: 'en', text: 'Who disturbed my rest?', stale: false }]);
+    expect(translationsOf(translations, 'l3', '2026-11-13T00:00:00Z')[0].stale).toBe(true);
+    expect(translationsOf(translations, 'l3', '2026-11-11T00:00:00Z')[0].stale).toBe(false);
+    expect(translationsOf(translations, 'bad')).toEqual([]);
+    expect(parseTranslations(null)).toEqual({ translations: {}, ok: true });
+    expect(parseTranslations('[1]').ok).toBe(false);
+  });
+});
+
+describe('a copy of a node and a template (21)', () => {
+  it('copied lines and options get ids of their own; marks, exits and видел() follow', () => {
+    const data = produce(talk(), (d) => {
+      addStyleMark(node(d, 'hello'), 'l3', { start: 0, end: 5 }, { bold: true });
+    });
+    const g0 = graphOf(data, G)!;
+    const clip = copySelection(g0, {
+      nodes: new Set(['hello', 'ask', 'thanks', 'rude']),
+      edges: new Set(),
+      groups: new Set(),
+    })!;
+    const pasted = produce(data, (d) => {
+      const g = graphOf(d, G)!;
+      const { nodes } = pasteClipboard(g, clip, { x: 0, y: 900 });
+      renewParts([{ g, nodes: g.nodes.filter((n) => nodes.includes(n.id)) }]);
+    });
+    const g = graphOf(pasted, G)!;
+    const copies = g.nodes.slice(-4).map((n) => n as StoryNode);
+    const [hello, ask, thanks] = copies;
+    const oldIds = ['l1', 'l2', 'l3', 'o-give', 'o-hire', 'o-wait', 't1', 'r1'];
+    const newIds = copies.flatMap((n) => [...(n.lines ?? []), ...(n.options ?? [])].map((p) => p.id));
+    expect(newIds).toHaveLength(8);
+    expect(newIds.some((id) => oldIds.includes(id))).toBe(false);
+    // The look of words follows its line; the interrupted exit and the options' exits leave their new ports.
+    expect(textMarks(hello)).toMatchObject([{ anchor: { kind: 'line', id: hello.lines![2].id } }]);
+    expect(g.edges.filter((e) => e.from.node === hello.id).map((e) => e.from.port)).toEqual([
+      'out',
+      hello.lines![2].id,
+    ]);
+    // Only edges between copied nodes come along: "call the Shadow" goes back to the copied choice.
+    expect(g.edges.filter((e) => e.from.node === ask.id).map((e) => [e.from.port, e.to.node])).toEqual([
+      [ask.options![1].id, ask.id],
+    ]);
+    // видел(o-give) in the copy asks about the copied option; the original is untouched.
+    expect(thanks.lines![0].condition).toBe(`непусто(подношения) и видел(${ask.options![0].id})`);
+    expect(node(pasted, 'thanks').lines![0].condition).toBe('непусто(подношения) и видел(o-give)');
+    expect(checkProject(pasted).filter((p) => p.severity === 'error')).toEqual([]);
+  });
+
+  it('"a talk with a companion" is connected and checks clean once it is entered', () => {
+    const words = {
+      opening: { title: 'A', lines: ['1', '2', '3'] as [string, string, string] },
+      choice: { title: 'B', prompt: '?', options: ['x', 'y', 'z'] as [string, string, string] },
+      replies: [
+        { title: 'C1', line: 'c1' },
+        { title: 'C2', line: 'c2' },
+        { title: 'C3', line: 'c3' },
+      ] as CompanionWords['replies'],
+      end: 'E',
+    };
+    const piece = companionTalk({ x: 0, y: 0 }, { companion: 'shadow', hero: 'hero' }, words);
+    expect(piece.nodes.map((n) => n.kind)).toEqual(['dialogue', 'choice', 'dialogue', 'dialogue', 'dialogue', 'end']);
+    expect(piece.edges).toHaveLength(7);
+    const opening = piece.nodes[0] as StoryNode;
+    expect(opening.lines!.map((l) => l.speaker)).toEqual(['shadow', 'hero', 'shadow']);
+    const data = produce(talk(), (d) => {
+      const g = graphOf(d, G)!;
+      g.nodes.push(...piece.nodes);
+      g.edges.push(...piece.edges);
+      g.edges.push({ id: 'into', from: { node: 'rude', port: 'bottom' }, to: { node: opening.id, port: 'in' } });
+    });
+    const mine = new Set(piece.nodes.map((n) => n.id));
+    expect(checkProject(data).filter((p) => p.node && mine.has(p.node))).toEqual([]);
+  });
+});
+
+describe('search over the lines (22)', () => {
+  const data = talk();
+  const found = (q: Parameters<typeof searchLines>[1]) =>
+    searchLines(data, q).map((h) => `${h.node}/${h.part?.id ?? '-'}:${h.reasons.join('+')}`);
+
+  it('by words and by who speaks', () => {
+    expect(found({})).toEqual([]);
+    expect(found({ text: 'КОЛЬЦ' })).toEqual(['hello/l2:']);
+    expect(found({ text: 'подношение' })).toEqual(['ask/o-give:']);
+    expect(found({ speaker: 'skeleton' })).toEqual(['hello/l1:', 'hello/l3:', 'thanks/t1:']);
+    expect(found({ speaker: 'skeleton', text: 'щедро' })).toEqual(['thanks/t1:']);
+    expect(found({ text: 'кольц', graph: 'elsewhere' })).toEqual([]);
+  });
+
+  it('where an item, a character or a variable is used', () => {
+    expect(found({ uses: { kind: 'entity', id: 'ring' } })).toEqual(['hello/l2:condition', 'ask/o-give:condition']);
+    expect(found({ uses: { kind: 'entity', id: 'shadow' } })).toEqual(['ask/o-hire:condition+action']);
+    expect(found({ uses: { kind: 'entity', id: 'hero' } })).toEqual([
+      'hello/l2:speaker',
+      'hello/l3:to',
+      'rude/r1:speaker',
+    ]);
+    expect(found({ uses: { kind: 'variable', id: 'v-respect' } })).toEqual([
+      'hello/l2:text',
+      'hello/l3:effects',
+      'ask/o-wait:effects',
+      'offer/-:effects',
+    ]);
+    expect(found({ uses: { kind: 'variable', id: 'v-gifts' } })).toEqual(['offer/-:keep', 'thanks/t1:condition']);
+    expect(found({ uses: { kind: 'variable', id: 'v-respect' }, text: 'уходи' })).toEqual(['hello/l3:effects']);
+  });
+});
+
+describe('the conversation as plain text (23)', () => {
+  it('reads like a script, in the order the talk goes', () => {
+    const { palette } = parsePalette(JSON.stringify({ styles: [{ id: 'whisper', name: 'шёпотом' }] }));
+    const data = produce(talk(), (d) => {
+      addCueMark(node(d, 'hello'), 'l1', 3, { pause: 0.4 });
+    });
+    const text = conversationScript(data, G, palette);
+    const lines = text.split('\n');
+    expect(lines[0]).toBe('РАЗГОВОР: Разговор со скелетом (skeleton_talk)');
+    expect(text).toContain('СКЕЛЕТ (шёпотом; лицо: neutral): Кто [пауза 0.4 с] потревожил мой покой?');
+    expect(text).toContain('ГЕРОЙ [если есть(Первое кольцо)]: Я принёс кольцо.');
+    expect(text).not.toContain('уважение += 1');
+    expect(text).toContain('СКЕЛЕТ (эмоция: question → Герой): Уходи, пока цел!');
+    expect(text).toContain('    (перебили → «Перебил»)');
+    expect(text).toContain('— Что сделать? — (выбор; таймер: 10 с)');
+    expect(text).toContain(
+      '  1. Предложить подношение [если есть(Первое кольцо) или есть(Меч); показать один раз] → «Что отдать?»',
+    );
+    expect(text).toContain('  *. (тайный — когда выйдет время) → «Конец»');
+    expect(text).toContain('  отдал → «Подношение»; отказался → «Что сделать?»');
+    // The order the talk goes: the greeting before the choice, the choice before what it leads to.
+    const at = (s: string) => lines.findIndex((l) => l.startsWith(s));
+    expect(at('— Приветствие —')).toBeLessThan(at('— Что сделать?'));
+    expect(at('— Что сделать?')).toBeLessThan(at('— Что отдать?'));
+    expect(talkOrder(graphOf(data, G)!).map((n) => n.id)).toEqual([
+      'start',
+      'hello',
+      'ask',
+      'offer',
+      'thanks',
+      'end',
+      'rude',
+    ]);
   });
 });

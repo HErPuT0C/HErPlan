@@ -7,6 +7,9 @@ import {
   Diamond,
   ClipboardCopy,
   FileJson,
+  FileText,
+  LayoutTemplate,
+  TextSearch,
   GitBranch,
   ListChecks,
   MessagesSquare,
@@ -61,6 +64,7 @@ import {
   deleteChapterGraphs,
   newStoryGraph,
   pasteChapterGraphs,
+  renewParts,
   storyNode,
 } from '../../story/ops';
 import { startPlay } from '../../story/play';
@@ -71,13 +75,16 @@ import { DeviceIcon } from '../canvas/kindIcons';
 import { StoryContext, storyIndex, type IncomingLink, type StoryActions } from './context';
 import { Inspector, type InspectFocus } from './Inspector';
 import { PlayPanel, type PlayHistory } from './PlayPanel';
+import { CompanionTemplate } from './CompanionTemplate';
+import { LineSearchPanel } from './LineSearchPanel';
 import { ProblemsPanel } from './ProblemsPanel';
+import { conversationScript } from './script';
 import { taskText } from './task';
 import { TransferBadge } from './TransferBadge';
 import './cards';
 import './story.css';
 
-type Side = 'inspector' | 'play' | 'problems' | 'dialogue' | null;
+type Side = 'inspector' | 'play' | 'problems' | 'dialogue' | 'search' | null;
 
 /** Where to go once the canvas of a graph is ready. */
 interface Pending {
@@ -210,6 +217,8 @@ function StoryWorkspace({
   /** What "check the dialogue" found in the conversation on the canvas (0.8). */
   const [dialogueCheck, setDialogueCheck] = useState<Problem[]>([]);
   const game = useGameFiles(project.dir);
+  // The script export is defined below the actions that offer it; they reach it through this.
+  const exportScriptRef = useRef<() => Promise<void>>(async () => {});
   const pending = useRef<Pending | null>(null);
   const exists = useStore(store, (s) => !!s.graphs[graphId]);
   const path = useStore(store, (s) => graphPath(s, graphId).join('/'));
@@ -293,6 +302,7 @@ function StoryWorkspace({
       },
       task: copyTask,
       check: runCheck,
+      script: () => void exportScriptRef.current(),
       inspect: (nodeId, field) => {
         setSide('inspector');
         go({ graph: current, node: nodeId, field: field ?? 'title' });
@@ -364,8 +374,12 @@ function StoryWorkspace({
         const graphs = chapterGraphsOf(data, clip.nodes);
         if (graphs.length) clip.graphs = graphs;
       },
-      paste: (d, nodes, clip, ids) =>
-        pasteChapterGraphs(d, nodes, clip.graphs ?? [], { from: clip.source, to: current, ids }),
+      paste: (d, nodes, clip, ids) => {
+        pasteChapterGraphs(d, nodes, clip.graphs ?? [], { from: clip.source, to: current, ids });
+        // Copies of lines and options get ids of their own; their marks and exits follow (0.8).
+        const g = graphOf(d, current);
+        if (g) renewParts([{ g, nodes }]);
+      },
     }),
     [current],
   );
@@ -401,6 +415,22 @@ function StoryWorkspace({
         return [
           { id: 'play', label: t('play.thisCanvas'), icon: <Play size={16} />, onSelect: () => startRun() },
           { id: 'play-all', label: t('play.fromStart'), icon: <Play size={16} />, onSelect: () => startRun({}) },
+          ...(readOnly
+            ? []
+            : [
+                {
+                  id: 'template-companion',
+                  label: t('template.companion.menu'),
+                  icon: <LayoutTemplate size={16} />,
+                  onSelect: () => setTemplateAt(world),
+                },
+              ]),
+          {
+            id: 'script',
+            label: t('script.export'),
+            icon: <FileText size={16} />,
+            onSelect: () => void exportScript(),
+          },
         ];
       }
       if (target.kind === 'edge') {
@@ -496,6 +526,28 @@ function StoryWorkspace({
       toast({ kind: 'error', text: errorText(e) });
     }
   };
+
+  /** The conversation on the canvas as plain text, a script (0.8). */
+  const exportScript = async () => {
+    const data = store.getState();
+    const g = graphOf(data, current);
+    const name = (graphKey(g) || graphTitle(data, current) || g?.name || 'dialogue').replace(/[\\/:*?"<>|]+/g, '_');
+    const dir = await platform().joinPath(project.dir, `${name}.txt`);
+    const target = await platform().pickSaveFile(t('script.exportTitle'), dir, [
+      { name: t('script.filter'), extensions: ['txt'] },
+    ]);
+    if (!target) return;
+    try {
+      await platform().exportText(target, conversationScript(data, current, gameFiles.get().palette));
+      toast({ kind: 'success', text: t('story.export.done', { path: target }) });
+    } catch (e) {
+      toast({ kind: 'error', text: errorText(e) });
+    }
+  };
+  const [templateAt, setTemplateAt] = useState<{ x: number; y: number } | null>(null);
+  useLayoutEffect(() => {
+    exportScriptRef.current = exportScript;
+  });
 
   const addTestChapter = () => {
     if (!engine || readOnly) return;
@@ -609,6 +661,13 @@ function StoryWorkspace({
             <Button size="sm" variant="ghost" icon={<FileJson size={14} />} onClick={() => void exportStory()}>
               {t('story.export.button')}
             </Button>
+            <IconButton
+              size="sm"
+              label={t('search.lines.title')}
+              icon={<TextSearch size={16} />}
+              pressed={side === 'search'}
+              onClick={() => setSide(side === 'search' ? 'inspector' : 'search')}
+            />
             <MenuButton
               label={t('story.more')}
               variant="ghost"
@@ -650,6 +709,7 @@ function StoryWorkspace({
             <aside className="story-side" aria-label={t('story.side')}>
               {side === 'inspector' && <Inspector engine={engine} focus={focus} />}
               {side === 'problems' && <ProblemsPanel />}
+              {side === 'search' && <LineSearchPanel engine={engine} onClose={() => setSide('inspector')} />}
               {side === 'dialogue' && (
                 <ProblemsPanel
                   list={dialogueCheck}
@@ -674,6 +734,18 @@ function StoryWorkspace({
           )}
         </div>
       </div>
+      {templateAt && (
+        <CompanionTemplate
+          at={templateAt}
+          onClose={() => setTemplateAt(null)}
+          onDone={(nodes) => {
+            if (!engine) return;
+            engine.select({ nodes: new Set(nodes), edges: new Set(), groups: new Set() });
+            // The whole template in view: it is wider than the place it was asked for.
+            requestAnimationFrame(() => engine.fitSelection());
+          }}
+        />
+      )}
     </StoryContext.Provider>
   );
 }

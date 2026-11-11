@@ -1,5 +1,5 @@
-// The two files the game side keeps in the project folder (0.8): the palette HErPlan offers in the dialogue
-// editor, and what was carried over into the game. HErPlan only reads them: when a project opens, when the
+// The files the game side keeps in the project folder (0.8): the palette HErPlan offers in the dialogue
+// editor, what was carried over into the game, and the game's translations of the lines. HErPlan only reads them: when a project opens, when the
 // window gets the focus back (the files are written by another program), and when asked.
 
 import { useEffect } from 'react';
@@ -8,6 +8,7 @@ import { useAtom } from '../core/useStore';
 import { platform } from '../platform';
 import { EMPTY_PALETTE, PALETTE_FILE, parsePalette, type Palette } from '../story/palette';
 import { IMPORT_FILE, parseImport, type ImportStatus } from '../story/transfer';
+import { parseTranslations, TRANSLATIONS_FILE, type Translations } from '../story/translation';
 
 export interface GameFiles {
   /** The project folder these were read from. */
@@ -18,6 +19,9 @@ export interface GameFiles {
   paletteOk: boolean;
   status: ImportStatus;
   statusOk: boolean;
+  /** Lines in the game's other languages, by line or option id. */
+  translations: Translations;
+  translationsOk: boolean;
 }
 
 const NONE: GameFiles = {
@@ -27,24 +31,31 @@ const NONE: GameFiles = {
   paletteOk: true,
   status: {},
   statusOk: true,
+  translations: {},
+  translationsOk: true,
 };
 
 export const gameFiles = atom<GameFiles>(NONE);
 
 let reading: string | null = null;
 
-/** Reads both files of a project again; what was read before stays until the new is there. */
+/** Reads the files of a project again; what was read before stays until the new is there. */
 export async function loadGameFiles(dir: string): Promise<void> {
   reading = dir;
   const read = (path: string) =>
     platform()
       .readProjectFile(dir, path)
       .catch(() => null);
-  const [paletteText, statusText] = await Promise.all([read(PALETTE_FILE), read(IMPORT_FILE)]);
+  const [paletteText, statusText, translationsText] = await Promise.all([
+    read(PALETTE_FILE),
+    read(IMPORT_FILE),
+    read(TRANSLATIONS_FILE),
+  ]);
   // Another project was opened meanwhile.
   if (reading !== dir) return;
   const palette = parsePalette(paletteText);
   const status = parseImport(statusText);
+  const translations = parseTranslations(translationsText);
   const next: GameFiles = {
     dir,
     palette: palette.palette,
@@ -52,6 +63,8 @@ export async function loadGameFiles(dir: string): Promise<void> {
     paletteOk: palette.ok,
     status: status.status,
     statusOk: status.ok,
+    translations: translations.translations,
+    translationsOk: translations.ok,
   };
   // The same content: keep the same object, so nothing is drawn again.
   if (JSON.stringify(next) !== JSON.stringify(gameFiles.get())) gameFiles.set(next);

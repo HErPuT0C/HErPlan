@@ -431,3 +431,279 @@
   align-items: center;
   gap: 4px;
 }
+
+/* --- 0.8, section В: the preview "as in the game" --- */
+.typing {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.typing-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.typing-speaker {
+  font-size: var(--fs-md, 15px);
+}
+.typing-position {
+  margin-left: auto;
+}
+.typing-chip,
+.typing-cue {
+  cursor: default;
+}
+.typing-cue {
+  border-color: var(--accent);
+  color: var(--accent);
+  animation: typing-cue-in 160ms ease-out;
+}
+.typing-box {
+  min-height: 96px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  font-size: 17px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.typing-box:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.typing-box .hl-style {
+  box-shadow: none;
+}
+.typing-box .hl-bold {
+  font-weight: 700;
+}
+.typing-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  margin-left: 1px;
+  background: var(--accent);
+  vertical-align: text-bottom;
+  animation: typing-blink 0.9s steps(1) infinite;
+}
+.typing-shake {
+  animation: typing-shake 0.35s linear;
+}
+.typing-cues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 24px;
+}
+.typing-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.typing-foot > .muted {
+  margin-right: auto;
+}
+/* Effects of the palette the preview knows by their usual ids. */
+.fx {
+  display: inline-block;
+}
+.fx-shake,
+.fx-twitch {
+  animation: fx-shake 0.25s linear infinite;
+}
+.fx-twitch {
+  animation-duration: 0.9s;
+}
+.fx-wave {
+  animation: fx-wave 1.2s ease-in-out infinite;
+}
+.fx-rainbow {
+  animation: fx-rainbow 2s linear infinite;
+}
+.fx-push {
+  animation: fx-push 0.4s ease-out;
+}
+.fx-slide {
+  animation: fx-slide 0.4s ease-out;
+}
+@keyframes typing-blink {
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes typing-shake {
+  0%,
+  100% {
+    translate: 0;
+  }
+  20% {
+    translate: -4px 1px;
+  }
+  40% {
+    translate: 4px -1px;
+  }
+  60% {
+    translate: -3px 0;
+  }
+  80% {
+    translate: 3px 1px;
+  }
+}
+@keyframes typing-cue-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+@keyframes fx-shake {
+  25% {
+    translate: -1px 1px;
+  }
+  50% {
+    translate: 1px -1px;
+  }
+  75% {
+    translate: -1px -1px;
+  }
+}
+@keyframes fx-wave {
+  50% {
+    translate: 0 -3px;
+  }
+}
+@keyframes fx-rainbow {
+  to {
+    filter: hue-rotate(360deg);
+  }
+}
+@keyframes fx-push {
+  from {
+    scale: 1.4;
+  }
+}
+@keyframes fx-slide {
+  from {
+    opacity: 0;
+    translate: 8px 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fx,
+  .typing-shake,
+  .typing-cue,
+  .typing-caret {
+    animation: none;
+  }
+}
+
+/* --- the game's translation of a line --- */
+.translation {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.translation-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.translation-lang {
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: help;
+}
+.translation-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.translation-stale {
+  outline: 1px dashed var(--warning);
+}
+
+/* --- search over the lines --- */
+.line-search > .input {
+  height: var(--control-h-sm);
+}
+.line-search-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.line-search-filters select.input {
+  flex: 1 1 140px;
+  min-width: 0;
+  height: var(--control-h-sm);
+  font-size: var(--fs-xs);
+}
+.line-search-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.line-search-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.line-search-node {
+  padding: 0 4px 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.line-search-hit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.line-search-hit:hover,
+.line-search-hit:focus-visible {
+  border-color: var(--line);
+  background: var(--surface-2);
+}
+.line-search-who {
+  flex: none;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.line-search-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.line-search-text mark {
+  border-radius: 2px;
+  background: var(--accent-soft);
+  color: inherit;
+}
+.line-search-why {
+  flex-basis: 100%;
+}

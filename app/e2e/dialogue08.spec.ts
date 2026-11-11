@@ -417,3 +417,123 @@ test('the description of a tag grows with its text instead of running over what 
   expect(fits).toBe(true);
   expect(errors).toEqual([]);
 });
+
+// ---------- section В: preview, translation, copy, template, search, script ----------
+
+/** A conversation with one dialogue of two lines, the first with a bold word and a pause. */
+async function talkOnCanvas(page: Page) {
+  const inspector = page.getByRole('complementary', { name: 'Боковая панель сценария' });
+  await inspector.getByLabel('Имя в игре').fill('gate_talk');
+  const start = page.locator('.cnode[data-kind="start"]');
+  await pull(page, start, '.cnode-port[data-port="out"]', 120, 0, 'Диалог');
+  await inspector.getByRole('button', { name: 'Добавить реплику' }).click();
+  await inspector.getByRole('button', { name: 'Добавить реплику' }).click();
+  await inspector.getByLabel('Реплика 1').fill('Стой, кто идёт к воротам?');
+  await inspector.getByLabel('Реплика 2').fill('Свои. Открывай.');
+  const text = inspector.getByLabel('Реплика 1');
+  await text.focus();
+  await text.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(10, 14));
+  await page.keyboard.press('Control+b');
+  await text.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(4, 4));
+  await page.keyboard.press('Control+p');
+  return inspector;
+}
+
+test('section В: a line typed as in the game; the game translation beside it; a copy keeps its marks', async ({
+  page,
+}) => {
+  const { errors } = await newStory(page, 'Ворота');
+  const inspector = await talkOnCanvas(page);
+
+  // The preview: the text comes out bit by bit; a click shows it all; the bold word stays bold.
+  await inspector.locator('.iline').first().getByRole('button', { name: 'Просмотр реплики как в игре' }).click();
+  const preview = page.getByRole('dialog', { name: /Как в игре/ });
+  const box = preview.locator('.typing-box');
+  await expect(box).toBeVisible();
+  await expect(box).not.toHaveText('Стой, кто идёт к воротам?');
+  await box.click();
+  await expect(box).toHaveText('Стой, кто идёт к воротам?');
+  await expect(box.locator('.hl-bold')).toHaveText('идёт');
+  await shot(page, 'v1-preview');
+  await preview.getByRole('button', { name: 'Закрыть', exact: true }).last().click();
+  await expect(preview).toHaveCount(0);
+  // All the lines one after another.
+  await inspector.getByRole('button', { name: 'Просмотр реплик', exact: true }).click();
+  await expect(preview.locator('.typing-position')).toHaveText('реплика 1 из 2');
+  await preview.locator('.typing-box').click();
+  await preview.getByRole('button', { name: 'Далее' }).click();
+  await expect(preview.locator('.typing-position')).toHaveText('реплика 2 из 2');
+  await page.keyboard.press('Escape');
+
+  // The game puts its translation of the first line into the project.
+  const [{ graph }] = await graphs(page);
+  const line = (graph.nodes.find((n) => n.kind === 'dialogue') as { lines: { id: string }[] }).lines[0].id;
+  await withFiles(page, 'Ворота', (dir, files) => ({
+    ...files,
+    [`${dir}/data/dialogue_translations.json`]: JSON.stringify({ en: { [line]: 'Halt, who goes to the gate?' } }),
+  }));
+  await page.locator('.cnode[data-kind="dialogue"]').click();
+  await expect(inspector.locator('.translation-row').first()).toContainText('ENHalt, who goes to the gate?');
+
+  // Ctrl+D: the copy has its marks, on lines of its own.
+  await page.locator('.cnode[data-kind="dialogue"]').click();
+  await page.keyboard.press('Control+d');
+  await expect(page.locator('.cnode[data-kind="dialogue"]')).toHaveCount(2);
+  const after = (await graphs(page))[0].graph;
+  const dialogues = after.nodes.filter((n) => n.kind === 'dialogue') as {
+    lines: { id: string }[];
+    marks: { device: string; anchor: { id: string } }[];
+  }[];
+  expect(dialogues[1].marks.map((m) => m.device)).toEqual(['style', 'cue']);
+  expect(dialogues[1].lines[0].id).not.toBe(dialogues[0].lines[0].id);
+  expect(dialogues[1].marks[0].anchor.id).toBe(dialogues[1].lines[0].id);
+  expect(errors).toEqual([]);
+});
+
+test('section В: a talk with a companion from a template; the lines searched; the talk saved as text', async ({
+  page,
+}) => {
+  const { errors } = await newStory(page, 'Привал');
+  page.on('dialog', (d) => void d.accept('/Documents/HErPlan/privaL.txt'));
+  const canvas = page.getByRole('application', { name: 'Холст' });
+  const box = (await canvas.boundingBox())!;
+  await page.mouse.click(box.x + 120, box.y + box.height - 120, { button: 'right' });
+  await page.getByRole('menuitem', { name: 'Шаблон: разговор с напарником…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Разговор с напарником' });
+  await dialog.getByRole('button', { name: 'Поставить' }).click();
+  await expect(page.locator('.cnode[data-kind="dialogue"]')).toHaveCount(4);
+  await expect(page.locator('.cnode[data-kind="choice"]')).toHaveCount(1);
+  await expect(page.locator('.cnode[data-kind="end"]')).toHaveCount(1);
+  await shot(page, 'v2-template');
+
+  // Search: the words of a line; the canvas lights what was found; a click leads to the line.
+  await page.getByRole('button', { name: 'Поиск по репликам' }).click();
+  const panel = page.locator('.line-search');
+  await panel.getByLabel('Слова реплики').fill('шуточки');
+  await expect(panel.getByRole('status')).toHaveText('Найдена 1 строка');
+  await expect(page.locator('.cnode-found')).toHaveCount(1);
+  await shot(page, 'v3-search');
+  await panel.getByRole('button', { name: /шуточки/ }).click();
+  const inspector = page.getByRole('complementary', { name: 'Боковая панель сценария' });
+  await expect(inspector.getByLabel('Реплика 1')).toHaveValue('Ну да, тебе всё шуточки.');
+  // Where a variable is used.
+  await page.getByRole('button', { name: 'Поиск по репликам' }).click();
+  await panel.getByLabel('Слова реплики').fill('');
+  await expect(panel.getByText('Введите слова')).toBeVisible();
+
+  // The talk as text.
+  await page.mouse.click(box.x + 60, box.y + 60, { button: 'right' });
+  await page.getByRole('menuitem', { name: 'Текст разговора' }).click();
+  await expect(page.getByText(/сохранён/)).toBeVisible();
+  const text = await page.evaluate(
+    () =>
+      (JSON.parse(localStorage.getItem('herplan.web.fs.v1') ?? '{}') as { files: Record<string, string> }).files[
+        '/Documents/HErPlan/privaL.txt'
+      ],
+  );
+  expect(text).toContain('РАЗГОВОР: Сценарий');
+  expect(text).toContain('— Как ответить? — (выбор)');
+  expect(text).toContain('  2. Отшутиться → «Отшутился»');
+  expect(text).toContain('Ну да, тебе всё шуточки.');
+  expect(errors).toEqual([]);
+});
