@@ -30,7 +30,9 @@ concurrency:
 
 jobs:
   web:
-    runs-on: ubuntu-latest
+    # Not "latest": Playwright installs the system libraries of Chromium only for the Ubuntu releases it knows,
+    # and the version pinned in package.json does not know 26.04 yet. Move this with the Playwright version.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: app
