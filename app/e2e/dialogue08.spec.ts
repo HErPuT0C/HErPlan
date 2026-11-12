@@ -475,6 +475,11 @@ test('section В: a line typed as in the game; the game translation beside it; a
   await preview.locator('.typing-box').click();
   await preview.getByRole('button', { name: 'Далее' }).click();
   await expect(preview.locator('.typing-position')).toHaveText('реплика 2 из 2');
+  // "Again" plays the conversation from its first line (0.8.2), typing it anew.
+  await preview.locator('.typing-box').click();
+  await preview.getByRole('button', { name: 'Сначала' }).click();
+  await expect(preview.locator('.typing-position')).toHaveText('реплика 1 из 2');
+  expect(await preview.locator('.typing-box [data-out]').count()).toBeLessThan(25);
   await page.keyboard.press('Escape');
 
   // The game puts its translation of the first line into the project.

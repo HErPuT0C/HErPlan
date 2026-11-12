@@ -191,7 +191,8 @@ function Code({ source, placeholder }: { source: string | undefined; placeholder
 }
 
 function DialogueBody({ node }: CardBodyProps) {
-  const { project } = useStory();
+  const story = useStory();
+  const { project } = story;
   const entities = useStore(project.store, (s) => s.entities);
   const limit = useStore(project.store, (s) => s.meta.settings.dialogueLimits.maxLineChars);
   const { palette } = useAtom(gameFiles);
@@ -211,6 +212,12 @@ function DialogueBody({ node }: CardBodyProps) {
           <div
             key={line.id}
             className={['cline', visibleLength(line.text) > limit && 'cline-long'].filter(Boolean).join(' ')}
+            data-line={line.id}
+            // A double click on a line opens it in the big window of a line (0.8.2), not only the side panel.
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              story.openLine(node.id, line.id);
+            }}
           >
             <span
               className={['cline-speaker', !card && 'cline-narrator', !line.speaker && 'cline-nobody']

@@ -30,6 +30,8 @@ export interface StoryActions {
   check: () => void;
   /** Saves the conversation on the canvas as plain text, a script (0.8). */
   script: () => void;
+  /** Opens a line of a dialogue node in the big window of a line (0.8.2, "Редактор реплик" 4). */
+  openLine: (nodeId: string, lineId: string) => void;
 }
 
 export const StoryContext = createContext<StoryActions | null>(null);

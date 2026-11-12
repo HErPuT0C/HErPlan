@@ -9,7 +9,9 @@ interface DialogProps {
   title: string;
   children: ReactNode;
   footer?: ReactNode;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
+  /** Buttons in the header, before "close" (the window of a line: previous, next). */
+  actions?: ReactNode;
   /** Escape and a click outside close the dialog; off while an action is running. */
   dismissable?: boolean;
   className?: string;
@@ -20,7 +22,16 @@ export function Dialog(props: DialogProps) {
   return props.open ? <OpenDialog {...props} /> : null;
 }
 
-function OpenDialog({ onClose, title, children, footer, size = 'md', dismissable = true, className }: DialogProps) {
+function OpenDialog({
+  onClose,
+  title,
+  children,
+  footer,
+  size = 'md',
+  dismissable = true,
+  className,
+  actions,
+}: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const pressedOnBackdrop = useRef(false);
   const titleId = useId();
@@ -53,6 +64,7 @@ function OpenDialog({ onClose, title, children, footer, size = 'md', dismissable
       <div className="dialog-inner">
         <header className="dialog-header">
           <h2 id={titleId}>{title}</h2>
+          {actions}
           <IconButton label={t('common.close')} icon={<X size={18} />} onClick={onClose} disabled={!dismissable} />
         </header>
         <div className="dialog-body">{children}</div>

@@ -13,6 +13,7 @@ import {
   ChevronRight,
   ClipboardCopy,
   MapPinPlus,
+  Maximize2,
   Paintbrush,
   Play,
   Trash,
@@ -140,6 +141,7 @@ export function LineRow({
   entities,
   people,
   readOnly,
+  windowed,
 }: {
   line: DialogueLine;
   index: number;
@@ -150,8 +152,10 @@ export function LineRow({
   /** Who speaks in this conversation: whom an emote, a gesture or a face can belong to. */
   people: string[];
   readOnly: boolean;
+  /** In the window of a line (0.8.2): the scene is above it, everything is open. */
+  windowed?: boolean;
 }) {
-  const { project, edit, task } = useStory();
+  const { project, edit, task, openLine } = useStory();
   const { palette, translations } = useAtom(gameFiles);
   const types = useStore(project.store, (s) => s.types);
   const noPalette = !palette.loaded;
@@ -176,7 +180,7 @@ export function LineRow({
     !!line.effects ||
     !!line.actions?.length ||
     !!line.note;
-  const [open, setOpen] = useState(hasMore);
+  const [open, setOpen] = useState(hasMore || !!windowed);
   const change = (recipe: (n: StoryNode) => void, mergeKey?: string) =>
     edit(
       t('story.step.lines'),
@@ -359,13 +363,23 @@ export function LineRow({
         >
           {t('story.lines.chars', { count: chars, max: maxChars })}
         </span>
-        <IconButton
-          size="sm"
-          label={t('preview.line')}
-          icon={<Play size={14} />}
-          disabled={!line.text.trim()}
-          onClick={() => setPreviewing(true)}
-        />
+        {!windowed && (
+          <>
+            <IconButton
+              size="sm"
+              label={t('preview.line')}
+              icon={<Play size={14} />}
+              disabled={!line.text.trim()}
+              onClick={() => setPreviewing(true)}
+            />
+            <IconButton
+              size="sm"
+              label={t('line.expand')}
+              icon={<Maximize2 size={14} />}
+              onClick={() => openLine(nodeId, line.id)}
+            />
+          </>
+        )}
         {!readOnly && (
           <span className="iline-tools">
             <IconButton

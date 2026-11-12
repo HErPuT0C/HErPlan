@@ -873,3 +873,64 @@
 .typing-letter {
   position: relative;
 }
+
+/* --- 0.8.2, "Редактор реплик" step 2: the scene in the game's font and the controls of playing --- */
+.typing-stage {
+  display: flex;
+  justify-content: center;
+  overflow: auto;
+  border-radius: var(--radius-lg);
+  background: #16141b;
+  cursor: pointer;
+}
+.typing-stage:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.game-scene {
+  display: block;
+  max-width: none;
+  image-rendering: pixelated;
+}
+.typing-time {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.typing-slider {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+.typing-clock {
+  min-width: 9ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.typing-foot {
+  flex-wrap: wrap;
+}
+.typing-speeds {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 6px);
+  overflow: hidden;
+}
+.typing-speed {
+  padding: 2px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted, inherit);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.typing-speed[aria-pressed='true'] {
+  background: var(--accent-soft, var(--surface-2));
+  color: var(--text);
+  font-weight: 600;
+}
+.typing-speed:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

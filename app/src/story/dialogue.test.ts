@@ -39,6 +39,7 @@ import { companionTalk, type CompanionWords } from './templates';
 import { parseTranslations, translationsOf } from './translation';
 import { faceAt, gameLine, shownAt, syllables } from './gameLine';
 import { letterMove, noise, shakeAt } from './gameFx';
+import { blips, bubbleSize, layoutText } from './gameLayout';
 import { conversationScript, talkOrder } from '../ui/story/script';
 import {
   actionRef,
@@ -848,8 +849,29 @@ describe('the line typed out as in the game (19; 0.8.1, "Редактор реп
       preview,
     );
     const [k, , , , tt] = line.letters;
-    expect(k.props).toMatchObject({ bold: true, col: '#ff7a4a', fx: ['shake'], cps: 46, shake: 2, face: 'angry' });
-    expect(tt.props).toMatchObject({ bold: false, fx: ['wave'], col: '#ff7a4a' });
+    // Effects add up (0.8.2): the shout's punch stays under the anger's shake, the inner wave joins both.
+    expect(k.props).toMatchObject({
+      bold: true,
+      col: '#ff7a4a',
+      fx: ['punch', 'shake'],
+      cps: 46,
+      shake: 2,
+      face: 'angry',
+    });
+    expect(tt.props).toMatchObject({ bold: false, fx: ['punch', 'shake', 'wave'], col: '#ff7a4a' });
+    // A shout inside a line in anger: orange, bold, by words, trembling and punching; an effect is not doubled.
+    const inAnger = times(
+      text,
+      [mark(text, { style: 'shout' }, 0, 3), mark(text, { effect: 'shake' }, 0, 3)],
+      'anger',
+      preview,
+    );
+    expect(inAnger.letters[0].props).toMatchObject({
+      col: '#ff7a4a',
+      bold: true,
+      reveal: 'word',
+      fx: ['shake', 'punch'],
+    });
     // The shout's own shake goes with every piece it types.
     expect(line.chunks.every((c) => c.shake === 2)).toBe(true);
     expect(faceAt(line, 'sad', 0)).toBe('angry');
@@ -1170,3 +1192,91 @@ describe('who speaks (0.8.1, 2.3)', () => {
 function line3(d: ProjectData) {
   return node(d, 'hello').lines!;
 }
+
+describe('the scene as in the game (0.8.2, 7.3, 7.6, 7.8)', () => {
+  const font = { line_h: 11, cap_top: 2, cap_h: 7 };
+  const mark = (text: string, props: Record<string, unknown>, start: number, end: number) =>
+    ({
+      id: `m${start}-${end}`,
+      device: 'style',
+      anchor: { kind: 'line', id: 'l' },
+      range: { start, end, quote: text.slice(start, end) },
+      props,
+    }) as never;
+  /** Every sign 5 pixels wide, a space 3; ×size, one more ×size when bold. */
+  const advance = (ch: string, size: 1 | 2, bold: boolean) => (ch === ' ' ? 3 : 5) * size + (bold ? size : 0);
+
+  it('lays words out in rows of the width: a word that does not fit goes down whole, no row starts with a space', () => {
+    const line = gameLine('аааа бббб вввв', undefined, [], null);
+    // "аааа бббб" is 20 + 3 + 20 = 43; with " вввв" it would be 66.
+    const lay = layoutText(line.letters, advance, font, 50);
+    expect(lay.rows).toHaveLength(2);
+    const rowOf = (ch: string) => lay.placed.find((p) => p.letter.ch === ch)!;
+    expect(rowOf('б')).toMatchObject({ row: 0, x: 23, y: 0 });
+    expect(rowOf('в')).toMatchObject({ row: 1, x: 0, y: 11 });
+    expect(lay.width).toBe(43);
+    expect(lay.height).toBe(22);
+    // A line break in the text starts a row; the space after it is not drawn.
+    const broken = layoutText(gameLine('аа\n бб', undefined, [], null).letters, advance, font, 190);
+    expect(broken.rows).toHaveLength(2);
+    expect(broken.placed.filter((p) => !p.skip).map((p) => [p.letter.ch, p.row, p.x])).toEqual([
+      ['а', 0, 0],
+      ['а', 0, 5],
+      ['б', 1, 0],
+      ['б', 1, 5],
+    ]);
+  });
+
+  it('a big word makes its row taller and the small letters stand on the bottom of its capitals', () => {
+    const { palette } = parsePalette(JSON.stringify(PALETTE));
+    const text = 'аа ББ';
+    const line = gameLine(text, undefined, [mark(text, { size: 'big', bold: true }, 3, 5)], palette.preview);
+    const lay = layoutText(line.letters, advance, font, 190);
+    expect(lay.rows[0].height).toBe(22);
+    const [a, , , b] = lay.placed;
+    expect(a.y).toBe(9);
+    expect(b.y).toBe(0);
+    // Bold big signs: 5 × 2 + 2.
+    expect(lay.width).toBe(5 + 5 + 3 + 12 + 12);
+  });
+
+  it('the bubble is max(2m, min_w, text + 2·pad_x) wide; the palette gives its shapes', () => {
+    const { palette } = parsePalette(
+      JSON.stringify({
+        ...PALETTE,
+        preview: {
+          ...PALETTE.preview,
+          bubble: { fill: '#100e14', shapes: [{ id: 'oval', frame: 1, m: 10, pad_x: 10, pad_y: 5 }] },
+        },
+      }),
+    );
+    const oval = palette.preview!.bubble.shapes.oval;
+    expect(oval).toEqual({ frame: 1, m: 10, pad_x: 10, pad_y: 5 });
+    expect(palette.preview!.bubble).toMatchObject({ alpha: 0.94, frame_w: 24, tail_w: 9, tail_h: 5 });
+    expect(bubbleSize(100, 22, oval, 28)).toEqual({ w: 120, h: 32 });
+    expect(bubbleSize(4, 11, oval, 28)).toEqual({ w: 28, h: 21 });
+    expect(bubbleSize(0, 0, { frame: 0, m: 12, pad_x: 1, pad_y: 1 }, 10)).toEqual({ w: 24, h: 24 });
+  });
+
+  it('beeps on each piece but punctuation, not more often than blip_gap, the pitch by the letter', () => {
+    const { palette } = parsePalette(JSON.stringify(PALETTE));
+    const preview = { ...palette.preview!, text: { ...palette.preview!.text, blip_gap: 0.055 } };
+    // 32 a second: a letter every 0.03125 s, so every other letter beeps.
+    const line = gameLine('Ааааа', undefined, [], preview);
+    const b = blips(line, preview, 1);
+    expect(b.map((x) => x.time)).toEqual([0, 2 / 32, 4 / 32]);
+    const spread = (ch: string) => 1 + (noise(ch.codePointAt(0)!) - 0.5) * 0.16;
+    expect(b[0].rate).toBeCloseTo(spread('А'));
+    expect(b[1].rate).toBeCloseTo(spread('а'));
+    // Punctuation and spaces are silent; a shout says each word once, low and loud, at the speaker's pitch.
+    expect(blips(gameLine('!?…', undefined, [], preview), preview)).toEqual([]);
+    const shout = gameLine('СТОЙ ТАМ', 'shout', [], {
+      ...preview,
+      styles: { shout: { reveal: 'word', voice_pitch: 0.86, voice_gain: 1.5 } },
+    });
+    const loud = blips(shout, preview, 0.9);
+    expect(loud).toHaveLength(2);
+    expect(loud[0]).toMatchObject({ time: 0, gain: 1.5 });
+    expect(loud[0].rate).toBeCloseTo(0.9 * 0.86 * spread('С'));
+  });
+});

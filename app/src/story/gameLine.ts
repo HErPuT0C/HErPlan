@@ -77,14 +77,18 @@ const base = (p: PalettePreview | null): LetterProps => ({
   face: null,
 });
 
-/** Lays what a style or a mark says over the letter's props: only what it has; "fx" replaces the list. */
+/**
+ * Lays what a style or a mark says over the letter's props: only what it has. Effects add up (0.8.2, the
+ * owner's choice): "shout" inside a line in "anger" punches and still trembles; an effect already on is not
+ * doubled.
+ */
 export function applyLook(p: LetterProps, look: LetterLook | undefined): LetterProps {
   if (!look) return p;
   const out = { ...p };
   if (look.col) out.col = look.col;
   if (typeof look.size === 'number') out.size = look.size >= 2 ? 2 : 1;
   if (typeof look.bold === 'boolean') out.bold = look.bold;
-  if (look.fx) out.fx = [...look.fx];
+  if (look.fx) out.fx = [...out.fx, ...look.fx.filter((f) => !out.fx.includes(f))];
   if (typeof look.cps === 'number') out.cps = look.cps;
   if (typeof look.speed === 'number' && look.speed > 0) out.speed = look.speed;
   if (look.reveal && REVEALS.includes(look.reveal)) out.reveal = look.reveal as Reveal;

@@ -110,7 +110,14 @@ export function PaletteSelect({
   const list = useRef<HTMLUListElement>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const [place, setPlace] = useState<{ left: number; top: number; width: number; up: boolean } | null>(null);
+  const [place, setPlace] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    up: boolean;
+    /** Where the list goes: inside an open dialog (the window of a line) the page behind it is inert. */
+    host: HTMLElement;
+  } | null>(null);
   const current = value ?? '';
   const known = items.find((x) => x.id === current);
   const unknown = !!current && !known;
@@ -125,6 +132,7 @@ export function PaletteSelect({
       top: below > 240 || below > r.top ? r.bottom + 2 : r.top - 2,
       width: r.width,
       up: !(below > 240 || below > r.top),
+      host: button.current?.closest('dialog') ?? document.body,
     });
     setActive(
       Math.max(
@@ -274,7 +282,7 @@ export function PaletteSelect({
             ))}
             {items.length === 0 && <li className="palette-option muted small">{t('palette.emptyList')}</li>}
           </ul>,
-          document.body,
+          place.host,
         )}
     </>
   );

@@ -7,7 +7,7 @@ import { atom } from '../core/atom';
 import { useAtom } from '../core/useStore';
 import { platform } from '../platform';
 import { EMPTY_PALETTE, PALETTE_FILE, parsePalette, type Palette } from '../story/palette';
-import { forgetImages } from '../ui/story/gameAssets';
+import { forgetImages, forgetSounds } from '../ui/story/gameAssets';
 import { IMPORT_FILE, parseImport, type ImportStatus } from '../story/transfer';
 import { parseTranslations, TRANSLATIONS_FILE, type Translations } from '../story/translation';
 
@@ -59,6 +59,7 @@ export async function loadGameFiles(dir: string): Promise<void> {
   if (paletteText !== lastPalette) {
     lastPalette = paletteText;
     forgetImages();
+    forgetSounds();
   }
   const palette = parsePalette(paletteText);
   const status = parseImport(statusText);

@@ -269,6 +269,7 @@
   padding: var(--space-3) var(--space-3) var(--space-2) var(--space-5);
 }
 .dialog-header h2 {
+  flex: 1;
   margin: 0;
   font-size: var(--fs-lg);
   font-weight: 600;
@@ -582,4 +583,7 @@ kbd {
   outline: 2px dashed var(--accent);
   outline-offset: -2px;
   background-color: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.dialog-xl {
+  width: min(96vw, 1080px);
 }

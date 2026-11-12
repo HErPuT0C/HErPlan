@@ -316,9 +316,24 @@ export const dialogueEn: Record<keyof typeof dialogueRu, string> = {
   'palette.sampleOf': 'A sample of the effect "{name}"',
   'palette.unknownValue': '{id} — not in the game',
   'preview.hintGame':
-    "Speed, pauses, effects and shake follow the numbers of the game's palette. The game's font, the bubble and the character come in 0.8.2. Space or a click on the text finishes the line.",
+    "Speed, pauses, effects and shake follow the numbers of the game's palette. The palette has no font of the game, or its picture is not found: the text is in the editor's letters. Space or a click on the text finishes the line.",
   'preview.hintDefault':
     'No game palette: default numbers (32 characters a second). Space or a click on the text finishes the line.',
   'preview.pause': 'Pause',
   'preview.resume': 'Resume',
+  'preview.hintScene':
+    'As in the game: the font, the bubble, the pace, the pauses, the effects, the shake and the beeps come from the palette of the game. The character is a coloured box for now: sprites, faces, emotes and gestures come in 0.8.4. Space or a click on the scene finishes the line.',
+  'preview.play': 'Play',
+  'preview.time': 'Time',
+  'preview.clock': '{t} / {end} s',
+  'preview.speed': 'Speed',
+  'preview.speedX': '×{n}',
+  'preview.soundOn': 'Sound on',
+  'preview.soundOff': 'Sound off',
+  'preview.wholeNode': 'Whole node',
+  'line.expand': 'Open the line in a big window',
+  'lineWindow.title': 'Line {n} of {count} — {title}',
+  'lineWindow.prev': 'Previous line',
+  'lineWindow.next': 'Next line',
+  'lineWindow.gone': 'This line is no longer there.',
 };

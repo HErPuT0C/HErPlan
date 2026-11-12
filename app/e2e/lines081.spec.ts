@@ -314,19 +314,20 @@ test('cues stand inside the text; at its start the fields open; the preview shak
   await l1.getByRole('button', { name: 'Просмотр реплики как в игре' }).click();
   const dialog = page.getByRole('dialog', { name: /Как в игре/ });
   const box = dialog.locator('.typing-box');
-  /** Watches the text box for a shake (its offset) for a while; true when it shook. */
+  /** Watches the text box for a shake (its offset) for a while; true when it shook. "Again" makes a new box. */
   const shakes = () =>
-    box.evaluate(
+    dialog.evaluate(
       (el) =>
         new Promise<boolean>((resolve) => {
-          if (el.hasAttribute('data-shake')) return resolve(true);
+          const shook = () => el.querySelector('.typing-box[data-shake]') !== null;
+          if (shook()) return resolve(true);
           const seen = new MutationObserver(() => {
-            if (el.hasAttribute('data-shake')) {
+            if (shook()) {
               seen.disconnect();
               resolve(true);
             }
           });
-          seen.observe(el, { attributes: true });
+          seen.observe(el, { attributes: true, subtree: true, childList: true });
           setTimeout(() => {
             seen.disconnect();
             resolve(false);

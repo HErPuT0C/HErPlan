@@ -107,8 +107,36 @@ export interface PreviewFont {
   ws: number[];
 }
 
+/** A shape of the speech bubble (7.8): its frame in the strips, the corner size, the text's margins. */
+export interface BubbleShape {
+  frame: number;
+  m: number;
+  pad_x: number;
+  pad_y: number;
+}
+
+/** The speech bubble (7.8): nine parts of a frame of the strips; the fill in one colour, the line in the speaker's. */
+export interface PreviewBubble {
+  fill: string;
+  alpha: number;
+  min_w: number;
+  fill_image?: string;
+  line_image?: string;
+  frame_w: number;
+  frame_h: number;
+  tail_fill?: string;
+  tail_line?: string;
+  tail_w: number;
+  tail_h: number;
+  shapes: Record<string, BubbleShape>;
+}
+
+/** The game's bubble as of 11.11.2026, for numbers the palette has not got. */
+export const DEFAULT_SHAPE: BubbleShape = { frame: 0, m: 10, pad_x: 7, pad_y: 5 };
+
 export interface PalettePreview {
   font: PreviewFont | null;
+  bubble: PreviewBubble;
   text: {
     color: string;
     width: number;
@@ -125,7 +153,7 @@ export interface PalettePreview {
   gestures: Record<string, { time: number; px: number }>;
   emote: { time: number; pop: number; hop: number; fade: number; dx: number; dy: number; origin: [number, number] };
   speakers: PreviewSpeaker[];
-  /** The rest (bubble, debris…), kept as written for the scene of the next steps. */
+  /** The rest (debris…), kept as written for the scene of the next steps. */
   raw: Record<string, unknown>;
 }
 
@@ -241,8 +269,28 @@ function preview(raw: unknown): PalettePreview | null {
         }
       : null;
   const e = isObject(raw.emote) ? raw.emote : {};
+  const b = isObject(raw.bubble) ? raw.bubble : {};
   return {
     font,
+    bubble: {
+      fill: str(b.fill) ?? '#100e14',
+      alpha: num(b.alpha, 0.94),
+      min_w: num(b.min_w, 28),
+      fill_image: str(b.fill_image),
+      line_image: str(b.line_image),
+      frame_w: num(b.frame_w, 24),
+      frame_h: num(b.frame_h, 24),
+      tail_fill: str(b.tail_fill),
+      tail_line: str(b.tail_line),
+      tail_w: num(b.tail_w, 9),
+      tail_h: num(b.tail_h, 5),
+      shapes: byId(b.shapes, (o) => ({
+        frame: num(o.frame, DEFAULT_SHAPE.frame),
+        m: num(o.m, DEFAULT_SHAPE.m),
+        pad_x: num(o.pad_x, DEFAULT_SHAPE.pad_x),
+        pad_y: num(o.pad_y, DEFAULT_SHAPE.pad_y),
+      })),
+    },
     text: {
       color: str(t.color) ?? DEFAULT_TEXT.color,
       width: num(t.width, DEFAULT_TEXT.width),

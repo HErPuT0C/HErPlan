@@ -77,6 +77,7 @@ import { Inspector, type InspectFocus } from './Inspector';
 import { PlayPanel, type PlayHistory } from './PlayPanel';
 import { CompanionTemplate } from './CompanionTemplate';
 import { LineSearchPanel } from './LineSearchPanel';
+import { LineWindow } from './LineWindow';
 import { ProblemsPanel } from './ProblemsPanel';
 import { conversationScript } from './script';
 import { taskText } from './task';
@@ -288,6 +289,8 @@ function StoryWorkspace({
     [current, engine, settle, setGraphId],
   );
 
+  /** The line open in the big window of a line (0.8.2), on the graph it was opened on. */
+  const [lineWin, setLineWin] = useState<{ graph: string; node: string; line: string } | null>(null);
   const actions: StoryActions = useMemo(
     () => ({
       project,
@@ -303,6 +306,7 @@ function StoryWorkspace({
       task: copyTask,
       check: runCheck,
       script: () => void exportScriptRef.current(),
+      openLine: (node, line) => setLineWin({ graph: current, node, line }),
       inspect: (nodeId, field) => {
         setSide('inspector');
         go({ graph: current, node: nodeId, field: field ?? 'title' });
@@ -734,6 +738,14 @@ function StoryWorkspace({
           )}
         </div>
       </div>
+      {lineWin && lineWin.graph === current && (
+        <LineWindow
+          nodeId={lineWin.node}
+          lineId={lineWin.line}
+          onLine={(line) => setLineWin({ ...lineWin, line })}
+          onClose={() => setLineWin(null)}
+        />
+      )}
       {templateAt && (
         <CompanionTemplate
           at={templateAt}
