@@ -22,6 +22,8 @@ function palette() {
       { id: 'anger', name: 'Гнев', color: '#ff7a4a' },
     ],
     bubbles: [{ id: 'round', name: 'Сглаженный' }],
+    gestures: [{ id: 'jump', name: 'Подпрыгнул' }],
+    emotes: [{ id: 'exclaim', name: '!', icon: { image: 'dialogue_preview/emotes.png', frame: 0, w: 13, h: 13 } }],
     voices: [{ id: 'dlg_blip', name: 'Обычный' }],
     speakers: [
       { id: 'skeleton', name: 'Скелет', color: '#3fd0c0', bubble: 'round', voice: 'dlg_blip' },
@@ -57,7 +59,24 @@ function palette() {
         tail_h: 5,
         shapes: [{ id: 'round', frame: 0, m: 10, pad_x: 7, pad_y: 5 }],
       },
-      speakers: [{ id: 'skeleton', color: '#3fd0c0', bubble: 'round', voice: 'dlg_blip', voice_pitch: 1 }],
+      gestures: [{ id: 'jump', time: 0.32, px: 6 }],
+      emote: { time: 1.5, pop: 0.16, hop: 3, fade: 0.25, dx: 13, dy: 11, origin: [6, 12] },
+      speakers: [
+        {
+          id: 'skeleton',
+          color: '#3fd0c0',
+          bubble: 'round',
+          voice: 'dlg_blip',
+          voice_pitch: 1,
+          faces: { neutral: 'dialogue_preview/face.png', angry: 'dialogue_preview/face.png' },
+          frame_w: 20,
+          frame_h: 30,
+          frames: 2,
+          fps: 5,
+          head: [10, 2],
+        },
+      ],
+      debris: { vx: 46, up: 70, gravity: 520, life: 0.75 },
     },
   };
 }
@@ -82,7 +101,7 @@ function talk() {
         h: 120,
         text: '',
         lines: [
-          { id: 'l1', speaker: 'skel', text: LINE1, style: 'anger' },
+          { id: 'l1', speaker: 'skel', text: LINE1, style: 'anger', gesture: 'jump', emote: 'exclaim' },
           { id: 'l2', speaker: 'narrator', text: LINE2 },
         ],
       },
@@ -121,6 +140,21 @@ async function openCrypt(page: Page) {
     },
     [...CHARS].length,
   );
+  // The sprite (two frames) and the emotes, made by the browser too.
+  const [face, emotes] = await page.evaluate(() =>
+    [
+      [40, 30],
+      [13, 13],
+    ].map(([w, h]) => {
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext('2d')!;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, w, h);
+      return c.toDataURL('image/png');
+    }),
+  );
   const entity = {
     id: 'skel',
     type: 'character',
@@ -135,6 +169,8 @@ async function openCrypt(page: Page) {
   const files = {
     'data/dialogue_palette.json': JSON.stringify(palette()),
     'data/dialogue_preview/font.png': font,
+    'data/dialogue_preview/face.png': face,
+    'data/dialogue_preview/emotes.png': emotes,
     'data/graphs/g-talk.json': JSON.stringify(talk()),
     'data/entities/skel.json': JSON.stringify(entity),
   };
@@ -348,5 +384,35 @@ test('the text in the game font: a word selected gets its look and a plot device
   await expect(field).toHaveAttribute('width', String((190 + 8) * 2));
   await win.getByRole('button', { name: 'Эффекты в поле' }).click();
   await expect(win.getByRole('button', { name: 'Эффекты в поле' })).toHaveAttribute('aria-pressed', 'false');
+  expect(errors).toEqual([]);
+});
+
+test('the people in the scene: the sprite of the face, a gesture, an emote; "interrupt" breaks the line off (0.8.4)', async ({
+  page,
+}) => {
+  const { errors, inspector } = await openCrypt(page);
+  await inspector.getByRole('button', { name: 'Просмотр реплик', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: /Как в игре/ });
+  const scene = dialog.locator('canvas.game-scene');
+  await expect(scene).toBeVisible();
+  // A moment of the line, the time stopped there: the jump of the line's gesture, its emote over the head,
+  // the face (this palette's anger has none of its own: the usual one).
+  await dialog.getByRole('slider', { name: 'Время' }).fill('0.16');
+  await expect(scene).toHaveAttribute('data-moved', '0,-6');
+  await expect(scene).toHaveAttribute('data-emote', 'exclaim');
+  await expect(scene).toHaveAttribute('data-face', 'neutral');
+  await shot(page, 's4-people');
+  await dialog.getByRole('slider', { name: 'Время' }).fill('0.5');
+  await expect(scene).not.toHaveAttribute('data-moved', /./);
+
+  // "Interrupt": the line typed so far breaks off and falls; then Space goes on as after a line.
+  await dialog.getByRole('button', { name: 'Сначала' }).click();
+  await dialog.getByRole('button', { name: 'Перебить' }).click();
+  await expect(scene).toHaveAttribute('data-broken', '');
+  await expect(dialog.getByRole('button', { name: 'Перебить' })).toBeDisabled();
+  await shot(page, 's5-interrupted');
+  await expect(scene).toHaveAttribute('data-done', '', { timeout: 3000 });
+  await page.keyboard.press(' ');
+  await expect(dialog.locator('.typing-position')).toHaveText('реплика 2 из 2');
   expect(errors).toEqual([]);
 });

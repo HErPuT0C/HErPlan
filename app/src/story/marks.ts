@@ -74,6 +74,8 @@ export function addStyleMark(
   if (!range) return null;
   const props1 = cleanProps(props);
   if (!Object.keys(props1).length) return null;
+  // One style for a letter (0.8.4): a style put on words takes it off the looks over them.
+  if (props1.style) dropStyles(n, anchor, text!, range);
   // The same words already have a look: it takes these props too.
   const twin = textMarksOn(n, anchor).find((m) => {
     if (m.device !== 'style') return false;
@@ -87,6 +89,38 @@ export function addStyleMark(
   const mark: TextMark = { id: newId(), device: 'style', anchor, range, props: props1 };
   (n.marks ??= []).push(mark);
   return mark;
+}
+
+/**
+ * Takes the style off the looks of a line over a piece (0.8.4: a letter has one style): a look across the
+ * piece is cut there — outside it keeps everything, inside it keeps its other props or goes.
+ */
+function dropStyles(n: StoryNode, anchor: MarkAnchor, text: string, piece: { start: number; end: number }): void {
+  const kept: (PlotMark | TextMark)[] = [];
+  for (const m of n.marks ?? []) {
+    const r =
+      m.device === 'style' && m.props.style && sameAnchor(m.anchor, anchor) ? resolveRange(text, m.range) : null;
+    if (!r || r.end <= piece.start || r.start >= piece.end) {
+      kept.push(m);
+      continue;
+    }
+    const style = m as Extract<TextMark, { device: 'style' }>;
+    const rest = { ...style.props };
+    delete rest.style;
+    const parts: [number, number, StyleProps][] = [
+      [r.start, Math.min(r.end, piece.start), style.props],
+      [Math.max(r.start, piece.start), Math.min(r.end, piece.end), rest],
+      [Math.max(r.start, piece.end), r.end, style.props],
+    ];
+    let first = true;
+    for (const [a, b, props] of parts) {
+      const range = b > a ? tightRange(text, a, b) : null;
+      if (!range || !Object.keys(cleanProps(props)).length) continue;
+      kept.push({ ...style, id: first ? m.id : newId(), range, props: { ...props } });
+      first = false;
+    }
+  }
+  n.marks = kept;
 }
 
 /** Puts a cue at a point of a line. */

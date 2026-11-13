@@ -40,6 +40,7 @@ import { searchLines } from './lineSearch';
 import { companionTalk, type CompanionWords } from './templates';
 import { parseTranslations, translationsOf } from './translation';
 import { faceAt, gameLine, shownAt, syllables } from './gameLine';
+import { actorAt, actorEvents, debrisAt, debrisEnd, debrisOf, emoteLook, gestureMove, listenerOf } from './gameActors';
 import { letterMove, noise, shakeAt } from './gameFx';
 import { blips, bubbleSize, layoutText } from './gameLayout';
 import { conversationScript, talkOrder } from '../ui/story/script';
@@ -840,7 +841,7 @@ describe('the line typed out as in the game (19; 0.8.1, "Редактор реп
     expect(hidden.end).toBeCloseTo(4 * step);
   });
 
-  it('a letter wears the line style, then the marks over it, outer before inner', () => {
+  it('a letter wears one style (the innermost mark, else the line) with the props of the marks over it', () => {
     const { palette } = parsePalette(JSON.stringify(PALETTE));
     const preview = palette.preview!;
     const text = 'КТО ТАМ';
@@ -851,31 +852,24 @@ describe('the line typed out as in the game (19; 0.8.1, "Редактор реп
       preview,
     );
     const [k, , , , tt] = line.letters;
-    // Effects add up (0.8.2): the shout's punch stays under the anger's shake, the inner wave joins both.
-    expect(k.props).toMatchObject({
-      bold: true,
-      col: '#ff7a4a',
-      fx: ['punch', 'shake'],
-      cps: 46,
-      shake: 2,
-      face: 'angry',
-    });
-    expect(tt.props).toMatchObject({ bold: false, fx: ['punch', 'shake', 'wave'], col: '#ff7a4a' });
-    // A shout inside a line in anger: orange, bold, by words, trembling and punching; an effect is not doubled.
-    const inAnger = times(
-      text,
-      [mark(text, { style: 'shout' }, 0, 3), mark(text, { effect: 'shake' }, 0, 3)],
-      'anger',
-      preview,
-    );
+    // Anger instead of the line's shout, not over it (0.8.4): not bold, no shake of the screen, no punch.
+    expect(k.props).toMatchObject({ bold: false, col: '#ff7a4a', fx: ['shake'], cps: 46, shake: 0, face: 'angry' });
+    // The inner mark's own effect replaces the list.
+    expect(tt.props).toMatchObject({ bold: false, fx: ['wave'], col: '#ff7a4a' });
+    // A shout inside a line in anger is a shout: the colour of the text, bold, by words, punching.
+    const inAnger = times(text, [mark(text, { style: 'shout' }, 0, 3)], 'anger', preview);
     expect(inAnger.letters[0].props).toMatchObject({
-      col: '#ff7a4a',
+      col: '#e8e6de',
       bold: true,
       reveal: 'word',
-      fx: ['shake', 'punch'],
+      fx: ['punch'],
+      shake: 2,
+      face: 'surprised',
     });
-    // The shout's own shake goes with every piece it types.
-    expect(line.chunks.every((c) => c.shake === 2)).toBe(true);
+    expect(inAnger.letters[4].props).toMatchObject({ col: '#ff7a4a', fx: ['shake'], face: 'angry' });
+    // The shout's own shake goes with every piece it types; the line in shout alone shakes every piece.
+    const shout = times(text, [], 'shout', preview);
+    expect(shout.chunks.every((c) => c.shake === 2)).toBe(true);
     expect(faceAt(line, 'sad', 0)).toBe('angry');
     expect(faceAt(line, 'sad', line.end + 1)).toBe('sad');
     const withCue = times('Ну и ну', [mark('Ну и ну', { face: 'happy' }, 3, 3, 'cue')], undefined, preview);
@@ -1295,6 +1289,7 @@ describe('the toolbar of the field (0.8.3)', () => {
   const looks = (d: ProjectData) =>
     textMarks(node(d, 'hello'))
       .filter((m) => m.device === 'style')
+      .sort((a, b) => a.range!.start - b.range!.start)
       .map((m) => [text.slice(m.range!.start, m.range!.end), m.props]);
 
   it('"clear the look" of a word: a look inside it goes, one around it is cut in two, cues stay', () => {
@@ -1316,6 +1311,29 @@ describe('the toolbar of the field (0.8.3)', () => {
     ]);
   });
 
+  it('one style for a word: a style put on it takes the style of the looks over it off (0.8.4)', () => {
+    const after = produce(
+      withLooks(),
+      (d) => void addStyleMark(node(d, 'hello'), 'l1', { start: 4, end: 14 }, { style: 'shout' }),
+    );
+    expect(looks(after)).toEqual([
+      ['Кто', { style: 'anger' }],
+      ['потревожил', { bold: true, style: 'shout' }],
+      ['мой покой?', { style: 'anger' }],
+    ]);
+    // A look with more than a style keeps the rest where the new style is (the same words: one look).
+    const colored = produce(talk(), (d) => {
+      const n = node(d, 'hello');
+      addStyleMark(n, 'l1', { start: 0, end: 25 }, { style: 'anger', color: '#ff0000' });
+      addStyleMark(n, 'l1', { start: 4, end: 14 }, { style: 'shout' });
+    });
+    expect(looks(colored)).toEqual([
+      ['Кто', { style: 'anger', color: '#ff0000' }],
+      ['потревожил', { color: '#ff0000', style: 'shout' }],
+      ['мой покой?', { style: 'anger', color: '#ff0000' }],
+    ]);
+  });
+
   it('a cue dragged to another place moves there, but not to the very start', () => {
     const d0 = withLooks();
     const cue = textMarks(node(d0, 'hello')).find((m) => m.device === 'cue')!;
@@ -1323,5 +1341,88 @@ describe('the toolbar of the field (0.8.3)', () => {
     expect(textMarks(node(moved, 'hello')).find((m) => m.id === cue.id)!.range).toMatchObject({ start: 3, end: 3 });
     const start = produce(moved, (d) => void moveCue(node(d, 'hello'), cue.id, 0));
     expect(textMarks(node(start, 'hello')).find((m) => m.id === cue.id)!.range).toMatchObject({ start: 3 });
+  });
+});
+
+describe('the people of the scene (0.8.4, 7.9 and 7.10)', () => {
+  const g = { time: 0.5, px: 2 };
+  it('gestures move by the formulas of the game; droop holds, the others end', () => {
+    expect(gestureMove('jump', { time: 0.32, px: 6 }, 0.16, 1)).toEqual({ dx: 0, dy: -6 });
+    expect(gestureMove('jump', { time: 0.32, px: 6 }, 0.4, 1)).toEqual({ dx: 0, dy: 0 });
+    expect(gestureMove('shake', { time: 0.5, px: 1 }, 0.01, 1)).toEqual({ dx: 1, dy: 0 });
+    expect(gestureMove('shake', { time: 0.5, px: 1 }, 0.04, 1)).toEqual({ dx: -1, dy: 0 });
+    // Away from the one spoken to at once, back smoothly; the other side the other way.
+    expect(gestureMove('recoil', { time: 0.45, px: 4 }, 0, 1)).toEqual({ dx: 4, dy: 0 });
+    expect(gestureMove('recoil', { time: 0.45, px: 4 }, 0, -1)).toEqual({ dx: -4, dy: 0 });
+    expect(gestureMove('lean', { time: 0.5, px: 3 }, 0.25, 1)).toEqual({ dx: -3, dy: 0 });
+    expect(gestureMove('nod', g, 0.125, 1)).toEqual({ dx: 0, dy: 2 });
+    expect(gestureMove('laugh', { time: 0.6, px: 2 }, 0.1, 1)).toEqual({ dx: 0, dy: -2 });
+    expect(gestureMove('droop', { time: 0, px: 2 }, 0.15, 1)).toEqual({ dx: 0, dy: 1 });
+    expect(gestureMove('droop', { time: 0, px: 2 }, 10, 1)).toEqual({ dx: 0, dy: 2 });
+    expect(gestureMove('unknown', g, 0.1, 1)).toEqual({ dx: 0, dy: 0 });
+  });
+
+  it('an emote pops up with a hop, hangs and fades', () => {
+    const e = { time: 1.5, pop: 0.16, hop: 3, fade: 0.25, dx: 13, dy: 11, origin: [6, 12] as [number, number] };
+    expect(emoteLook(0.08, e)).toEqual({ up: 3, alpha: 1 });
+    expect(emoteLook(0.5, e)).toEqual({ up: 0, alpha: 1 });
+    expect(emoteLook(1.375, e)!.alpha).toBeCloseTo(0.5);
+    expect(emoteLook(1.5, e)).toBeNull();
+  });
+
+  it('what the people do: the fields from the start, the cues where the typing is; to whom; who is spoken to', () => {
+    const text = 'Стой здесь';
+    const cue = (props: Record<string, unknown>, at: number) =>
+      ({
+        id: `c${at}`,
+        device: 'cue',
+        anchor: { kind: 'line', id: 'l' },
+        range: { start: at, end: at, quote: '' },
+        props,
+      }) as never;
+    const gl = gameLine(
+      text,
+      undefined,
+      [cue({ gesture: 'nod' }, 5), cue({ face: { id: 'sad', to: 'hero' } }, 5)],
+      null,
+    );
+    const line = { id: 'l', speaker: 'skel', text, emote: { id: 'exclaim', to: 'hero' }, gesture: 'jump' };
+    const events = actorEvents(line, gl);
+    expect(events.map((e) => [e.kind, e.id, e.who, e.time > 0])).toEqual([
+      ['gesture', 'jump', 'skel', false],
+      ['emote', 'exclaim', 'hero', false],
+      ['gesture', 'nod', 'skel', true],
+      ['face', 'sad', 'hero', true],
+    ]);
+    const preview = {
+      gestures: { jump: { time: 0.32, px: 6 }, nod: g },
+      emote: { time: 1.5, pop: 0.16, hop: 3, fade: 0.25, dx: 13, dy: 11, origin: [6, 12] as [number, number] },
+    };
+    expect(actorAt(events, 'skel', 0.16, preview, 1)).toMatchObject({ dy: -6, emote: null });
+    expect(actorAt(events, 'hero', 0.08, preview, -1)).toMatchObject({ emote: { id: 'exclaim', up: 3 }, face: null });
+    expect(actorAt(events, 'hero', gl.end, preview, -1).face).toBe('sad');
+    // Spoken to: the one a field is for; else the nearest other speaker, not the narrator.
+    expect(listenerOf([line], 0, gl)).toBe('hero');
+    const plain = gameLine('Да', undefined, [], null);
+    const talk = [
+      { id: 'a', speaker: 'mira', text: 'Эй' },
+      { id: 'b', speaker: 'narrator', text: 'Тишина' },
+      { id: 'c', speaker: 'skel', text: 'Да' },
+    ];
+    expect(listenerOf(talk, 2, plain)).toBe('mira');
+    expect(listenerOf([talk[2]], 0, plain)).toBeNull();
+  });
+
+  it('an interrupted line breaks off: each letter flies its own way, falls and is gone', () => {
+    const d = debrisOf({ debris: { vx: 46, up: 70, gravity: 520, life: 0.75 } });
+    expect(debrisOf({})).toEqual(d);
+    expect(debrisAt(3, 0, d)).toEqual({ dx: 0, dy: 0, alpha: 1 });
+    const a = debrisAt(3, 0.1, d)!;
+    expect(Math.abs(a.dx)).toBeLessThanOrEqual(5);
+    // Up first (0.2…1 × up), then down.
+    expect(a.dy).toBeLessThan(2);
+    expect(debrisAt(3, 0.1, d)).toEqual(a);
+    expect(debrisAt(4, 0.1, d)).not.toEqual(a);
+    expect(debrisAt(3, debrisEnd(d), d)).toBeNull();
   });
 });

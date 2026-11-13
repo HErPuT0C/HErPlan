@@ -321,7 +321,7 @@ export const dialogueEn: Record<keyof typeof dialogueRu, string> = {
   'preview.pause': 'Pause',
   'preview.resume': 'Resume',
   'preview.hintScene':
-    'As in the game: the font, the bubble, the pace, the pauses, the effects, the shake and the beeps come from the palette of the game. The character is a coloured box for now: sprites, faces, emotes and gestures come in 0.8.4. Space or a click on the scene finishes the line.',
+    'As in the game: the font, the bubble, the pace, the pauses, the effects, the shake and the beeps come from the palette of the game. The speaker on the left, the one spoken to on the right: the sprite of the face from the palette (without one, a coloured box), gestures and emotes by the numbers of the game. Space or a click on the scene finishes the line; Interrupt shows it falling apart.',
   'preview.play': 'Play',
   'preview.time': 'Time',
   'preview.clock': '{t} / {end} s',
@@ -345,4 +345,6 @@ export const dialogueEn: Record<keyof typeof dialogueRu, string> = {
   'lines.open': 'Open line {n} in the window',
   'lines.hint':
     'Lines are edited in the window of a line: click a line here, or double-click it in the node on the canvas.',
+  'preview.interrupt': 'Interrupt',
+  'preview.interruptHint': 'Show the line being interrupted: the letters typed fall apart',
 };

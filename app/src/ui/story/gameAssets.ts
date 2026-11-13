@@ -50,6 +50,25 @@ export function useImage(dir: string | null, path: string | undefined): HTMLImag
   return loaded && loaded.key === key ? loaded.img : null;
 }
 
+/** Several pictures of the palette at once (the faces of the people of the scene, their furniture, the emotes). */
+export function useImages(dir: string | null, paths: readonly string[]): ReadonlyMap<string, HTMLImageElement | null> {
+  const key = dir ? `${dir}\n${paths.join('\n')}` : null;
+  const [loaded, setLoaded] = useState<{ key: string; map: Map<string, HTMLImageElement | null> } | null>(null);
+  useEffect(() => {
+    if (!key || !dir) return;
+    let live = true;
+    const list = key.split('\n').slice(1).filter(Boolean);
+    void Promise.all(list.map((p) => loadImage(dir, p))).then((imgs) => {
+      if (live) setLoaded({ key, map: new Map(list.map((p, i) => [p, imgs[i]])) });
+    });
+    return () => {
+      live = false;
+    };
+  }, [key, dir]);
+  return loaded && loaded.key === key ? loaded.map : EMPTY_IMAGES;
+}
+const EMPTY_IMAGES: ReadonlyMap<string, HTMLImageElement | null> = new Map();
+
 /** Plays a sound of the palette (a voice, a cue); silent when the file is missing or sound is blocked. */
 export async function playSound(dir: string, path: string | undefined, rate = 1, volume = 1): Promise<void> {
   if (!path) return;

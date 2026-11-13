@@ -6,7 +6,7 @@
 // the speaker, in the game's letters, beeping in the speaker's voice (GameScene); without it, in the
 // editor's letters.
 
-import { ChevronRight, Pause, Play, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { ChevronRight, Pause, Play, RotateCcw, Volume2, VolumeX, Zap } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { ProjectData } from '../../core/project/types';
 import { useAtom } from '../../core/useStore';
@@ -14,6 +14,7 @@ import { t } from '../../i18n';
 import { gameFiles } from '../../state/gameFiles';
 import { letterMove, shakeAt, type ShakeEvent } from '../../story/gameFx';
 import { blips } from '../../story/gameLayout';
+import { actorEvents, debrisEnd, debrisOf, listenerOf } from '../../story/gameActors';
 import { faceAt, gameLine } from '../../story/gameLine';
 import { textMarksOn } from '../../story/marks';
 import { toward, type DialogueLine, type StoryNode } from '../../story/model';
@@ -185,6 +186,22 @@ function TypedLine({
     ];
     return { gl, shakes, beeps: blips(gl, preview, speaker.pitch) };
   }, [node, line.id, line.text, line.style, preview, speaker.pitch]);
+  // The people (0.8.4): the one spoken to on the right, what they all do, the emotes' pictures.
+  const { events, listenerId } = useMemo(() => {
+    const lines = node.lines ?? [];
+    const index = lines.findIndex((l) => l.id === line.id);
+    return { events: actorEvents(line, gl), listenerId: listenerOf(lines, index, gl) };
+  }, [node, line, gl]);
+  const listener = useMemo(
+    () => (listenerId ? sceneSpeaker(palette, entities, listenerId) : null),
+    [palette, entities, listenerId],
+  );
+  const emotes = useMemo(() => Object.fromEntries(palette.emotes.map((e) => [e.id, e.icon])), [palette]);
+  const debris = useMemo(() => debrisOf(preview?.raw), [preview]);
+  /** When "interrupt" was pressed (7.10): the letters out by then break off and fall; null — not interrupted. */
+  const [broken, setBroken] = useState<number | null>(null);
+  const brokenEnd = broken === null ? null : broken + debrisEnd(debris);
+  const end = brokenEnd ?? gl.end;
   const auto = typeof line.auto === 'number' ? line.auto : null;
   const cueSound = (id: string | undefined) => (id ? palette.sounds.find((s) => s.id === id)?.sound : undefined);
 
@@ -220,11 +237,23 @@ function TypedLine({
     setT(to);
     setPlaying(play);
   };
-  const done = t0 >= gl.end;
+  const done = t0 >= end;
   /** Space or a click on the text: the rest of the line at once; once it is out, the next line. */
   const advance = () => {
     if (done) return onNext();
-    seek(gl.end);
+    seek(end);
+  };
+  /** "Interrupt" (6.1, 7.10): what is typed breaks off and falls, the frame jolts, a crumbling sound. */
+  const interrupt = () => {
+    if (broken !== null || done) return;
+    setBroken(t0);
+    if (dir && sound) {
+      playNow(
+        dir,
+        palette.sounds.find((x) => x.id === 'dlg_crumble')?.sound ?? 'dialogue_preview/sounds/dlg_crumble.wav',
+      );
+    }
+    if (!playing) setPlaying(true);
   };
   // The scene takes the keys when the preview opens (not the window's "close", which Space would press),
   // unless the caret is in a field.
@@ -263,7 +292,7 @@ function TypedLine({
     };
   }, []);
   // "auto": on by itself once its seconds after the line are over.
-  const goesOn = done && auto !== null && playing && t0 >= gl.end + auto;
+  const goesOn = done && auto !== null && playing && t0 >= end + auto;
   const onNextRef = useRef(onNext);
   useEffect(() => {
     onNextRef.current = onNext;
@@ -282,7 +311,10 @@ function TypedLine({
     const from = heard.current;
     heard.current = t0;
     if (!dir || !sound || !playing || t0 <= from || t0 - from > 0.5) return;
-    for (const b of beeps) if (b.time > from && b.time <= t0) playNow(dir, speaker.voice, b.rate, b.gain);
+    for (const b of beeps) {
+      if (b.time > from && b.time <= t0 && (broken === null || b.time <= broken))
+        playNow(dir, speaker.voice, b.rate, b.gain);
+    }
     for (const c of gl.cues) {
       if (c.time > from && c.time <= t0 && c.props.sound) playNow(dir, cueSound(c.props.sound));
     }
@@ -291,7 +323,8 @@ function TypedLine({
   }, [t0]);
 
   const nameOf = (id: string) => speakerName(entities, id);
-  const shake = shakeAt(shakes, t0, shakeTime);
+  // An interrupted line jolts the frame by a pixel.
+  const shake = shakeAt(broken === null ? shakes : [...shakes, { time: broken, strength: 1 }], t0, shakeTime);
   const recent = gl.cues.filter((c) => c.time <= t0 && t0 - c.time < CUE_SHOWN && typeof c.props.pause !== 'number');
   const face = faceAt(gl, line.face, t0);
   const params = preview?.effects ?? {};
@@ -306,7 +339,7 @@ function TypedLine({
       return `${t(k === 'gesture' ? 'line.gesture' : 'line.emote')}: ${what}${x.to ? ` → ${nameOf(x.to)}` : ''}`;
     }),
   ].filter(Boolean);
-  const length = gl.end + (auto ?? 0);
+  const length = end + (auto ?? 0);
 
   return (
     <div className="typing">
@@ -341,6 +374,12 @@ function TypedLine({
             font={font}
             preview={preview}
             speaker={speaker}
+            listener={listener}
+            face={face}
+            events={events}
+            emotes={emotes}
+            broken={broken}
+            debris={debris}
             dir={dir}
             scale={scale}
             shake={shake}
@@ -366,7 +405,8 @@ function TypedLine({
         >
           {gl.letters.map((l) => {
             if (l.i < 0) return null;
-            const out = l.appear <= t0;
+            // Interrupted: what was not out by then never comes, and what was is gone once the pieces have fallen.
+            const out = l.appear <= t0 && (broken === null || (l.appear <= broken && t0 < end));
             const move = out ? letterMove(l.props.fx, params, l.i, t0, t0 - l.appear) : { dx: 0, dy: 0 };
             return (
               <Fragment key={l.at}>
@@ -412,14 +452,12 @@ function TypedLine({
           onChange={(e) => seek(Number(e.target.value), false)}
         />
         <span className="muted small typing-clock">
-          {t('preview.clock', { t: Math.min(t0, length).toFixed(2), end: gl.end.toFixed(2) })}
+          {t('preview.clock', { t: Math.min(t0, length).toFixed(2), end: end.toFixed(2) })}
         </span>
       </div>
       <div className="typing-foot">
         {auto !== null && done && !goesOn && (
-          <span className="muted small">
-            {t('preview.auto', { seconds: Math.max(0, gl.end + auto - t0).toFixed(1) })}
-          </span>
+          <span className="muted small">{t('preview.auto', { seconds: Math.max(0, end + auto - t0).toFixed(1) })}</span>
         )}
         <div className="typing-speeds" role="group" aria-label={t('preview.speed')}>
           {SPEEDS.map((s) => (
@@ -443,6 +481,16 @@ function TypedLine({
           onClick={() => onSound(!sound)}
         />
         {extra}
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={<Zap size={14} />}
+          disabled={broken !== null || done}
+          title={t('preview.interruptHint')}
+          onClick={interrupt}
+        >
+          {t('preview.interrupt')}
+        </Button>
         <Button size="sm" variant="ghost" icon={<RotateCcw size={14} />} onClick={onAgain}>
           {t('preview.again')}
         </Button>

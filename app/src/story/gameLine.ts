@@ -78,9 +78,8 @@ const base = (p: PalettePreview | null): LetterProps => ({
 });
 
 /**
- * Lays what a style or a mark says over the letter's props: only what it has. Effects add up (0.8.2, the
- * owner's choice): "shout" inside a line in "anger" punches and still trembles; an effect already on is not
- * doubled.
+ * Lays what a style or a mark says over the letter's props: only what it has; "fx" replaces the list (7.1).
+ * (0.8.2 had effects add up; the owner took it back in 0.8.4: a letter has one style.)
  */
 export function applyLook(p: LetterProps, look: LetterLook | undefined): LetterProps {
   if (!look) return p;
@@ -88,7 +87,7 @@ export function applyLook(p: LetterProps, look: LetterLook | undefined): LetterP
   if (look.col) out.col = look.col;
   if (typeof look.size === 'number') out.size = look.size >= 2 ? 2 : 1;
   if (typeof look.bold === 'boolean') out.bold = look.bold;
-  if (look.fx) out.fx = [...out.fx, ...look.fx.filter((f) => !out.fx.includes(f))];
+  if (look.fx) out.fx = [...look.fx];
   if (typeof look.cps === 'number') out.cps = look.cps;
   if (typeof look.speed === 'number' && look.speed > 0) out.speed = look.speed;
   if (look.reveal && REVEALS.includes(look.reveal)) out.reveal = look.reveal as Reveal;
@@ -172,19 +171,18 @@ export function gameLine(
     })
     // Outer before inner: a mark inside another is laid over it.
     .sort((a, b) => b.end - b.start - (a.end - a.start) || a.order - b.order);
-  const lineProps = applyLook(base(preview), lineStyle ? preview?.styles[lineStyle] : undefined);
+  const start = base(preview);
 
   const letters: Letter[] = [];
   let i = 0;
   for (const ch of text) {
     const at = letters.length ? letters[letters.length - 1].at + letters[letters.length - 1].ch.length : 0;
-    let props = lineProps;
-    for (const s of styles) {
-      if (s.start <= at && at < s.end) {
-        props = applyLook(props, s.m.props.style ? preview?.styles[s.m.props.style] : undefined);
-        props = applyLook(props, markLook(s.m));
-      }
-    }
+    // One style for a letter (0.8.4, the owner's rule): the innermost mark's style over it, else the line's;
+    // the marks' own props (colour, bold, size, effect, speed, appearance) are laid over it, outer to inner.
+    const over = styles.filter((s) => s.start <= at && at < s.end);
+    const styled = [...over].reverse().find((s) => s.m.props.style)?.m.props.style ?? lineStyle;
+    let props = applyLook(start, styled ? preview?.styles[styled] : undefined);
+    for (const s of over) props = applyLook(props, markLook(s.m));
     const isHidden = hidden.some((h) => h.start <= at && at < h.end);
     letters.push({ at, ch, i: isHidden ? -1 : i, props, appear: Infinity });
     if (!isHidden) i++;
