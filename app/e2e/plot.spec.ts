@@ -103,7 +103,10 @@ test('selected words get a device from the text menu; options take a comment', a
   await openChapter(page, 'Глава 1. Мельница');
   await goTo(page, 'Встреча');
   await page.locator('.cnode', { hasText: 'Встреча' }).first().locator('.cnode-head').click();
-  const line = page.getByLabel('Реплика 1');
+  // Lines are edited in the window of a line (0.8.3).
+  await page.getByRole('button', { name: 'Открыть реплику 1 в окне' }).click();
+  const win = page.getByRole('dialog', { name: /^Реплика 1/ });
+  const line = win.getByRole('textbox', { name: 'Реплика 1', exact: true });
   await line.focus();
   // Select "пришёл" in "Ты пришёл." and open the context menu on it.
   await line.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(3, 9));
@@ -117,6 +120,8 @@ test('selected words get a device from the text menu; options take a comment', a
   await menu.getByRole('menuitem', { name: 'Эффект бабочки' }).click();
   await expect(page.locator('.imark-butterfly')).toContainText('Реплика 1 · «пришёл»');
   await expect(page.locator('.cnode', { hasText: 'Встреча' }).first().locator('.cmark-butterfly')).toHaveText('пришёл');
+  await page.keyboard.press('Escape');
+  await expect(win).toHaveCount(0);
 
   // A comment on an option, with a variable changed in it.
   await goTo(page, 'Что ответить Мире?');

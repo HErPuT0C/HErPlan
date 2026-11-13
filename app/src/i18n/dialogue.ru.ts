@@ -214,7 +214,6 @@ export const dialogueRu = {
 
   // 0.8, section В: preview, translation, search, template, script.
   'preview.title': 'Как в игре: {title}',
-  'preview.line': 'Просмотр реплики как в игре',
   'preview.lines': 'Просмотр реплик',
   'preview.position': 'реплика {n} из {count}',
   'preview.skip': 'Показать реплику целиком',
@@ -330,9 +329,17 @@ export const dialogueRu = {
   'preview.soundOn': 'Включить звук',
   'preview.soundOff': 'Выключить звук',
   'preview.wholeNode': 'Весь узел',
-  'line.expand': 'Развернуть реплику',
   'lineWindow.title': 'Реплика {n} из {count} — {title}',
   'lineWindow.prev': 'Предыдущая реплика',
   'lineWindow.next': 'Следующая реплика',
   'lineWindow.gone': 'Этой реплики больше нет.',
+  'field.device': 'Приём',
+  'field.clear': 'Убрать оформление',
+  'field.seconds': '{n} с',
+  'field.other': 'Другое…',
+  'field.scale': 'Масштаб поля',
+  'field.effects': 'Эффекты в поле',
+  'field.hint': 'Выделите слово — над ним появится панель оформления. Ctrl+M — метка у курсора, Ctrl+P — пауза 0,3 с.',
+  'lines.open': 'Открыть реплику {n} в окне',
+  'lines.hint': 'Реплики правятся в окне «Реплика»: щёлкните реплику здесь или дважды по ней в узле на холсте.',
 } as const;

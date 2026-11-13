@@ -267,6 +267,11 @@ function StoryWorkspace({
     [store, current, engine],
   );
 
+  /**
+   * The line open in the big window of a line (0.8.2), on the graph it was opened on; `field` — one of its
+   * fields to put the caret in (a problem of the line leads there, 0.8.3).
+   */
+  const [lineWin, setLineWin] = useState<{ graph: string; node: string; line: string; field?: string } | null>(null);
   /** Applies a pending selection once the canvas of its graph exists. */
   const settle = useCallback((e: CanvasEngine | null) => {
     const p = pending.current;
@@ -278,6 +283,9 @@ function StoryWorkspace({
     }
     if (p.highlight) e.setHighlight(new Set(p.highlight), p.node ?? null);
     if (p.node && p.field) setFocus({ node: p.node, field: p.field, at: performance.now() });
+    // A line is edited only in its window (0.8.3): what leads to a line opens it there.
+    const line = p.node && p.field ? /^line:([^:]+)/.exec(p.field) : null;
+    if (line && p.node) setLineWin({ graph: p.graph, node: p.node, line: line[1], field: p.field });
   }, []);
 
   const go = useCallback(
@@ -289,8 +297,6 @@ function StoryWorkspace({
     [current, engine, settle, setGraphId],
   );
 
-  /** The line open in the big window of a line (0.8.2), on the graph it was opened on. */
-  const [lineWin, setLineWin] = useState<{ graph: string; node: string; line: string } | null>(null);
   const actions: StoryActions = useMemo(
     () => ({
       project,
@@ -742,7 +748,8 @@ function StoryWorkspace({
         <LineWindow
           nodeId={lineWin.node}
           lineId={lineWin.line}
-          onLine={(line) => setLineWin({ ...lineWin, line })}
+          field={lineWin.field}
+          onLine={(line) => setLineWin({ graph: lineWin.graph, node: lineWin.node, line })}
           onClose={() => setLineWin(null)}
         />
       )}

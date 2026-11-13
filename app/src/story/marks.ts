@@ -249,6 +249,46 @@ export function toggleBold(n: StoryNode, lineId: string, selection: { start: num
   }
 }
 
+/**
+ * "Clear the look" of a piece of a line (0.8.3, the toolbar over the selection): the looks over it lose that
+ * piece — a look inside it goes, one around it is cut in two, one across its edge is cut short.
+ */
+export function clearLooks(n: StoryNode, lineId: string, selection: { start: number; end: number }): void {
+  const anchor: MarkAnchor = { kind: 'line', id: lineId };
+  const text = anchorText(n, anchor);
+  if (text === undefined) return;
+  const s = Math.max(0, Math.min(selection.start, selection.end));
+  const e = Math.min(text.length, Math.max(selection.start, selection.end));
+  if (s >= e) return;
+  const kept: (PlotMark | TextMark)[] = [];
+  for (const m of n.marks ?? []) {
+    const r = m.device === 'style' && sameAnchor(m.anchor, anchor) ? resolveRange(text, m.range) : null;
+    if (!r || r.end <= s || r.start >= e) {
+      kept.push(m);
+      continue;
+    }
+    for (const [a, b] of [
+      [r.start, Math.min(r.end, s)],
+      [Math.max(r.start, e), r.end],
+    ]) {
+      const range = b > a ? tightRange(text, a, b) : null;
+      if (range) kept.push({ ...(m as TextMark), id: kept.some((k) => k.id === m.id) ? newId() : m.id, range });
+    }
+  }
+  n.marks = kept;
+}
+
+/** Moves a cue to another point of its line (0.8.3, dragged in the field); not to its very start. */
+export function moveCue(n: StoryNode, id: string, at: number): void {
+  const m = textMarkOf(n, id);
+  if (!m || m.device !== 'cue') return;
+  const text = anchorText(n, m.anchor);
+  if (text === undefined || at <= 0) return;
+  const pos = Math.min(text.length, at);
+  m.range = { start: pos, end: pos, quote: '' };
+  tidyNode(n);
+}
+
 /** A selection without the spaces around it; null when nothing is left (the mark covers the whole text). */
 function tightRange(text: string, start: number, end: number): TextRange | null {
   let a = Math.max(0, Math.min(start, end, text.length));

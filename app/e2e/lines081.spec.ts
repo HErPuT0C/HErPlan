@@ -196,8 +196,16 @@ async function openCrypt(page: Page) {
   await expect(page.getByRole('application', { name: 'Холст' })).toBeVisible();
   await page.locator('.cnode[data-kind="dialogue"]').click();
   const inspector = page.getByRole('complementary', { name: 'Боковая панель сценария' });
-  await expect(inspector.locator('.iline')).toHaveCount(3);
+  await expect(inspector.locator('.iline-open')).toHaveCount(3);
   return { errors, inspector };
+}
+
+/** Opens a line in the window of a line (0.8.3: lines are edited only there); its editor. */
+async function openLine(page: Page, n: number) {
+  await page.getByRole('button', { name: `Открыть реплику ${n} в окне` }).click();
+  await expect(page.getByRole('dialog', { name: new RegExp(`^Реплика ${n} из`) })).toBeVisible();
+  // Whichever line the window shows now.
+  return page.getByRole('dialog', { name: /^Реплика/ }).locator('.iline');
 }
 
 async function saved(page: Page) {
@@ -226,8 +234,7 @@ const shot = (page: Page, name: string) =>
 test('values from the palette: who speaks, their faces, emotes by picture, styles in colour, "— нет —" (0.8.1)', async ({
   page,
 }) => {
-  const { errors, inspector } = await openCrypt(page);
-  const [l1, l2, l3] = [0, 1, 2].map((i) => inspector.locator('.iline').nth(i));
+  const { errors } = await openCrypt(page);
 
   // On opening, the owner's file is tidied: no empty marks, the emote at the start of line 2 is its field.
   const first = await saved(page);
@@ -236,22 +243,18 @@ test('values from the palette: who speaks, their faces, emotes by picture, style
   expect(talkNode.lines![1]).toMatchObject({ emote: 'exclaim' });
 
   // Who speaks: the narrator and the cards with a name in the game; nobody — "who speaks?".
+  const l1 = await openLine(page, 1);
   await l1.getByRole('combobox', { name: 'Кто говорит?' }).click();
   await expect(options(page)).toHaveText(['— не выбран —', 'Рассказчик', 'Герой', 'Скелет']);
-  await page.keyboard.press('Escape');
-  await expect(l2.locator('.iline-who-missing')).toHaveText('кто говорит?');
+  await l1.getByRole('combobox', { name: 'Кто говорит?' }).click();
+  await expect(page.getByRole('listbox')).toHaveCount(0);
   await expect(l1.locator('.iline-game-speaker')).toContainText('пузырь: Сглаженный · голос: Костяной');
 
-  // Faces: the speaker's own, by picture; the narrator has none (grey).
+  // Faces: the speaker's own, by picture.
   await l1.getByRole('combobox', { name: 'Лицо', exact: true }).click();
   await expect(options(page)).toHaveText(['— нет —', 'Обычное', 'Зол']);
   await expect(page.getByRole('listbox').locator('canvas.sprite-frame[data-loaded]')).toHaveCount(2);
   await page.getByRole('option', { name: 'Зол' }).click();
-  await expect(l3.getByRole('combobox', { name: 'Лицо', exact: true })).toBeDisabled();
-  await expect(l3.getByRole('combobox', { name: 'Лицо', exact: true })).toHaveAttribute(
-    'title',
-    'этому персонажу лица не нарисованы',
-  );
 
   // A style the game no longer has: red, and it stays in the file until changed. Styles in their colours.
   const style = l1.getByRole('combobox', { name: 'Стиль' });
@@ -262,20 +265,34 @@ test('values from the palette: who speaks, their faces, emotes by picture, style
     'style',
     /color: rgb\(255, 122, 74\)/,
   );
-  await page.keyboard.press('Escape');
+  await style.click();
   await pick(page, style, 'Гнев');
   await expect(style).not.toHaveClass(/palette-unknown/);
-
-  // Emotes by picture; "— нет —" takes the field out of the file.
-  await l2.getByRole('combobox', { name: 'Эмоция', exact: true }).click();
-  await expect(page.getByRole('listbox').locator('canvas.sprite-frame[data-loaded]')).toHaveCount(2);
-  await shot(page, 'l1-emotes');
-  await page.getByRole('option', { name: '— нет —' }).click();
-  // Actions: the palette's own list (line 1 has a mark: its details are open already).
-  await expect(l1.getByRole('button', { name: /Для игры/ })).toHaveAttribute('aria-expanded', 'true');
+  // Actions: the palette's own list (in the window everything is open).
   await l1.getByRole('button', { name: 'Действие' }).click();
   await expect(page.getByRole('menuitem')).toHaveText(['Выдать предмет', 'Сохранить игру']);
   await page.keyboard.press('Escape');
+  await expect(page.getByRole('menuitem')).toHaveCount(0);
+
+  // Line 2: nobody speaks it; emotes by picture; "— нет —" takes the field out of the file.
+  await page.getByRole('button', { name: 'Следующая реплика' }).click();
+  await expect(page.getByRole('dialog', { name: /^Реплика 2 из/ })).toBeVisible();
+  await expect(l1.locator('.iline-who-missing')).toHaveText('кто говорит?');
+  await l1.getByRole('combobox', { name: 'Эмоция', exact: true }).click();
+  await expect(page.getByRole('listbox').locator('canvas.sprite-frame[data-loaded]')).toHaveCount(2);
+  await shot(page, 'l1-emotes');
+  await page.getByRole('option', { name: '— нет —' }).click();
+
+  // Line 3, the narrator: no faces (grey).
+  await page.getByRole('button', { name: 'Следующая реплика' }).click();
+  await expect(page.getByRole('dialog', { name: /^Реплика 3 из/ })).toBeVisible();
+  await expect(l1.getByRole('combobox', { name: 'Лицо', exact: true })).toBeDisabled();
+  await expect(l1.getByRole('combobox', { name: 'Лицо', exact: true })).toHaveAttribute(
+    'title',
+    'этому персонажу лица не нарисованы',
+  );
+  await page.getByRole('dialog').getByRole('button', { name: 'Закрыть' }).first().click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 
   const after = (await saved(page)).nodes.find((n) => n.id === 'talk')!;
   expect(after.lines![0]).toMatchObject({ face: 'angry', style: 'anger' });
@@ -287,9 +304,9 @@ test('values from the palette: who speaks, their faces, emotes by picture, style
 test('cues stand inside the text; at its start the fields open; the preview shakes every time (0.8.1)', async ({
   page,
 }) => {
-  const { errors, inspector } = await openCrypt(page);
-  const l1 = inspector.locator('.iline').first();
-  const text = l1.getByLabel('Реплика 1');
+  const { errors } = await openCrypt(page);
+  const l1 = await openLine(page, 1);
+  const text = l1.getByRole('textbox', { name: 'Реплика 1', exact: true });
 
   // "+ mark" at the start of the line: pause and sound are not offered; an emote opens the field's list.
   await text.focus();
@@ -311,8 +328,9 @@ test('cues stand inside the text; at its start the fields open; the preview shak
   expect(marks.map((m) => m.props)).toEqual([{ shake: 3 }, { emote: 'exclaim' }]);
 
   // The preview: the shake at "здесь" shows on the first play and again after "again", and again.
-  await l1.getByRole('button', { name: 'Просмотр реплики как в игре' }).click();
-  const dialog = page.getByRole('dialog', { name: /Как в игре/ });
+  // In the window of the line, over its fields.
+  const dialog = page.getByRole('dialog', { name: /^Реплика 1 из/ });
+  // It has played since the window opened: from the start again, three times.
   const box = dialog.locator('.typing-box');
   /** Watches the text box for a shake (its offset) for a while; true when it shook. "Again" makes a new box. */
   const shakes = () =>
@@ -334,8 +352,7 @@ test('cues stand inside the text; at its start the fields open; the preview shak
           }, 2500);
         }),
     );
-  expect(await shakes()).toBe(true);
-  for (let round = 0; round < 2; round++) {
+  for (let round = 0; round < 3; round++) {
     await expect(box).toHaveAttribute('data-done', '');
     const watch = shakes();
     await dialog.getByRole('button', { name: 'Сначала' }).click();

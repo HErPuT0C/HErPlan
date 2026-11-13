@@ -158,7 +158,7 @@ async function openCrypt(page: Page) {
   await expect(page.getByRole('application', { name: 'Холст' })).toBeVisible();
   await page.locator('.cnode[data-kind="dialogue"]').click();
   const inspector = page.getByRole('complementary', { name: 'Боковая панель сценария' });
-  await expect(inspector.locator('.iline')).toHaveCount(2);
+  await expect(inspector.locator('.iline-open')).toHaveCount(2);
   return { errors, inspector };
 }
 
@@ -230,10 +230,6 @@ test('the window of a line: a double click opens it, ← → go through the line
   await win.getByRole('combobox', { name: 'Стиль' }).click();
   await page.getByRole('listbox', { name: 'Стиль' }).getByRole('option', { name: 'Крик' }).click();
   await expect(win.getByRole('combobox', { name: 'Стиль' })).toHaveAttribute('data-value', 'shout');
-  await expect(inspector.locator('.iline').first().getByRole('combobox', { name: 'Стиль' })).toHaveAttribute(
-    'data-value',
-    'shout',
-  );
 
   // → the next line, ← back; the whole node plays from the first line.
   await page.keyboard.press('ArrowRight');
@@ -243,6 +239,8 @@ test('the window of a line: a double click opens it, ← → go through the line
   await win.getByRole('button', { name: 'Предыдущая реплика' }).click();
   win = page.getByRole('dialog', { name: /Реплика 1 из 2/ });
   await expect(win).toBeVisible();
+  // The style chosen stays with the line.
+  await expect(win.getByRole('combobox', { name: 'Стиль' })).toHaveAttribute('data-value', 'shout');
   await win.getByRole('button', { name: 'Весь узел' }).click();
   await expect(win.locator('.typing-position')).toHaveText('реплика 1 из 2');
   await page.keyboard.press(' ');
@@ -252,7 +250,103 @@ test('the window of a line: a double click opens it, ← → go through the line
   // The "open" button beside a line in the side panel; Escape closes.
   await page.keyboard.press('Escape');
   await expect(win).toHaveCount(0);
-  await inspector.locator('.iline').nth(1).getByRole('button', { name: 'Развернуть реплику' }).click();
+  await inspector.getByRole('button', { name: 'Открыть реплику 2 в окне' }).click();
   await expect(page.getByRole('dialog', { name: /Реплика 2 из 2/ })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+/** The conversation as saved. */
+async function saved(page: Page) {
+  await page.keyboard.press('Control+S');
+  await page.waitForTimeout(300);
+  return page.evaluate(() => {
+    const fs = JSON.parse(localStorage.getItem('herplan.web.fs.v1') ?? '{}') as { files: Files };
+    const path = Object.keys(fs.files).find((p) => p.endsWith('/data/graphs/g-talk.json'))!;
+    const g = JSON.parse(fs.files[path]) as {
+      nodes: {
+        id: string;
+        lines?: { text: string }[];
+        marks?: { device: string; range: { start: number; end: number }; props?: Record<string, unknown> }[];
+      }[];
+    };
+    return g.nodes.find((n) => n.id === 'talk')!;
+  });
+}
+
+test('the text in the game font: a word selected gets its look and a plot device from the toolbar; cues move (0.8.3)', async ({
+  page,
+}) => {
+  const { errors, inspector } = await openCrypt(page);
+  // The side panel only lists the lines; they are edited in the window.
+  await expect(inspector.getByRole('textbox', { name: 'Реплика 1', exact: true })).toHaveCount(0);
+  await inspector.getByRole('button', { name: 'Открыть реплику 1 в окне' }).click();
+  const win = page.getByRole('dialog', { name: /Реплика 1 из 2/ });
+  const field = win.locator('canvas.gfield-canvas');
+  await expect(field).toBeVisible();
+  // The rows of the game: the same two as in the bubble.
+  await expect(field).toHaveAttribute('data-rows', '2');
+  // Each sign 5 pixels and a space 3, ×3, after a margin of 4: "здесь" is at 18–43; the first row's letters
+  // stand 2 × 3 + 16 pixels down.
+  const at = (x: number) => ({ x: (4 + x) * 3, y: 2 * 3 + 16 + 12 });
+
+  // A double click selects the word; the toolbar floats over it; "Крик" from its styles.
+  await field.dblclick({ position: at(30) });
+  await expect(field).toHaveAttribute('data-selection', '4-9');
+  const bar = win.locator('.gfield-bar');
+  await expect(bar).toBeVisible();
+  await shot(page, 's3-toolbar');
+  await bar.getByRole('button', { name: 'Стиль' }).click();
+  await page.getByRole('menuitem', { name: 'Крик' }).click();
+  let talk = await saved(page);
+  expect(talk.marks).toEqual([
+    expect.objectContaining({
+      device: 'style',
+      range: expect.objectContaining({ start: 4, end: 9 }),
+      props: { style: 'shout' },
+    }),
+  ]);
+  // Bold and Chekhov's gun on the same word.
+  await field.dblclick({ position: at(30) });
+  await bar.getByRole('button', { name: 'Жирный' }).click();
+  await field.dblclick({ position: at(30) });
+  await bar.getByRole('button', { name: 'Приём' }).click();
+  await page.getByRole('menuitem', { name: 'Чеховское ружьё' }).click();
+  talk = await saved(page);
+  expect(talk.marks!.map((m) => [m.device, m.range?.start, m.range?.end, m.props])).toEqual([
+    ['style', 4, 9, { style: 'shout', bold: true }],
+    ['gun', 4, 9, undefined],
+  ]);
+  // "Clear the look": the word is plain again, the gun stays.
+  await field.dblclick({ position: at(30) });
+  await bar.getByRole('button', { name: 'Убрать оформление' }).click();
+  talk = await saved(page);
+  expect(talk.marks!.map((m) => m.device)).toEqual(['gun']);
+
+  // A pause at the caret: its icon between the letters; dragged, it moves; clicked, its value changes.
+  await field.click({ position: at(15) });
+  await page.keyboard.press('Control+p');
+  const cue = win.locator('.gfield-cue');
+  await expect(cue).toHaveCount(1);
+  await expect(cue).toHaveAttribute('data-at', '3');
+  const from = (await cue.boundingBox())!;
+  const box = (await field.boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + at(42).x, box.y + at(42).y, { steps: 4 });
+  await page.mouse.up();
+  await expect(cue).toHaveAttribute('data-at', '9');
+  await cue.click();
+  await page.getByRole('menuitem', { name: '0,5 с' }).click();
+  talk = await saved(page);
+  expect(talk.marks!.find((m) => m.device === 'cue')).toMatchObject({ range: { start: 9 }, props: { pause: 0.5 } });
+
+  // Typing goes into the line; the field's scale and its moving effects are switches.
+  await win.getByRole('textbox', { name: 'Реплика 1', exact: true }).press('Control+End');
+  await page.keyboard.type('!');
+  await expect(win.getByRole('textbox', { name: 'Реплика 1', exact: true })).toHaveValue(`${LINE1}!`);
+  await win.getByRole('group', { name: 'Масштаб поля' }).getByRole('button', { name: '×2' }).click();
+  await expect(field).toHaveAttribute('width', String((190 + 8) * 2));
+  await win.getByRole('button', { name: 'Эффекты в поле' }).click();
+  await expect(win.getByRole('button', { name: 'Эффекты в поле' })).toHaveAttribute('aria-pressed', 'false');
   expect(errors).toEqual([]);
 });

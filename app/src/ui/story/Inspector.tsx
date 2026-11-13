@@ -8,6 +8,7 @@ import {
   FileText,
   ImagePlus,
   ListChecks,
+  Maximize2,
   MessagesSquare,
   Play,
   Plus,
@@ -69,7 +70,10 @@ import {
 } from '../../story/ops';
 import { knownNames } from '../../story/usage';
 import { fullName, registryFor } from '../../story/variables';
-import { graphKey } from '../../story/gameKey';
+import { graphKey, keyOf } from '../../story/gameKey';
+import { visibleLength, visibleText } from '../../story/game';
+import { NARRATOR, paletteSpeaker } from '../../story/palette';
+import { speakerName } from './lineLook';
 import { gameFiles } from '../../state/gameFiles';
 import { graphTransfer, nodeTransfer } from '../../story/transfer';
 import { listVariables } from '../../story/variables';
@@ -91,8 +95,7 @@ import { IMAGE_FILTERS } from '../start/filters';
 import { useStory } from './context';
 import { ExpressionField } from './ExpressionField';
 import { ActionsEditor, GameKeyField, NumberBlank } from './game';
-import { LineRow, Translation } from './LineEditor';
-import { participants } from './paletteItems';
+import { Translation } from './LineEditor';
 import { MarkedTextArea, textHighlights, useTextMenu } from './MarkedText';
 import { NodePicker } from './NodePicker';
 import { DeviceMenu, useAddDevice } from './plotTools';
@@ -338,16 +341,11 @@ function GiveSection({ node }: { node: StoryNode }) {
 // ---------- dialogue ----------
 
 function DialogueSection({ node }: { node: StoryNode }) {
-  const { project, graphId, edit } = useStory();
+  const { project, edit, openLine } = useStory();
   const readOnly = project.readOnly;
   const limits = useStore(project.store, (s) => s.meta.settings.dialogueLimits);
   const entities = useStore(project.store, (s) => s.entities);
-  // Who speaks anywhere in this conversation: whom an emote, a gesture or a face can belong to (0.8.1).
-  const people = useStore(project.store, (s) =>
-    participants((graphOf(s, graphId)?.nodes ?? []).flatMap((n) => asStory(n).lines ?? [])).join('\n'),
-  )
-    .split('\n')
-    .filter(Boolean);
+  const { palette } = useAtom(gameFiles);
   const lines = node.lines ?? [];
   const over = lines.length > limits.maxLines;
   const [previewing, setPreviewing] = useState(false);
@@ -358,7 +356,8 @@ function DialogueSection({ node }: { node: StoryNode }) {
     edit(t('story.step.lines'), (g) => {
       id = addLine(g, node.id, { speaker });
     });
-    requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-line="${id}"] textarea`)?.focus());
+    // It is written in the window of a line (0.8.3).
+    if (id) openLine(node.id, id);
   };
   return (
     <Section title={t('story.lines')} field="lines">
@@ -366,19 +365,38 @@ function DialogueSection({ node }: { node: StoryNode }) {
         {t('story.lines.count', { count: lines.length, max: limits.maxLines })}
         {over && ` ${t('story.lines.over')}`}
       </p>
-      {lines.map((line, i) => (
-        <LineRow
-          key={line.id}
-          line={line}
-          index={i}
-          last={i === lines.length - 1}
-          node={node}
-          maxChars={limits.maxLineChars}
-          entities={entities}
-          people={people}
-          readOnly={readOnly}
-        />
-      ))}
+      {/* 0.8.3, the owner's wish: a line is edited only in its window; here, the list to open it from. */}
+      <ol className="ilines">
+        {lines.map((line, i) => {
+          const card = line.speaker && line.speaker !== NARRATOR ? entities[line.speaker] : undefined;
+          const color = card ? paletteSpeaker(palette, keyOf(card))?.color : undefined;
+          const long = visibleLength(line.text) > limits.maxLineChars;
+          return (
+            <li key={line.id}>
+              <button
+                type="button"
+                className={['iline-open', !line.speaker && 'iline-nobody', long && 'iline-over']
+                  .filter(Boolean)
+                  .join(' ')}
+                data-line={line.id}
+                aria-label={t('lines.open', { n: i + 1 })}
+                style={color ? { borderLeftColor: color } : undefined}
+                onClick={() => openLine(node.id, line.id)}
+              >
+                <span
+                  className={['iline-open-who', !line.speaker && 'iline-open-nobody'].filter(Boolean).join(' ')}
+                  style={color ? { color } : undefined}
+                >
+                  {speakerName(entities, line.speaker)}
+                </span>
+                <span className="iline-open-text">{visibleText(line.text) || '…'}</span>
+                <Maximize2 size={13} aria-hidden="true" className="iline-open-icon" />
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+      <p className="muted small">{t('lines.hint')}</p>
       {!readOnly && (
         <div className="insp-actions">
           <Button size="sm" icon={<Plus size={14} />} onClick={add}>

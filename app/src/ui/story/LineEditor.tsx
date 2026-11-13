@@ -1,4 +1,4 @@
-// One dialogue line in the inspector. 0.8: who says it, the text with the look of its words shown in the
+// One dialogue line, in the window of a line (since 0.8.3 the only place it is edited). 0.8: who says it, the text with the look of its words shown in the
 // field itself, the row of what holds from the start of the line (style, face, gesture, emote) and, folded
 // away, timings, the "interrupted" exit, a condition, effects, actions, a note for the translator, and the
 // marks on the words and between them. 0.8.1 ("Редактор реплик" 2–3): every value is picked from the game's
@@ -12,10 +12,10 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardCopy,
+  Eraser,
   MapPinPlus,
-  Maximize2,
   Paintbrush,
-  Play,
+  Palette as PaletteIcon,
   Trash,
   X,
 } from 'lucide-react';
@@ -29,7 +29,10 @@ import { keyOf } from '../../story/gameKey';
 import {
   addCueMark,
   addStyleMark,
+  clearLooks,
   cueAt,
+  marksOn,
+  moveCue,
   removeMark,
   resolveRange,
   setMarkProps,
@@ -69,13 +72,21 @@ import { highlightPieces, MarkedTextArea, pieceStyle, textHighlights, useTextMen
 import { faceItems, listItems, speakerItems } from './paletteItems';
 import { PaletteSelect, SoundButton } from './PaletteSelect';
 import { DeviceMenu, useAddDevice } from './plotTools';
-import { TypingPreview } from './TypingPreview';
+import { GameTextField } from './GameTextField';
+import { useGameFont } from './gameAssets';
+import { ButterflyIcon, GunIcon } from '../canvas/kindIcons';
+import { gameLine } from '../../story/gameLine';
 
 /** A pause put with Ctrl+P (the spec: 0.3 s). */
 const PAUSE = 0.3;
 /** Cues that at the very start of a line are the line's own fields. */
 const FIELDS: readonly CueKind[] = ['face', 'gesture', 'emote'];
 const FIELD_LIST = { face: 'faces', gesture: 'gestures', emote: 'emotes', sound: 'sounds' } as const;
+/** How many times faster a piece of a line is typed, offered over a selection. */
+const SPEEDS = [0.5, 0.75, 1.5, 2];
+// Remembered while the application runs: how big the field is and whether its effects move.
+let lastFieldScale = 3;
+let lastMoving = true;
 
 /** The line as the game shows it: real weights and sizes, and an icon for every cue, explained on hover. */
 function LinePreview({
@@ -141,7 +152,6 @@ export function LineRow({
   entities,
   people,
   readOnly,
-  windowed,
 }: {
   line: DialogueLine;
   index: number;
@@ -152,14 +162,14 @@ export function LineRow({
   /** Who speaks in this conversation: whom an emote, a gesture or a face can belong to. */
   people: string[];
   readOnly: boolean;
-  /** In the window of a line (0.8.2): the scene is above it, everything is open. */
-  windowed?: boolean;
 }) {
-  const { project, edit, task, openLine } = useStory();
-  const { palette, translations } = useAtom(gameFiles);
+  const { project, edit, task } = useStory();
+  const { palette, translations, dir } = useAtom(gameFiles);
+  const font = useGameFont(dir, palette.preview?.font);
+  const [fieldScale, setFieldScale] = useState(lastFieldScale);
+  const [moving, setMoving] = useState(lastMoving);
   const types = useStore(project.store, (s) => s.types);
   const noPalette = !palette.loaded;
-  const [previewing, setPreviewing] = useState(false);
   const [menuAt, setMenuAt] = useState<MenuAt | null>(null);
   const [prompt, setPrompt] = useState<PromptRequest | null>(null);
   /** A field under the text asked to open its list (a cue at the start of the line). */
@@ -180,7 +190,7 @@ export function LineRow({
     !!line.effects ||
     !!line.actions?.length ||
     !!line.note;
-  const [open, setOpen] = useState(hasMore || !!windowed);
+  const [open, setOpen] = useState(true);
   const change = (recipe: (n: StoryNode) => void, mergeKey?: string) =>
     edit(
       t('story.step.lines'),
@@ -327,11 +337,194 @@ export function LineRow({
     e.preventDefault();
   };
 
+  // ---------- the field in the game's font (0.8.3) ----------
+  /** One of a list of the palette for a selection (size, effect, appearance): a menu, or typed by hand. */
+  const pickFor = (
+    sel: { start: number; end: number },
+    list: 'sizes' | 'effects' | 'reveals',
+    prop: 'size' | 'effect' | 'reveal',
+    label: string,
+    x: number,
+    y: number,
+  ) => {
+    const put = (v: string) => change((n) => void addStyleMark(n, line.id, sel, { [prop]: v }));
+    if (noPalette || !palette[list].length) return ask(label, put);
+    setMenuAt({
+      x,
+      y,
+      label,
+      entries: listItems(palette, list).map((it) => ({
+        id: it.id,
+        label: it.name,
+        icon: it.icon,
+        onSelect: () => put(it.id),
+      })),
+    });
+  };
+  const below = (e: { currentTarget: Element }) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return [r.left, r.bottom + 4] as const;
+  };
+  const colorInput = useRef<HTMLInputElement>(null);
+  const colorFor = useRef<{ start: number; end: number } | null>(null);
+  /** What floats over the selected words: how they look, and the plot devices (the owner's 0.8.3). */
+  const toolbar = (sel: { start: number; end: number }) => (
+    <>
+      <button
+        type="button"
+        onClick={(e) => styleMenu(sel, ...below(e))}
+        title={t('line.styleWords')}
+        aria-label={t('line.style')}
+      >
+        <Paintbrush size={13} aria-hidden="true" /> {t('line.style')} ▾
+      </button>
+      <button
+        type="button"
+        title={t('mark.color')}
+        aria-label={t('mark.color')}
+        onClick={() => {
+          colorFor.current = sel;
+          colorInput.current?.click();
+        }}
+      >
+        <PaletteIcon size={13} aria-hidden="true" />
+      </button>
+      <button type="button" title={`${t('line.bold')} (Ctrl+B)`} aria-label={t('line.bold')} onClick={() => bold(sel)}>
+        <Bold size={13} aria-hidden="true" />
+      </button>
+      <button type="button" onClick={(e) => pickFor(sel, 'sizes', 'size', t('mark.size'), ...below(e))}>
+        {t('mark.size')} ▾
+      </button>
+      <button type="button" onClick={(e) => pickFor(sel, 'effects', 'effect', t('mark.effect'), ...below(e))}>
+        {t('mark.effect')} ▾
+      </button>
+      <button
+        type="button"
+        onClick={(e) =>
+          setMenuAt({
+            x: below(e)[0],
+            y: below(e)[1],
+            label: t('mark.speed'),
+            entries: SPEEDS.map((v) => ({
+              id: String(v),
+              label: t('preview.speedX', { n: String(v).replace('.', ',') }),
+              onSelect: () => change((n) => void addStyleMark(n, line.id, sel, { speed: v })),
+            })),
+          })
+        }
+      >
+        {t('mark.speed')} ▾
+      </button>
+      <button type="button" onClick={(e) => pickFor(sel, 'reveals', 'reveal', t('mark.reveal'), ...below(e))}>
+        {t('mark.reveal')} ▾
+      </button>
+      <span className="gfield-sep" />
+      <button
+        type="button"
+        onClick={(e) =>
+          setMenuAt({
+            x: below(e)[0],
+            y: below(e)[1],
+            label: t('field.device'),
+            entries: [
+              {
+                id: 'gun',
+                label: t('plot.gun'),
+                icon: <GunIcon size={16} />,
+                onSelect: () => addDevice('gun', anchor, sel),
+              },
+              {
+                id: 'butterfly',
+                label: t('plot.butterfly'),
+                icon: <ButterflyIcon size={16} />,
+                onSelect: () => addDevice('butterfly', anchor, sel),
+              },
+            ],
+          })
+        }
+      >
+        <GunIcon size={13} /> {t('field.device')} ▾
+      </button>
+      <span className="gfield-sep" />
+      <button
+        type="button"
+        title={t('field.clear')}
+        aria-label={t('field.clear')}
+        onClick={() => change((n) => clearLooks(n, line.id, sel))}
+      >
+        <Eraser size={13} aria-hidden="true" />
+      </button>
+    </>
+  );
+  /** A click on a cue in the field: its values to pick, or away. */
+  const cueClick = (id: string, x: number, y: number) => {
+    const m = marks.find((k) => k.id === id);
+    if (!m || m.device !== 'cue') return;
+    const kind = cueKind(m.props);
+    const setTo = (props: CueProps) => change((n) => setMarkProps(n, id, props), `tmark:${id}`);
+    const remove: MenuEntry = {
+      id: 'remove',
+      label: t('line.markRemove'),
+      icon: <X size={16} />,
+      onSelect: () => change((n) => removeMark(n, id)),
+    };
+    let entries: MenuEntry[];
+    if (kind === 'pause' || kind === 'shake') {
+      const values = kind === 'pause' ? [0.15, 0.3, 0.5, 1] : [1, 2, 3];
+      entries = [
+        ...values.map((v) => ({
+          id: String(v),
+          label: kind === 'pause' ? t('field.seconds', { n: String(v).replace('.', ',') }) : String(v),
+          onSelect: () => setTo({ [kind]: v }),
+        })),
+        {
+          id: 'other',
+          label: t('field.other'),
+          onSelect: () =>
+            setPrompt({
+              title: t(CUE_NAMES[kind]),
+              label: t(kind === 'pause' ? 'cue.seconds' : 'cue.strength'),
+              value: String(m.props[kind] ?? ''),
+              onSubmit: (v) => {
+                const num = Number(v.replace(',', '.'));
+                if (Number.isFinite(num) && num > 0) setTo({ [kind]: num });
+              },
+            }),
+        },
+      ];
+    } else {
+      const was = kind === 'sound' ? null : toward(m.props[kind]);
+      const items =
+        kind === 'face'
+          ? faceItems(palette, entities, was?.to ?? line.speaker).items
+          : listItems(palette, FIELD_LIST[kind]);
+      entries = items.map((it) => ({
+        id: it.id,
+        label: it.name,
+        icon: it.icon,
+        onSelect: () => setTo({ [kind]: was?.to ? { id: it.id, to: was.to } : it.id } as CueProps),
+      }));
+    }
+    setMenuAt({ x, y, label: t(CUE_NAMES[kind]), entries: [...entries, { id: 'sep', separator: true }, remove] });
+  };
+
   const chars = visibleLength(line.text);
   const card = line.speaker && line.speaker !== NARRATOR ? entities[line.speaker] : undefined;
   const gameSpeaker = paletteSpeaker(palette, line.speaker === NARRATOR ? NARRATOR : keyOf(card));
   const game = gameMarks(node, anchor, line.text, palette);
   const lineStyle = palette.styles.find((s) => s.id === line.style)?.color;
+  // In the window of a line, with the game's font in the project, the text is edited in it (0.8.3).
+  const inGameFont = !!font && !!palette.preview;
+  const fieldLine = inGameFont ? gameLine(line.text, line.style, marks, palette.preview) : null;
+  const plotRanges = marksOn(node, anchor).flatMap((m) => {
+    const r = resolveRange(line.text, m.range);
+    return r ? [{ ...r, device: m.device }] : [];
+  });
+  const fieldCues = marks.flatMap((m) =>
+    m.device === 'cue'
+      ? [{ id: m.id, at: cueAt(line.text, m), props: m.props, label: cueText(m.props, palette, nameOf) }]
+      : [],
+  );
   const unknownSpeaker = line.speaker
     ? line.speaker === NARRATOR
       ? undefined
@@ -363,23 +556,6 @@ export function LineRow({
         >
           {t('story.lines.chars', { count: chars, max: maxChars })}
         </span>
-        {!windowed && (
-          <>
-            <IconButton
-              size="sm"
-              label={t('preview.line')}
-              icon={<Play size={14} />}
-              disabled={!line.text.trim()}
-              onClick={() => setPreviewing(true)}
-            />
-            <IconButton
-              size="sm"
-              label={t('line.expand')}
-              icon={<Maximize2 size={14} />}
-              onClick={() => openLine(nodeId, line.id)}
-            />
-          </>
-        )}
         {!readOnly && (
           <span className="iline-tools">
             <IconButton
@@ -431,36 +607,108 @@ export function LineRow({
           />
         </div>
       )}
-      <MarkedTextArea
-        className={['iline-text', chars > maxChars && 'iline-over'].filter(Boolean).join(' ')}
-        value={line.text}
-        highlights={[...textHighlights(line.text, node, anchor), ...game.highlights]}
-        ticks={game.cues.map((c) => c.at)}
-        live={game.highlights.length > 0 || !!lineStyle}
-        mirrorStyle={lineStyle ? { color: lineStyle } : undefined}
-        rows={1}
-        readOnly={readOnly}
-        aria-label={t('story.lines.text', { n: index + 1 })}
-        onContextMenu={menu.onContextMenu}
-        onKeyDown={onKeyDown}
-        onSelect={(e) => {
-          textBox.current = e.currentTarget;
-          caret.current = e.currentTarget.selectionStart;
-        }}
-        onFocus={(e) => {
-          textBox.current = e.currentTarget;
-        }}
-        onChange={(e) =>
-          edit(
-            t('story.step.lines'),
-            (g) => updateLine(g, nodeId, line.id, { text: e.target.value }),
-            `line:${line.id}`,
-          )
-        }
-      />
+      {inGameFont ? (
+        <>
+          <div className="gfield-tools">
+            <div className="typing-speeds" role="group" aria-label={t('field.scale')}>
+              {[2, 3, 4].map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  className="typing-speed"
+                  aria-pressed={fieldScale === k}
+                  onClick={() => setFieldScale((lastFieldScale = k))}
+                >
+                  ×{k}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="typing-speed"
+              aria-pressed={moving}
+              onClick={() => setMoving((lastMoving = !moving))}
+            >
+              {t('field.effects')}
+            </button>
+            <span className="muted small">{t('field.hint')}</span>
+          </div>
+          <GameTextField
+            text={line.text}
+            line={fieldLine!}
+            font={font!}
+            preview={palette.preview!}
+            scale={fieldScale}
+            moving={moving}
+            plot={plotRanges}
+            cues={fieldCues}
+            readOnly={readOnly}
+            textarea={{
+              'aria-label': t('story.lines.text', { n: index + 1 }),
+              onKeyDown,
+              onSelect: (e) => {
+                textBox.current = e.currentTarget;
+                caret.current = e.currentTarget.selectionStart;
+              },
+              onFocus: (e) => {
+                textBox.current = e.currentTarget;
+              },
+              onChange: (e) =>
+                edit(
+                  t('story.step.lines'),
+                  (g) => updateLine(g, nodeId, line.id, { text: e.target.value }),
+                  `line:${line.id}`,
+                ),
+            }}
+            onMenu={menu.openAt}
+            onCue={cueClick}
+            onMoveCue={(id, at) => change((n) => moveCue(n, id, at))}
+            toolbar={readOnly ? undefined : toolbar}
+          />
+          <input
+            ref={colorInput}
+            type="color"
+            className="gfield-color"
+            tabIndex={-1}
+            aria-hidden="true"
+            onChange={(e) => {
+              const sel = colorFor.current;
+              if (sel) change((n) => void addStyleMark(n, line.id, sel, { color: e.target.value }), `color:${line.id}`);
+            }}
+          />
+        </>
+      ) : (
+        <MarkedTextArea
+          className={['iline-text', chars > maxChars && 'iline-over'].filter(Boolean).join(' ')}
+          value={line.text}
+          highlights={[...textHighlights(line.text, node, anchor), ...game.highlights]}
+          ticks={game.cues.map((c) => c.at)}
+          live={game.highlights.length > 0 || !!lineStyle}
+          mirrorStyle={lineStyle ? { color: lineStyle } : undefined}
+          rows={1}
+          readOnly={readOnly}
+          aria-label={t('story.lines.text', { n: index + 1 })}
+          onContextMenu={menu.onContextMenu}
+          onKeyDown={onKeyDown}
+          onSelect={(e) => {
+            textBox.current = e.currentTarget;
+            caret.current = e.currentTarget.selectionStart;
+          }}
+          onFocus={(e) => {
+            textBox.current = e.currentTarget;
+          }}
+          onChange={(e) =>
+            edit(
+              t('story.step.lines'),
+              (g) => updateLine(g, nodeId, line.id, { text: e.target.value }),
+              `line:${line.id}`,
+            )
+          }
+        />
+      )}
       {menu.menu}
       <Translation translations={translations} id={line.id} edited={(line as { edited?: string }).edited} />
-      <LinePreview node={node} line={line} palette={palette} nameOf={nameOf} />
+      {!inGameFont && <LinePreview node={node} line={line} palette={palette} nameOf={nameOf} />}
       <div className="iline-game">
         <PaletteInput
           palette={palette}
@@ -601,9 +849,6 @@ export function LineRow({
             <ClipboardCopy size={12} /> {t('task.line')}
           </button>
         </div>
-      )}
-      {previewing && (
-        <TypingPreview node={node} start={index} only entities={entities} onClose={() => setPreviewing(false)} />
       )}
       {menuAt && (
         <Menu x={menuAt.x} y={menuAt.y} label={menuAt.label} entries={menuAt.entries} onClose={() => setMenuAt(null)} />

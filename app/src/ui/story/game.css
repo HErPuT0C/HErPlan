@@ -934,3 +934,165 @@
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
+
+/* --- 0.8.3, "Редактор реплик" step 3: the text in the game's font, its toolbar, its cues --- */
+.gfield {
+  position: relative;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 6px);
+  background: #100e14;
+}
+.gfield:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.gfield-canvas {
+  display: block;
+  cursor: text;
+  image-rendering: pixelated;
+  touch-action: none;
+}
+.gfield-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  resize: none;
+  border: 0;
+  padding: 0;
+  pointer-events: none;
+  caret-color: transparent;
+}
+.gfield-cue {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  height: 15px;
+  min-width: 16px;
+  padding: 0 2px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 10px;
+  line-height: 1;
+  cursor: grab;
+  touch-action: none;
+}
+.gfield-cue:active {
+  cursor: grabbing;
+}
+.gfield-cue:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.gfield-bar {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 6px);
+  background: var(--surface);
+  box-shadow: var(--shadow-popup);
+  white-space: nowrap;
+}
+.gfield-bar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.gfield-bar button:hover,
+.gfield-bar button:focus-visible {
+  background: var(--surface-2);
+}
+.gfield-bar .gfield-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--line);
+}
+.gfield-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.gfield-color {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* --- 0.8.3: the lines of a node in the side panel, each opening the window of a line --- */
+.ilines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.iline-open {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: var(--radius-md, 6px);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.iline-open:hover,
+.iline-open:focus-visible {
+  border-color: var(--accent);
+}
+.iline-open.iline-nobody {
+  border-left-color: var(--danger, #e5534b);
+}
+.iline-open.iline-over .iline-open-text {
+  color: var(--warning, #d29922);
+}
+.iline-open-who {
+  flex: none;
+  font-weight: 600;
+}
+.iline-open-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.iline-open-icon {
+  flex: none;
+  align-self: center;
+  opacity: 0.6;
+}
+.line-window-foot {
+  display: flex;
+  gap: var(--space-2);
+}
+.iline-open-nobody {
+  color: var(--danger);
+}

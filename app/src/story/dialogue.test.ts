@@ -24,7 +24,9 @@ import { freeKey, isGameKey, keyProblem, suggestKey } from './gameKey';
 import {
   addCueMark,
   addStyleMark,
+  clearLooks,
   cueAt,
+  moveCue,
   plotSources,
   setMarkProps,
   startCue,
@@ -1278,5 +1280,48 @@ describe('the scene as in the game (0.8.2, 7.3, 7.6, 7.8)', () => {
     expect(loud).toHaveLength(2);
     expect(loud[0]).toMatchObject({ time: 0, gain: 1.5 });
     expect(loud[0].rate).toBeCloseTo(0.9 * 0.86 * spread('С'));
+  });
+});
+
+describe('the toolbar of the field (0.8.3)', () => {
+  const text = 'Кто потревожил мой покой?';
+  const withLooks = () =>
+    produce(talk(), (d) => {
+      const n = node(d, 'hello');
+      addStyleMark(n, 'l1', { start: 0, end: 25 }, { style: 'anger' });
+      addStyleMark(n, 'l1', { start: 4, end: 14 }, { bold: true });
+      addCueMark(n, 'l1', 14, { pause: 0.3 });
+    });
+  const looks = (d: ProjectData) =>
+    textMarks(node(d, 'hello'))
+      .filter((m) => m.device === 'style')
+      .map((m) => [text.slice(m.range!.start, m.range!.end), m.props]);
+
+  it('"clear the look" of a word: a look inside it goes, one around it is cut in two, cues stay', () => {
+    const before = withLooks();
+    expect(node(before, 'hello').lines![0].text).toBe(text);
+    const after = produce(before, (d) => void clearLooks(node(d, 'hello'), 'l1', { start: 4, end: 14 }));
+    expect(looks(after)).toEqual([
+      ['Кто', { style: 'anger' }],
+      ['мой покой?', { style: 'anger' }],
+    ]);
+    const ids = textMarks(node(after, 'hello')).map((m) => m.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(textMarks(node(after, 'hello')).filter((m) => m.device === 'cue')).toHaveLength(1);
+    // Across an edge: cut short.
+    const edge = produce(before, (d) => void clearLooks(node(d, 'hello'), 'l1', { start: 10, end: 25 }));
+    expect(looks(edge)).toEqual([
+      ['Кто потрев', { style: 'anger' }],
+      ['потрев', { bold: true }],
+    ]);
+  });
+
+  it('a cue dragged to another place moves there, but not to the very start', () => {
+    const d0 = withLooks();
+    const cue = textMarks(node(d0, 'hello')).find((m) => m.device === 'cue')!;
+    const moved = produce(d0, (d) => void moveCue(node(d, 'hello'), cue.id, 3));
+    expect(textMarks(node(moved, 'hello')).find((m) => m.id === cue.id)!.range).toMatchObject({ start: 3, end: 3 });
+    const start = produce(moved, (d) => void moveCue(node(d, 'hello'), cue.id, 0));
+    expect(textMarks(node(start, 'hello')).find((m) => m.id === cue.id)!.range).toMatchObject({ start: 3 });
   });
 });

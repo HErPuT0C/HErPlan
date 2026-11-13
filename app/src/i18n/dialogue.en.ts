@@ -215,7 +215,6 @@ export const dialogueEn: Record<keyof typeof dialogueRu, string> = {
 
   // 0.8, section В: preview, translation, search, template, script.
   'preview.title': 'As in the game: {title}',
-  'preview.line': 'Preview the line as in the game',
   'preview.lines': 'Preview the lines',
   'preview.position': 'line {n} of {count}',
   'preview.skip': 'Show the whole line',
@@ -331,9 +330,19 @@ export const dialogueEn: Record<keyof typeof dialogueRu, string> = {
   'preview.soundOn': 'Sound on',
   'preview.soundOff': 'Sound off',
   'preview.wholeNode': 'Whole node',
-  'line.expand': 'Open the line in a big window',
   'lineWindow.title': 'Line {n} of {count} — {title}',
   'lineWindow.prev': 'Previous line',
   'lineWindow.next': 'Next line',
   'lineWindow.gone': 'This line is no longer there.',
+  'field.device': 'Device',
+  'field.clear': 'Clear the look',
+  'field.seconds': '{n} s',
+  'field.other': 'Other…',
+  'field.scale': 'Field scale',
+  'field.effects': 'Effects in the field',
+  'field.hint':
+    'Select a word: the toolbar of its look appears over it. Ctrl+M puts a cue at the caret, Ctrl+P a pause of 0.3 s.',
+  'lines.open': 'Open line {n} in the window',
+  'lines.hint':
+    'Lines are edited in the window of a line: click a line here, or double-click it in the node on the canvas.',
 };

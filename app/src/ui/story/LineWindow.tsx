@@ -1,16 +1,18 @@
 // The window of a line (0.8.2, "Редактор реплик" 4): a big window over the graph, opened by a double click on a
 // line in a node or by "open the line" beside it. From the top: the scene as in the game with the controls
 // of playing; the line's fields (who speaks, the text, style, face, gesture, emote, the times, the condition,
-// the consequences, the actions) — changes are saved at once, as in the side panel. ← → in the header (and
-// Alt+← →) go to the line before and after without closing; Escape closes. The text in the game's font with
-// its toolbar comes in 0.8.3.
+// the consequences, the actions) — changes are saved at once. ← → in the header (and Alt+← →) go to the line
+// before and after without closing; Escape closes. Since 0.8.3 this is the only place a line is edited (the
+// owner's wish; the side panel lists the lines to open): the text in the game's font with a toolbar over the
+// selected words — their look and the plot devices — and new lines are added here too.
 
-import { ChevronLeft, ChevronRight, ListVideo } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { ChevronLeft, ChevronRight, ListVideo, Plus } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../core/useStore';
 import { t } from '../../i18n';
 import { asStory, graphOf } from '../../story/model';
-import { Dialog, IconButton } from '../components';
+import { Button, Dialog, IconButton } from '../components';
+import { addLine } from '../../story/ops';
 import { useStory } from './context';
 import { LineRow } from './LineEditor';
 import { participants } from './paletteItems';
@@ -19,16 +21,19 @@ import { LinePlayer } from './TypingPreview';
 export function LineWindow({
   nodeId,
   lineId,
+  field,
   onLine,
   onClose,
 }: {
   nodeId: string;
   lineId: string;
+  /** A field of the line to put the caret in (data-field), when something led here. */
+  field?: string;
   /** Another line of the node is shown. */
   onLine: (lineId: string) => void;
   onClose: () => void;
 }) {
-  const { project, graphId } = useStory();
+  const { project, graphId, edit } = useStory();
   const graph = useStore(project.store, (s) => graphOf(s, graphId));
   const entities = useStore(project.store, (s) => s.entities);
   const limits = useStore(project.store, (s) => s.meta.settings.dialogueLimits);
@@ -41,6 +46,36 @@ export function LineWindow({
   /** "Whole node": the lines one after another from the first, the speakers changing. */
   const [whole, setWhole] = useState(false);
 
+  // The line was taken away (its own "remove"): the one that took its place, else the one before.
+  const seen = useRef(index);
+  useEffect(() => {
+    if (index >= 0) {
+      seen.current = index;
+      return;
+    }
+    const left = node?.lines ?? [];
+    if (left.length) onLine(left[Math.min(seen.current, left.length - 1)].id);
+  }, [index, node, onLine]);
+  const add = () => {
+    let id: string | null = null;
+    // After this line, said by whoever spoke the line before it: dialogues alternate.
+    const speaker = index >= 1 ? lines[index - 1].speaker : null;
+    edit(t('story.step.lines'), (g) => {
+      id = addLine(g, nodeId, { speaker }, index + 1);
+    });
+    if (id) onLine(id);
+  };
+  // Led to a field of the line (a problem of it): the caret goes there, after the scene took the keys.
+  useEffect(() => {
+    if (!field) return;
+    const timer = setTimeout(() => {
+      const box = document.querySelector<HTMLElement>(`.line-window [data-field="${CSS.escape(field)}"]`);
+      box?.scrollIntoView({ block: 'nearest' });
+      const fields = 'textarea, input, select, button';
+      (box?.matches(fields) ? box : box?.querySelector<HTMLElement>(fields))?.focus();
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [field, lineId]);
   const go = (delta: number) => {
     const next = lines[index + delta];
     if (next) onLine(next.id);
@@ -122,8 +157,14 @@ export function LineWindow({
             entities={entities}
             people={people}
             readOnly={project.readOnly}
-            windowed
           />
+          {!project.readOnly && (
+            <div className="line-window-foot">
+              <Button size="sm" icon={<Plus size={14} />} onClick={add}>
+                {t('story.lines.add')}
+              </Button>
+            </div>
+          )}
         </>
       )}
     </Dialog>

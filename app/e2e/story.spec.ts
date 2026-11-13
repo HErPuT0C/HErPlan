@@ -122,10 +122,14 @@ test('dialogue, choice with a condition, a variable created from it, and a playt
   const start = page.locator('.cnode[data-kind="start"]');
   await pull(page, start, '.cnode-port[data-port="out"]', 120, 0, 'Диалог');
   const inspector = page.getByRole('complementary', { name: 'Боковая панель сценария' });
+  // A new line opens in the window of a line (0.8.3): it is written there, the next one added there.
   await inspector.getByRole('button', { name: 'Добавить реплику' }).click();
-  await inspector.getByRole('button', { name: 'Добавить реплику' }).click();
-  await inspector.getByLabel('Реплика 1').fill('Ты пришёл.');
-  await inspector.getByLabel('Реплика 2').fill('Мельница скрипит.');
+  const win = page.getByRole('dialog', { name: /^Реплика/ });
+  await win.getByRole('textbox', { name: 'Реплика 1', exact: true }).fill('Ты пришёл.');
+  await win.getByRole('button', { name: 'Добавить реплику' }).click();
+  await win.getByRole('textbox', { name: 'Реплика 2', exact: true }).fill('Мельница скрипит.');
+  await page.keyboard.press('Escape');
+  await expect(win).toHaveCount(0);
   await expect(page.locator('.cnode[data-kind="dialogue"] .cline')).toHaveCount(2);
 
   const dialogue = page.locator('.cnode[data-kind="dialogue"]');

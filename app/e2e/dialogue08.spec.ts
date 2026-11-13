@@ -151,49 +151,54 @@ test('a conversation for the game: name, palette, the look of words, cues, timer
   // A dialogue with two lines.
   const start = page.locator('.cnode[data-kind="start"]');
   await pull(page, start, '.cnode-port[data-port="out"]', 120, 0, 'Диалог');
+  // Lines are written in the window of a line (0.8.3): a new one opens there, the next is added there.
   await inspector.getByRole('button', { name: 'Добавить реплику' }).click();
-  await inspector.getByRole('button', { name: 'Добавить реплику' }).click();
-  await inspector.getByLabel('Реплика 1').fill('Кто потревожил мой покой?');
-  await inspector.getByLabel('Реплика 2').fill('Уходи. {страх = 1}');
-  const first = inspector.locator('.iline').nth(0);
-  const second = inspector.locator('.iline').nth(1);
+  const win = page.getByRole('dialog', { name: /^Реплика/ });
+  await win.getByRole('textbox', { name: 'Реплика 1', exact: true }).fill('Кто потревожил мой покой?');
+  await win.getByRole('button', { name: 'Добавить реплику' }).click();
+  await win.getByRole('textbox', { name: 'Реплика 2', exact: true }).fill('Уходи. {страх = 1}');
+  const row = win.locator('.iline');
   // The counter counts what the player reads: without the effect in braces.
-  await expect(second.locator('.iline-count')).toHaveText('6/100');
+  await expect(row.locator('.iline-count')).toHaveText('6/100');
+  await win.getByRole('button', { name: 'Предыдущая реплика' }).click();
+  await expect(page.getByRole('dialog', { name: /^Реплика 1 из 2/ })).toBeVisible();
 
   // The row of the palette under the text.
-  await pick(page, first.getByRole('combobox', { name: 'Стиль', exact: true }), 'Шёпот');
-  await pick(page, first.getByRole('combobox', { name: 'Эмоция', exact: true }), 'Вопрос');
+  await pick(page, row.getByRole('combobox', { name: 'Стиль', exact: true }), 'Шёпот');
+  await pick(page, row.getByRole('combobox', { name: 'Эмоция', exact: true }), 'Вопрос');
   // Nobody speaks the line yet: there are no faces to choose (0.8.1).
-  await expect(first.getByRole('combobox', { name: 'Лицо', exact: true })).toBeDisabled();
-  await expect(first.locator('.iline-who-missing')).toHaveText('кто говорит?');
-  await expect(first.locator('.mtext-live')).toHaveCount(1);
+  await expect(row.getByRole('combobox', { name: 'Лицо', exact: true })).toBeDisabled();
+  await expect(row.locator('.iline-who-missing')).toHaveText('кто говорит?');
+  await expect(row.locator('.mtext-live')).toHaveCount(1);
 
   // Bold from the keyboard on the selected word, a pause where the caret is.
-  const text = first.getByLabel('Реплика 1');
+  const text = row.getByRole('textbox', { name: 'Реплика 1', exact: true });
   await text.focus();
   await text.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(4, 14));
   await page.keyboard.press('Control+b');
   await text.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(14, 14));
   await page.keyboard.press('Control+p');
-  await expect(first.locator('.line-preview .hl-bold')).toHaveText('потревожил');
-  await expect(first.locator('.line-preview .line-cue')).toHaveAttribute('title', 'пауза 0.3 с');
-  await expect(first.locator('.mtext-tick')).toHaveCount(1);
+  await expect(row.locator('.line-preview .hl-bold')).toHaveText('потревожил');
+  await expect(row.locator('.line-preview .line-cue')).toHaveAttribute('title', 'пауза 0.3 с');
+  await expect(row.locator('.mtext-tick')).toHaveCount(1);
   // The marks follow the words when the text before them changes.
   await text.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(0, 0));
   await page.keyboard.type('Эй! ');
-  await expect(first.locator('.line-preview .hl-bold')).toHaveText('потревожил');
-  // Folded away under the line: every mark with what it says.
-  await first.getByRole('button', { name: /Для игры/ }).click();
-  await expect(first.locator('.tmark')).toHaveCount(2);
+  await expect(row.locator('.line-preview .hl-bold')).toHaveText('потревожил');
+  // In the window everything is open: every mark with what it says.
+  await expect(row.locator('.tmark')).toHaveCount(2);
   await shot(page, 'd1-line');
 
   // The second line can be interrupted, with an exit of its own on the card.
-  await second.getByRole('button', { name: /Для игры/ }).click();
-  await second.getByLabel('Окно перебивания, с').fill('1.5');
-  await second.getByRole('switch', { name: 'Выход «перебили»' }).check({ force: true });
+  await win.getByRole('button', { name: 'Следующая реплика' }).click();
+  await expect(page.getByRole('dialog', { name: /^Реплика 2 из 2/ })).toBeVisible();
+  await row.getByLabel('Окно перебивания, с').fill('1.5');
+  await row.getByRole('switch', { name: 'Выход «перебили»' }).check({ force: true });
   const dialogue = page.locator('.cnode[data-kind="dialogue"]');
   await expect(dialogue.locator('.cnode-port-hinted')).toHaveCount(1);
-  await second.getByLabel('Заметка для перевода').fill('грубо, на «ты»');
+  await row.getByLabel('Заметка для перевода').fill('грубо, на «ты»');
+  await page.keyboard.press('Escape');
+  await expect(win).toHaveCount(0);
 
   // A choice with a timer and a secret option; a condition asks the game.
   await pull(page, dialogue, '.cnode-port[data-port="out"]', 140, -40, 'Выбор');
@@ -231,7 +236,9 @@ test('a conversation for the game: name, palette, the look of words, cues, timer
   await shot(page, 'd3-check');
   // A problem of a line leads to that line.
   await problems.getByRole('button', { name: /У реплики 2 в диалоге/ }).click();
-  await expect(inspector.locator('.iline')).toHaveCount(2);
+  await expect(page.getByRole('dialog', { name: /^Реплика 2 из 2/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(inspector.locator('.iline-open')).toHaveCount(2);
 
   // What is in the file.
   const [{ path, graph }] = await graphs(page);
@@ -294,7 +301,8 @@ test('transfer: "in the game" turns into "changed" after an edit, and the task s
   await pull(page, start, '.cnode-port[data-port="out"]', 120, 0, 'Диалог');
   await inspector.getByLabel('Название').fill('Приветствие');
   await inspector.getByRole('button', { name: 'Добавить реплику' }).click();
-  await inspector.getByLabel('Реплика 1').fill('Стой.');
+  await page.getByRole('textbox', { name: 'Реплика 1', exact: true }).fill('Стой.');
+  await page.keyboard.press('Escape');
   const [{ graph }] = await graphs(page);
   await withFiles(page, 'Перенос', (dir, files) => ({
     ...files,
@@ -306,7 +314,9 @@ test('transfer: "in the game" turns into "changed" after an edit, and the task s
   await page.waitForTimeout(50);
 
   await page.locator('.cnode[data-kind="dialogue"]').click();
-  await inspector.getByLabel('Реплика 1').fill('Стой, кто идёт?');
+  await inspector.getByRole('button', { name: 'Открыть реплику 1 в окне' }).click();
+  await page.getByRole('textbox', { name: 'Реплика 1', exact: true }).fill('Стой, кто идёт?');
+  await page.keyboard.press('Escape');
   await expect(page.locator('.story-bar .transfer-changed')).toHaveText('изменён');
   await expect(page.locator('.cnode[data-kind="dialogue"] .transfer-changed')).toHaveCount(1);
   // Moving the card is not an edit of the conversation: nothing new to say. The task names the line.
@@ -340,7 +350,8 @@ test('a set of lines: dialogue nodes with "when it sounds" and nothing between t
   const inspector = page.getByRole('complementary', { name: 'Боковая панель сценария' });
   await inspector.getByLabel('Когда звучит').fill('герой входит в лавку');
   await inspector.getByRole('button', { name: 'Добавить реплику' }).click();
-  await inspector.getByLabel('Реплика 1').fill('Чего изволите?');
+  await page.getByRole('textbox', { name: 'Реплика 1', exact: true }).fill('Чего изволите?');
+  await page.keyboard.press('Escape');
   await expect(page.locator('.cnode[data-kind="dialogue"] .cnode-port')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Пройти', exact: true })).toHaveCount(0);
   const all = await graphs(page);
@@ -436,16 +447,21 @@ async function talkOnCanvas(page: Page) {
   await inspector.getByLabel('Имя в игре').fill('gate_talk');
   const start = page.locator('.cnode[data-kind="start"]');
   await pull(page, start, '.cnode-port[data-port="out"]', 120, 0, 'Диалог');
+  // Written in the window of a line (0.8.3).
   await inspector.getByRole('button', { name: 'Добавить реплику' }).click();
-  await inspector.getByRole('button', { name: 'Добавить реплику' }).click();
-  await inspector.getByLabel('Реплика 1').fill('Стой, кто идёт к воротам?');
-  await inspector.getByLabel('Реплика 2').fill('Свои. Открывай.');
-  const text = inspector.getByLabel('Реплика 1');
+  const win = page.getByRole('dialog', { name: /^Реплика/ });
+  await win.getByRole('textbox', { name: 'Реплика 1', exact: true }).fill('Стой, кто идёт к воротам?');
+  await win.getByRole('button', { name: 'Добавить реплику' }).click();
+  await win.getByRole('textbox', { name: 'Реплика 2', exact: true }).fill('Свои. Открывай.');
+  await win.getByRole('button', { name: 'Предыдущая реплика' }).click();
+  const text = win.getByRole('textbox', { name: 'Реплика 1', exact: true });
   await text.focus();
   await text.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(10, 14));
   await page.keyboard.press('Control+b');
   await text.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(4, 4));
   await page.keyboard.press('Control+p');
+  await page.keyboard.press('Escape');
+  await expect(win).toHaveCount(0);
   return inspector;
 }
 
@@ -455,10 +471,11 @@ test('section В: a line typed as in the game; the game translation beside it; a
   const { errors } = await newStory(page, 'Ворота');
   const inspector = await talkOnCanvas(page);
 
-  // The preview: the text comes out bit by bit; a click shows it all; the bold word stays bold.
-  await inspector.locator('.iline').first().getByRole('button', { name: 'Просмотр реплики как в игре' }).click();
-  const preview = page.getByRole('dialog', { name: /Как в игре/ });
-  const box = preview.locator('.typing-box');
+  // The preview in the window of the line: the text comes out bit by bit; a click shows it all; the bold
+  // word stays bold.
+  await inspector.getByRole('button', { name: 'Открыть реплику 1 в окне' }).click();
+  const win = page.getByRole('dialog', { name: /^Реплика 1/ });
+  const box = win.locator('.typing-box');
   await expect(box).toBeVisible();
   const letters = box.locator('.typing-letter');
   await expect(letters).toHaveCount(25);
@@ -467,10 +484,11 @@ test('section В: a line typed as in the game; the game translation beside it; a
   await expect(box.locator('[data-out]')).toHaveCount(25);
   expect((await box.locator('[data-bold]').allTextContents()).join('')).toBe('идёт');
   await shot(page, 'v1-preview');
-  await preview.getByRole('button', { name: 'Закрыть', exact: true }).last().click();
-  await expect(preview).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(win).toHaveCount(0);
   // All the lines one after another.
   await inspector.getByRole('button', { name: 'Просмотр реплик', exact: true }).click();
+  const preview = page.getByRole('dialog', { name: /Как в игре/ });
   await expect(preview.locator('.typing-position')).toHaveText('реплика 1 из 2');
   await preview.locator('.typing-box').click();
   await preview.getByRole('button', { name: 'Далее' }).click();
@@ -490,7 +508,9 @@ test('section В: a line typed as in the game; the game translation beside it; a
     [`${dir}/data/dialogue_translations.json`]: JSON.stringify({ en: { [line]: 'Halt, who goes to the gate?' } }),
   }));
   await page.locator('.cnode[data-kind="dialogue"]').click();
-  await expect(inspector.locator('.translation-row').first()).toContainText('ENHalt, who goes to the gate?');
+  await inspector.getByRole('button', { name: 'Открыть реплику 1 в окне' }).click();
+  await expect(win.locator('.translation-row').first()).toContainText('ENHalt, who goes to the gate?');
+  await page.keyboard.press('Escape');
 
   // Ctrl+D: the copy has its marks, on lines of its own.
   await page.locator('.cnode[data-kind="dialogue"]').click();
@@ -531,8 +551,9 @@ test('section В: a talk with a companion from a template; the lines searched; t
   await expect(page.locator('.cnode-found')).toHaveCount(1);
   await shot(page, 'v3-search');
   await panel.getByRole('button', { name: /шуточки/ }).click();
-  const inspector = page.getByRole('complementary', { name: 'Боковая панель сценария' });
-  await expect(inspector.getByLabel('Реплика 1')).toHaveValue('Ну да, тебе всё шуточки.');
+  // The line found opens in its window (0.8.3).
+  await expect(page.getByRole('textbox', { name: 'Реплика 1', exact: true })).toHaveValue('Ну да, тебе всё шуточки.');
+  await page.keyboard.press('Escape');
   // Where a variable is used.
   await page.getByRole('button', { name: 'Поиск по репликам' }).click();
   await panel.getByLabel('Слова реплики').fill('');

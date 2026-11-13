@@ -168,10 +168,12 @@ export function useTextMenu({
   extra?: (selection: { start: number; end: number; selected: boolean }) => MenuEntry[];
 }) {
   const [menu, setMenu] = useState<MenuState | null>(null);
+  /** Opens the menu for a field with its selection at a point of the screen (0.8.3: the field in the game's font). */
+  const openAt = (el: TextInput, x: number, y: number) =>
+    setMenu({ x, y, el, start: el.selectionStart ?? 0, end: el.selectionEnd ?? 0 });
   const onContextMenu = (e: MouseEvent<TextInput>) => {
     e.preventDefault();
-    const el = e.currentTarget;
-    setMenu({ x: e.clientX, y: e.clientY, el, start: el.selectionStart ?? 0, end: el.selectionEnd ?? 0 });
+    openAt(e.currentTarget, e.clientX, e.clientY);
   };
   let element = null;
   if (menu) {
@@ -258,5 +260,5 @@ export function useTextMenu({
     if (more.length) entries.push({ id: 'sep-extra', separator: true }, ...more);
     element = <Menu entries={entries} x={menu.x} y={menu.y} label={t('text.menu')} onClose={() => setMenu(null)} />;
   }
-  return { onContextMenu, menu: element };
+  return { onContextMenu, openAt, menu: element };
 }
