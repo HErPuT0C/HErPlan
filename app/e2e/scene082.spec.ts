@@ -255,6 +255,10 @@ test('the window of a line: a double click opens it, ← → go through the line
   page,
 }) => {
   const { errors, inspector } = await openCrypt(page);
+  // On the card the long line wraps (0.8.5): more than a row, the card taller than a row a line.
+  const card = page.locator('.cline[data-line="l1"]');
+  await expect(card).toHaveAttribute('data-rows', /^[2-4]$/);
+  expect((await card.boundingBox())!.height).toBeGreaterThan(30);
   await page.locator('.cline[data-line="l1"]').dblclick();
   let win = page.getByRole('dialog', { name: /Реплика 1 из 2/ });
   await expect(win).toBeVisible();

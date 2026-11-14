@@ -1,10 +1,9 @@
 import {
-  ArrowDown,
   ArrowRight,
-  ArrowUp,
   ArrowUpRight,
   BookOpen,
   ClipboardCopy,
+  EyeOff,
   FileText,
   ImagePlus,
   ListChecks,
@@ -58,17 +57,12 @@ import {
   addLink,
   addOption,
   editActions,
-  moveOption,
   removeLink,
-  removeOption,
   setExpanded,
   setNodeFields,
   setNodeText,
-  setOptionFields,
   storyNode,
-  updateOption,
 } from '../../story/ops';
-import { knownNames } from '../../story/usage';
 import { fullName, registryFor } from '../../story/variables';
 import { graphKey, keyOf } from '../../story/gameKey';
 import { visibleLength, visibleText } from '../../story/game';
@@ -94,11 +88,11 @@ import { PromptDialog, type PromptRequest } from '../canvas/PromptDialog';
 import { IMAGE_FILTERS } from '../start/filters';
 import { useStory } from './context';
 import { ExpressionField } from './ExpressionField';
+import { NoteField, useKnown } from './NoteField';
 import { ActionsEditor, GameKeyField, NumberBlank } from './game';
-import { Translation } from './LineEditor';
 import { MarkedTextArea, textHighlights, useTextMenu } from './MarkedText';
 import { NodePicker } from './NodePicker';
-import { DeviceMenu, useAddDevice } from './plotTools';
+import { useAddDevice } from './plotTools';
 import { TransferBadge } from './TransferBadge';
 import { TypingPreview } from './TypingPreview';
 
@@ -431,7 +425,8 @@ function DialogueSection({ node }: { node: StoryNode }) {
 // ---------- choice ----------
 
 function ChoiceSection({ node }: { node: StoryNode }) {
-  const { project, edit } = useStory();
+  const { project, edit, openLine } = useStory();
+  const entities = useStore(project.store, (s) => s.entities);
   const readOnly = project.readOnly;
   const options = node.options ?? [];
   return (
@@ -456,18 +451,45 @@ function ChoiceSection({ node }: { node: StoryNode }) {
       {options.some((o) => o.secret) && !node.timer && (
         <p className="text-warning small">{t('choice.secretNoTimer')}</p>
       )}
-      {options.map((o, i) => (
-        <OptionRow key={o.id} node={node} index={i} />
-      ))}
+      {/* 0.8.5, the owner's wish: an option is edited as a line, in the window of a line; here, the list. */}
+      <ol className="ilines">
+        {options.map((o, i) => {
+          const who = o.speaker === undefined ? null : o.speaker;
+          return (
+            <li key={o.id}>
+              <button
+                type="button"
+                className="iline-open"
+                data-option={o.id}
+                aria-label={t('options.open', { n: i + 1 })}
+                onClick={() => openLine(node.id, o.id, 'option')}
+              >
+                <span className="iline-open-who">{i + 1}.</span>
+                {who !== null && o.speaker !== undefined && (
+                  <span className="iline-open-who muted">{speakerName(entities, who)}</span>
+                )}
+                <span className="iline-open-text">{visibleText(o.text) || '…'}</span>
+                {o.secret && <EyeOff size={13} aria-label={t('choice.secret')} />}
+                {o.once && <span className="small muted">1×</span>}
+                <Maximize2 size={13} aria-hidden="true" className="iline-open-icon" />
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+      <p className="muted small">{t('options.hint')}</p>
       {!readOnly && (
         <Button
           size="sm"
           icon={<Plus size={14} />}
-          onClick={() =>
+          onClick={() => {
+            let id: string | null = null;
             edit(t('story.step.options'), (g) => {
-              addOption(g, node.id);
-            })
-          }
+              id = addOption(g, node.id);
+            });
+            // It is written in the window, as a line is (0.8.5).
+            if (id) openLine(node.id, id, 'option');
+          }}
         >
           {t('story.options.add')}
         </Button>
@@ -477,13 +499,6 @@ function ChoiceSection({ node }: { node: StoryNode }) {
 }
 
 // ---------- text with effects and plot devices ----------
-
-/** Names that are variables as seen from the graph on the canvas (effects written without braces). */
-function useKnown(): (name: string) => boolean {
-  const { project, graphId } = useStory();
-  const data = useStore(project.store, (s) => s);
-  return knownNames(data, graphId);
-}
 
 /** The node's own text: marked words are highlighted, and selected words can carry a plot device. */
 function NodeText({ node, label }: { node: StoryNode; label: string }) {
@@ -515,172 +530,6 @@ function NodeText({ node, label }: { node: StoryNode; label: string }) {
 }
 
 /** A comment (of a node or an option): effects written in it are highlighted. */
-function NoteField({
-  label,
-  field,
-  value,
-  rows,
-  onChange,
-}: {
-  label: string;
-  field: string;
-  value: string;
-  rows: number;
-  onChange: (value: string) => void;
-}) {
-  const { project } = useStory();
-  const id = useId();
-  const known = useKnown();
-  const menu = useTextMenu({ readOnly: project.readOnly });
-  return (
-    <div className="field" data-field={field}>
-      <label htmlFor={id} className="field-label">
-        {label}
-      </label>
-      <MarkedTextArea
-        id={id}
-        value={value}
-        highlights={textHighlights(value, undefined, undefined, known)}
-        rows={rows}
-        readOnly={project.readOnly}
-        onContextMenu={menu.onContextMenu}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      {menu.menu}
-    </div>
-  );
-}
-
-function OptionRow({ node, index: i }: { node: StoryNode; index: number }) {
-  const { project, edit } = useStory();
-  const { translations } = useAtom(gameFiles);
-  const readOnly = project.readOnly;
-  const options = node.options ?? [];
-  const o = options[i];
-  const anchor: MarkAnchor = { kind: 'option', id: o.id };
-  const addDevice = useAddDevice(node.id);
-  const menu = useTextMenu({ readOnly, onDevice: (d, sel) => addDevice(d, anchor, sel) });
-  return (
-    <div className="ioption" data-field={`option:${o.id}`}>
-      <div className="iline-head">
-        <span className="ioption-n">{i + 1}</span>
-        <MarkedTextArea
-          className="ioption-text"
-          singleLine
-          value={o.text}
-          highlights={textHighlights(o.text, node, anchor)}
-          rows={1}
-          readOnly={readOnly}
-          placeholder={t('story.optionPlaceholder', { n: i + 1 })}
-          aria-label={t('story.options.text', { n: i + 1 })}
-          onContextMenu={menu.onContextMenu}
-          onChange={(e) =>
-            edit(
-              t('story.step.options'),
-              (g) => updateOption(g, node.id, o.id, { text: e.target.value.replace(/\n/g, ' ') }),
-              `option:${o.id}`,
-            )
-          }
-        />
-        {!readOnly && (
-          <span className="iline-tools">
-            <IconButton
-              size="sm"
-              label={t('story.up')}
-              icon={<ArrowUp size={14} />}
-              disabled={i === 0}
-              onClick={() => edit(t('story.step.options'), (g) => moveOption(g, node.id, i, i - 1))}
-            />
-            <IconButton
-              size="sm"
-              label={t('story.down')}
-              icon={<ArrowDown size={14} />}
-              disabled={i === options.length - 1}
-              onClick={() => edit(t('story.step.options'), (g) => moveOption(g, node.id, i, i + 1))}
-            />
-            <DeviceMenu onDevice={(device) => addDevice(device, anchor)} />
-            <IconButton
-              size="sm"
-              label={t('story.options.remove')}
-              icon={<Trash size={14} />}
-              onClick={() => edit(t('story.step.options'), (g) => removeOption(g, node.id, o.id))}
-            />
-          </span>
-        )}
-      </div>
-      {menu.menu}
-      <Translation translations={translations} id={o.id} edited={(o as { edited?: string }).edited} />
-      <ExpressionField
-        label={t('story.options.condition')}
-        kind="condition"
-        field={`option:${o.id}:condition`}
-        value={o.condition}
-        readOnly={readOnly}
-        onChange={(condition) =>
-          edit(t('story.step.condition'), (g) => updateOption(g, node.id, o.id, { condition }), `cond:${o.id}`)
-        }
-      />
-      <ExpressionField
-        label={t('story.options.effects')}
-        kind="effects"
-        field={`option:${o.id}:effects`}
-        value={o.effects}
-        readOnly={readOnly}
-        onChange={(effects) =>
-          edit(t('story.step.effects'), (g) => updateOption(g, node.id, o.id, { effects }), `eff:${o.id}`)
-        }
-      />
-      <NoteField
-        label={t('story.options.note')}
-        field={`option:${o.id}:note`}
-        value={o.note ?? ''}
-        rows={1}
-        onChange={(note) =>
-          edit(t('story.step.options'), (g) => updateOption(g, node.id, o.id, { note }), `note:${o.id}`)
-        }
-      />
-      <div className="ioption-flags">
-        <Switch
-          label={t('choice.once')}
-          checked={o.once === true}
-          disabled={readOnly}
-          onChange={(on) => edit(t('story.step.options'), (g) => setOptionFields(g, node.id, o.id, { once: on }))}
-        />
-        <Switch
-          label={t('choice.secret')}
-          checked={o.secret === true}
-          disabled={readOnly || (!o.secret && options.some((x) => x.secret))}
-          onChange={(on) => edit(t('story.step.options'), (g) => setOptionFields(g, node.id, o.id, { secret: on }))}
-        />
-      </div>
-      <OptionActions node={node} optionId={o.id} />
-    </div>
-  );
-}
-
-function OptionActions({ node, optionId }: { node: StoryNode; optionId: string }) {
-  const { project, edit } = useStory();
-  const data = useStore(project.store, (s) => s);
-  const option = node.options?.find((o) => o.id === optionId);
-  return (
-    <div className="field">
-      <span className="field-label">{t('action.title')}</span>
-      <ActionsEditor
-        actions={option?.actions}
-        data={data}
-        disabled={project.readOnly}
-        field={`option:${optionId}:actions`}
-        onChange={(actions) =>
-          edit(t('action.step'), (g) => {
-            const o = storyNode(g, node.id)?.options?.find((x) => x.id === optionId);
-            if (o) editActions(o, (list) => list.splice(0, list.length, ...actions));
-          })
-        }
-      />
-    </div>
-  );
-}
-
 // ---------- plot devices laid over the node ----------
 
 /** Where a mark sits, for its heading: "Line 2", "Option 1", "Whole node". */

@@ -347,4 +347,8 @@ export const dialogueEn: Record<keyof typeof dialogueRu, string> = {
     'Lines are edited in the window of a line: click a line here, or double-click it in the node on the canvas.',
   'preview.interrupt': 'Interrupt',
   'preview.interruptHint': 'Show the line being interrupted: the letters typed fall apart',
+  'lineWindow.titleOption': 'Option {n} of {count} — {title}',
+  'options.open': 'Open option {n} in the window',
+  'options.hint':
+    'Options are edited in the window, as lines are: click an option here, or double-click it in the node on the canvas. By default the hero says it (the card named hero in the game).',
 };

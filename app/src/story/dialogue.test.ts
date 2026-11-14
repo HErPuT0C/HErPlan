@@ -35,7 +35,20 @@ import {
   toggleBold,
 } from './marks';
 import { graphOf, textMarks, toward, towardValue, type StoryNode } from './model';
-import { createBarksGraph, removeLine, renewParts, setInterruptExit, setLineFields, updateLine } from './ops';
+import {
+  choiceAsDialogue,
+  createBarksGraph,
+  optionAsLine,
+  refitCards,
+  removeLine,
+  renewParts,
+  setInterruptExit,
+  setLineFields,
+  updateLine,
+  updateOption,
+  updatePart,
+} from './ops';
+import { cardRowAt, choicePorts, dialogueHeight, dialogueRows, markRowY, optionRows, textRows } from './kinds';
 import { searchLines } from './lineSearch';
 import { companionTalk, type CompanionWords } from './templates';
 import { parseTranslations, translationsOf } from './translation';
@@ -1424,5 +1437,124 @@ describe('the people of the scene (0.8.4, 7.9 and 7.10)', () => {
     expect(debrisAt(3, 0.1, d)).toEqual(a);
     expect(debrisAt(4, 0.1, d)).not.toEqual(a);
     expect(debrisAt(3, debrisEnd(d), d)).toBeNull();
+  });
+});
+
+describe('cards wrap their lines and options (0.8.5)', () => {
+  const dialogue = (texts: string[], w = 300) =>
+    ({
+      id: 'd',
+      kind: 'dialogue',
+      title: '',
+      x: 0,
+      y: 0,
+      w,
+      h: 100,
+      text: '',
+      lines: texts.map((text, i) => ({ id: `l${i}`, speaker: null, text })),
+    }) as unknown as StoryNode;
+
+  it('a text takes the rows its words need in a width; a word longer than a row breaks', () => {
+    expect(textRows('Да', 100)).toBe(1);
+    expect(textRows('слово '.repeat(20).trim(), 100)).toBeGreaterThan(4);
+    expect(textRows('а'.repeat(40), 100)).toBe(3);
+    expect(textRows('раз\nдва', 300)).toBe(2);
+    // Wider, fewer rows.
+    expect(textRows('слово '.repeat(20), 400)).toBeLessThan(textRows('слово '.repeat(20), 200));
+  });
+
+  it('a dialogue card is as tall as its lines wrap; marks and exits stand level with their line', () => {
+    const long = 'Кто здесь бродит? Стой! Я сторожу этот склеп уже триста лет и никого не пускаю.';
+    const n = dialogue(['Да', long, 'Нет']);
+    const { rows } = dialogueRows(n);
+    expect(rows[0]).toBe(1);
+    expect(rows[1]).toBeGreaterThan(1);
+    expect(dialogueHeight(n)).toBeGreaterThan(dialogueHeight(dialogue(['Да', 'Да', 'Нет'])));
+    // The third line starts below all the rows of the second.
+    const y2 = markRowY(n, { anchor: { kind: 'line', id: 'l2' } })!;
+    const y1 = markRowY(n, { anchor: { kind: 'line', id: 'l1' } })!;
+    expect(y2 - y1).toBe(rows[1] * 22);
+    expect(cardRowAt(n, y2)?.index).toBe(2);
+    expect(cardRowAt(n, y1 + 22)?.index).toBe(1);
+    // A row is never more than MAX_CARD_ROWS.
+    expect(dialogueRows(dialogue([long.repeat(5)])).rows[0]).toBe(4);
+  });
+
+  it('a choice card: each option as tall as its text wraps, its exit in the middle of it', () => {
+    const n = {
+      id: 'c',
+      kind: 'choice',
+      title: '',
+      x: 0,
+      y: 0,
+      w: 280,
+      h: 100,
+      text: 'Что ответить?',
+      options: [
+        { id: 'a', text: 'Уйти.', condition: '', effects: '' },
+        { id: 'b', text: 'Я пришёл за кольцом первенства, отдай его по-хорошему, старик.', condition: '', effects: '' },
+      ],
+    } as unknown as StoryNode;
+    const [a, b] = optionRows(n);
+    expect(a).toEqual({ rows: 1, h: 30 });
+    expect(b.rows).toBeGreaterThan(1);
+    const ports = choicePorts(n).filter((p) => p.side === 'out');
+    expect(ports[1].y - ports[0].y).toBe(a.h / 2 + b.h / 2);
+    expect(cardRowAt(n, ports[1].y)?.anchor).toEqual({ kind: 'option', id: 'b' });
+  });
+
+  it('cards of old files are refitted on opening', () => {
+    const d = produce(talk(), (x) => {
+      const n = node(x, 'hello');
+      n.lines![0].text = 'Кто потревожил мой покой? '.repeat(4);
+      n.h = 100;
+    });
+    const after = produce(d, (x) => void refitCards(x));
+    expect(node(after, 'hello').h).toBeGreaterThan(100);
+    // Editing the text refits too.
+    const edited = produce(after, (x) => {
+      const g = graphOf(x, G)!;
+      updateLine(g, 'hello', 'l1', { text: 'Да.' });
+    });
+    expect(node(edited, 'hello').h).toBeLessThan(node(after, 'hello').h);
+  });
+});
+
+describe('an option is a line of the player (0.8.5)', () => {
+  it('said by its speaker, by default the hero; null is nobody', () => {
+    const o = { id: 'o', text: 'Уйти.', condition: 'x', effects: '', style: 'shout', once: true };
+    expect(optionAsLine(o, 'hero')).toMatchObject({
+      id: 'o',
+      speaker: 'hero',
+      text: 'Уйти.',
+      style: 'shout',
+      condition: 'x',
+    });
+    expect(optionAsLine({ ...o, speaker: null }, 'hero').speaker).toBeNull();
+    expect(optionAsLine({ ...o, speaker: 'mira' }, 'hero').speaker).toBe('mira');
+  });
+
+  it('its words get looks and cues as those of a line; the scene sees the choice as a dialogue', () => {
+    const d = produce(talk(), (x) => {
+      const g = graphOf(x, G)!;
+      const c = g.nodes.find((n) => n.kind === 'choice') as unknown as StoryNode;
+      c.options = [{ id: 'o1', text: 'Отдай кольцо', condition: '', effects: '' }];
+      addStyleMark(c, 'o1', { start: 6, end: 12 }, { style: 'shout' }, 'option');
+      addCueMark(c, 'o1', 5, { pause: 0.3 }, 'option');
+      updatePart(g, c.id, 'option', 'o1', { speaker: null });
+      updateOption(g, c.id, 'o1', { text: 'Эй, отдай кольцо' });
+    });
+    const c = graphOf(d, G)!.nodes.find((n) => n.kind === 'choice') as unknown as StoryNode;
+    expect(c.options![0].speaker).toBeNull();
+    const looks = textMarks(c).map((m) => [m.anchor, m.device, m.range?.start]);
+    // The marks followed the words edited in front of them.
+    expect(looks).toEqual([
+      [{ kind: 'option', id: 'o1' }, 'style', 10],
+      [{ kind: 'option', id: 'o1' }, 'cue', 9],
+    ]);
+    const seen = choiceAsDialogue(c, 'hero');
+    expect(seen.lines![0]).toMatchObject({ id: 'o1', speaker: null, text: 'Эй, отдай кольцо' });
+    expect(textMarks(seen).every((m) => m.anchor.kind === 'line')).toBe(true);
+    expect(gameLine(seen.lines![0].text, undefined, textMarks(seen), null).cues).toHaveLength(1);
   });
 });

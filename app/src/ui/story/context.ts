@@ -6,7 +6,7 @@ import { atom } from '../../core/atom';
 import type { GraphDoc } from '../../canvas/model';
 import type { ProjectData } from '../../core/project/types';
 import type { Problem, Severity } from '../../story/checks';
-import type { NodeRef, PlotDevice } from '../../story/model';
+import type { NodeRef, PartKind, PlotDevice } from '../../story/model';
 import type { OpenProject } from '../../state/project';
 
 export interface StoryActions {
@@ -30,8 +30,8 @@ export interface StoryActions {
   check: () => void;
   /** Saves the conversation on the canvas as plain text, a script (0.8). */
   script: () => void;
-  /** Opens a line of a dialogue node in the big window of a line (0.8.2, "Редактор реплик" 4). */
-  openLine: (nodeId: string, lineId: string) => void;
+  /** Opens a line of a dialogue node (0.8.2) or an option of a choice (0.8.5) in the big window of a line. */
+  openLine: (nodeId: string, lineId: string, kind?: PartKind) => void;
 }
 
 export const StoryContext = createContext<StoryActions | null>(null);

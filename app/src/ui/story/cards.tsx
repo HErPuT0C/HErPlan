@@ -3,7 +3,7 @@
 // content opens it there.
 
 import { ChevronDown, ChevronUp, Diamond, EyeOff, MessageSquareText, Timer, Zap } from 'lucide-react';
-import { useContext, type ReactNode } from 'react';
+import { useContext, type CSSProperties, type ReactNode } from 'react';
 import { registerCard, type CardBodyProps, type CardLook } from '../canvas/cardRegistry';
 import { Editable } from '../canvas/NodeLayer';
 import { DeviceIcon, KindIcon, LandingIcon } from '../canvas/kindIcons';
@@ -20,7 +20,7 @@ import { graphKey, keyOf } from '../../story/gameKey';
 import { NARRATOR, paletteSpeaker } from '../../story/palette';
 import { marksOn, resolveRange } from '../../story/marks';
 import {
-  CHOICE_ROW_H,
+  DIALOGUE_LINE_H,
   GIVE_PORTS,
   asStory,
   findNode,
@@ -32,7 +32,16 @@ import {
   type StoryNode,
 } from '../../story/model';
 import { setExpanded, setNodeText } from '../../story/ops';
-import { CHOICE_PROMPT_H, FOLDED_LINES, GIVE_ROW_H, GIVE_TOP, PLOT_COLORS } from '../../story/kinds';
+import {
+  CHOICE_PROMPT_H,
+  dialogueRows,
+  FOLDED_LINES,
+  GIVE_ROW_H,
+  GIVE_TOP,
+  optionRows,
+  PLOT_COLORS,
+  speakerWidth,
+} from '../../story/kinds';
 import { HEADER_H } from '../../canvas/model';
 import { nodeTransfer } from '../../story/transfer';
 import { listVariables } from '../../story/variables';
@@ -49,6 +58,9 @@ function Inspectable({
   field,
   className,
   title,
+  style,
+  rows,
+  onOpen,
   onCtrlClick,
   children,
 }: {
@@ -56,6 +68,11 @@ function Inspectable({
   field: string;
   className: string;
   title?: string;
+  style?: CSSProperties;
+  /** Rows its text wraps into (0.8.5). */
+  rows?: number;
+  /** A double click opens this instead of the inspector. */
+  onOpen?: () => void;
   /** Ctrl+click on a link to an entity opens its card in the database. */
   onCtrlClick?: () => void;
   children: ReactNode;
@@ -66,7 +83,13 @@ function Inspectable({
       className={className}
       data-canvas-text=""
       title={title}
-      onDoubleClick={() => inspect(node.id, field)}
+      style={style}
+      data-rows={rows}
+      onDoubleClick={(e) => {
+        if (!onOpen) return inspect(node.id, field);
+        e.stopPropagation();
+        onOpen();
+      }}
       onClick={(e) => {
         if (onCtrlClick && (e.ctrlKey || e.metaKey)) onCtrlClick();
       }}
@@ -199,12 +222,15 @@ function DialogueBody({ node }: CardBodyProps) {
   const n = asStory(node);
   const lines = n.lines ?? [];
   const shown = n.expanded ? lines : lines.slice(0, FOLDED_LINES);
+  // The rows each line wraps into (0.8.5), counted as the card's height and exits are.
+  const { rows } = dialogueRows(n);
+  const who = speakerWidth(n.w);
   const more = lines.length - shown.length;
   return (
     <Inspectable node={node} field="lines" className="cnode-body cdialogue">
       {lines.length === 0 && <span className="cnode-empty">{t('story.card.noLines')}</span>}
       {n.when?.trim() && lines.length === 0 && <span className="muted small"> · {n.when}</span>}
-      {shown.map((line) => {
+      {shown.map((line, i) => {
         // A card speaks; the narrator is set apart; a line nobody was chosen for asks "who speaks?" (0.8.1).
         const card = !!line.speaker && line.speaker !== NARRATOR;
         const color = card ? paletteSpeaker(palette, keyOf(entities[line.speaker!]))?.color : undefined;
@@ -212,7 +238,9 @@ function DialogueBody({ node }: CardBodyProps) {
           <div
             key={line.id}
             className={['cline', visibleLength(line.text) > limit && 'cline-long'].filter(Boolean).join(' ')}
+            style={{ height: rows[i] * DIALOGUE_LINE_H }}
             data-line={line.id}
+            data-rows={rows[i]}
             // A double click on a line opens it in the big window of a line (0.8.2), not only the side panel.
             onDoubleClick={(e) => {
               e.stopPropagation();
@@ -223,7 +251,7 @@ function DialogueBody({ node }: CardBodyProps) {
               className={['cline-speaker', !card && 'cline-narrator', !line.speaker && 'cline-nobody']
                 .filter(Boolean)
                 .join(' ')}
-              style={color ? { color } : undefined}
+              style={{ width: who, ...(color ? { color } : {}) }}
               title={card ? t('story.ref.ctrlClick') : undefined}
               onClick={(e) => {
                 if (card && (e.ctrlKey || e.metaKey)) openEntity(line.speaker!);
@@ -232,7 +260,7 @@ function DialogueBody({ node }: CardBodyProps) {
               {speakerName(entities, line.speaker)}
             </span>
             <MarkIcons node={n} anchor={{ kind: 'line', id: line.id }} text={line.text} />
-            <span className="cline-text">
+            <span className="cline-text" style={{ WebkitLineClamp: rows[i] }}>
               {line.text ? <CardText node={n} anchor={{ kind: 'line', id: line.id }} text={line.text} /> : '…'}
             </span>
           </div>
@@ -278,9 +306,12 @@ function DialogueExtra({ node, readOnly }: { node: GraphNode; readOnly: boolean 
 }
 
 function ChoiceBody({ node, readOnly, onText }: CardBodyProps) {
+  const story = useStory();
   const commit = useTextCommit(node, onText);
   const n = asStory(node);
   const options = n.options ?? [];
+  // The rows each option wraps into (0.8.5), counted as the card's height and exits are.
+  const optionRowsOf = optionRows(n);
   return (
     <div className="cchoice">
       <div className="cchoice-prompt" style={{ height: CHOICE_PROMPT_H }}>
@@ -303,12 +334,22 @@ function ChoiceBody({ node, readOnly, onText }: CardBodyProps) {
         </Inspectable>
       )}
       {options.map((o, i) => (
-        <Inspectable key={o.id} node={node} field={`option:${o.id}`} className="coption">
-          <span className="coption-n" style={{ height: CHOICE_ROW_H }}>
-            {i + 1}
-          </span>
+        <Inspectable
+          key={o.id}
+          node={node}
+          field={`option:${o.id}`}
+          className="coption"
+          style={{ height: optionRowsOf[i]?.h }}
+          rows={optionRowsOf[i]?.rows}
+          // An option opens in the window of a line, as a line does (0.8.5).
+          onOpen={() => story.openLine(node.id, o.id, 'option')}
+        >
+          <span className="coption-n">{i + 1}</span>
           <MarkIcons node={n} anchor={{ kind: 'option', id: o.id }} text={o.text} />
-          <span className={['coption-text', !o.text && 'cnode-empty'].filter(Boolean).join(' ')}>
+          <span
+            className={['coption-text', !o.text && 'cnode-empty'].filter(Boolean).join(' ')}
+            style={{ WebkitLineClamp: optionRowsOf[i]?.rows ?? 1 }}
+          >
             {o.text ? (
               <CardText node={n} anchor={{ kind: 'option', id: o.id }} text={o.text} />
             ) : (

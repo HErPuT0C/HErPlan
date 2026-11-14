@@ -229,6 +229,13 @@ export function setRect(g: GraphDoc, kind: 'node' | 'group', id: string, r: Rect
   item.y = r.y;
   item.w = r.w;
   item.h = r.h;
+  // A node sized by its content (dialogue lines, choice options wrap by its width) keeps it all inside.
+  const fit = kind === 'node' ? kindOf((item as GraphNode).kind).fit : undefined;
+  if (fit) {
+    const probe = { ...(item as GraphNode) };
+    fit(probe);
+    item.h = Math.max(r.h, probe.h);
+  }
 }
 
 /** Wraps nodes in a new frame with a margin; returns the group. */

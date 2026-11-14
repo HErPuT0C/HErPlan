@@ -134,15 +134,19 @@ test('dialogue, choice with a condition, a variable created from it, and a playt
 
   const dialogue = page.locator('.cnode[data-kind="dialogue"]');
   await pull(page, dialogue, '.cnode-port[data-port="out"]', 120, 0, 'Выбор');
+  // Options are written in the window of a line too (0.8.5).
   await inspector.getByRole('button', { name: 'Добавить вариант' }).click();
-  await inspector.getByRole('button', { name: 'Добавить вариант' }).click();
-  await inspector.getByLabel('Текст варианта 1').fill('Налево');
-  await inspector.getByLabel('Текст варианта 2').fill('Направо');
-  const second = inspector.locator('.ioption').nth(1);
+  const optionWin = page.getByRole('dialog', { name: /^Вариант/ });
+  await optionWin.getByRole('textbox', { name: 'Текст варианта 1', exact: true }).fill('Налево');
+  await optionWin.getByRole('button', { name: 'Добавить вариант' }).click();
+  await optionWin.getByRole('textbox', { name: 'Текст варианта 2', exact: true }).fill('Направо');
+  const second = optionWin.locator('.iline');
   await second.getByLabel('Показывать, если').fill('ключ');
   await expect(second.getByRole('alert')).toHaveText('Неизвестная переменная «ключ».');
   await second.getByRole('button', { name: 'Создать переменную «ключ»' }).click();
   await expect(second.getByRole('alert')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(optionWin).toHaveCount(0);
 
   // Each option has its own output: pull an end out of both.
   const choice = page.locator('.cnode[data-kind="choice"]');

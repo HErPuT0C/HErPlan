@@ -90,7 +90,19 @@ export interface ChoiceOption {
   /** Shown once: gone after it was chosen. */
   once?: boolean;
   actions?: GameAction[];
+  // 0.8.5: an option is a line the player's side says, with what a line has for the game.
+  /** Who says it: a card's id or "narrator"; absent — the hero (the card named "hero" in the game); null — nobody. */
+  speaker?: string | null;
+  style?: string;
+  face?: string;
+  gesture?: TowardValue;
+  emote?: TowardValue;
+  /** Seconds until it goes on by itself once said. */
+  auto?: number;
 }
+
+/** What text marks of the game sit on: a dialogue's line or (0.8.5) a choice's option. */
+export type PartKind = 'line' | 'option';
 
 export type WorldKind = 'character' | 'location' | 'item';
 export const WORLD_KINDS: readonly WorldKind[] = ['character', 'location', 'item'];

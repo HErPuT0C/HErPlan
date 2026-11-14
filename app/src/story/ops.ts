@@ -19,6 +19,7 @@ import {
   type DialogueLine,
   type GameAction,
   type NodeRef,
+  type PartKind,
   type StoryNode,
 } from './model';
 
@@ -56,6 +57,8 @@ export function updateLine(
   Object.assign(line, patch);
   // A cue the edit brought to the start of the line goes into its field; a look that lost its words, away.
   if (patch.text !== undefined) tidyNode(n);
+  // The card is as tall as its lines wrap (0.8.5).
+  if (patch.text !== undefined) fitNode(n);
 }
 
 export function removeLine(g: GraphDoc, nodeId: string, lineId: string): void {
@@ -86,8 +89,12 @@ export function setLineFields(g: GraphDoc, nodeId: string, lineId: string, patch
 
 /** Sets optional fields of an option (once, secret, actions…), dropping the empty ones. */
 export function setOptionFields(g: GraphDoc, nodeId: string, optionId: string, patch: Partial<ChoiceOption>): void {
-  const option = storyNode(g, nodeId)?.options?.find((o) => o.id === optionId);
-  if (option) assignOptional(option as unknown as Record<string, unknown>, patch as Record<string, unknown>);
+  const n = storyNode(g, nodeId);
+  const option = n?.options?.find((o) => o.id === optionId);
+  if (!n || !option) return;
+  assignOptional(option as unknown as Record<string, unknown>, patch as Record<string, unknown>);
+  // Its marks (secret, once, comment) take room on its row.
+  fitNode(n);
 }
 
 /** Sets optional fields of a node (timer, checkpoint, store, keep, actions, when), dropping the empty ones. */
@@ -126,7 +133,26 @@ function move<T>(list: T[] | undefined, from: number, to: number): void {
 }
 
 export function moveLine(g: GraphDoc, nodeId: string, from: number, to: number): void {
-  move(storyNode(g, nodeId)?.lines, from, to);
+  const n = storyNode(g, nodeId);
+  move(n?.lines, from, to);
+  if (n) fitNode(n);
+}
+
+/**
+ * Cards of dialogues and choices as tall as their lines and options wrap (0.8.5): files saved before were
+ * sized a row a line. Returns how many changed.
+ */
+export function refitCards(d: ProjectData): number {
+  let changed = 0;
+  for (const g of Object.values(d.graphs) as unknown as GraphDoc[]) {
+    for (const node of g.nodes) {
+      if (node.kind !== 'dialogue' && node.kind !== 'choice') continue;
+      const before = node.h;
+      fitNode(node);
+      if (node.h !== before) changed++;
+    }
+  }
+  return changed;
 }
 
 export function setExpanded(g: GraphDoc, nodeId: string, expanded: boolean): void {
@@ -158,6 +184,10 @@ export function updateOption(
   if (!n || !option) return;
   if (patch.text !== undefined) followText(n, { kind: 'option', id: optionId }, option.text, patch.text);
   Object.assign(option, patch);
+  if (patch.text !== undefined) {
+    tidyNode(n);
+    fitNode(n);
+  }
 }
 
 /** Removes an option together with the edges leaving its port. */
@@ -171,7 +201,9 @@ export function removeOption(g: GraphDoc, nodeId: string, optionId: string): voi
 }
 
 export function moveOption(g: GraphDoc, nodeId: string, from: number, to: number): void {
-  move(storyNode(g, nodeId)?.options, from, to);
+  const n = storyNode(g, nodeId);
+  move(n?.options, from, to);
+  if (n) fitNode(n);
 }
 
 /** The node's own text (description, question, ending); marked fragments in it follow the edit. */
@@ -429,4 +461,100 @@ export function pasteChapterGraphs(
       m.variables = m.variables.map((id) => varIds.get(id) ?? id);
     }
   }
+}
+
+// ---------- a line or an option alike (0.8.5: options are edited as lines are, in the window of a line) ----------
+
+/** A line of a dialogue or an option of a choice, as the window of a line edits it. */
+export function partOf(n: StoryNode | undefined, kind: PartKind, id: string): DialogueLine | ChoiceOption | undefined {
+  return kind === 'line' ? n?.lines?.find((l) => l.id === id) : n?.options?.find((o) => o.id === id);
+}
+
+/** The parts of a node of that kind: its lines or its options. */
+export function partsOf(n: StoryNode | undefined, kind: PartKind): (DialogueLine | ChoiceOption)[] {
+  return (kind === 'line' ? n?.lines : n?.options) ?? [];
+}
+
+/** Changes the speaker or the text of a line or an option (its marks follow the text). */
+export function updatePart(
+  g: GraphDoc,
+  nodeId: string,
+  kind: PartKind,
+  id: string,
+  patch: { speaker?: string | null; text?: string },
+): void {
+  if (kind === 'line') return updateLine(g, nodeId, id, patch);
+  const { speaker, ...rest } = patch;
+  updateOption(g, nodeId, id, rest);
+  if ('speaker' in patch) {
+    const o = partOf(storyNode(g, nodeId), 'option', id) as ChoiceOption | undefined;
+    // "Nobody" is null; the hero by default is no field at all.
+    if (o) o.speaker = speaker;
+  }
+}
+
+/** Sets optional fields of a line or an option, dropping the empty ones. */
+export function setPartFields(
+  g: GraphDoc,
+  nodeId: string,
+  kind: PartKind,
+  id: string,
+  patch: Partial<DialogueLine> & Partial<ChoiceOption>,
+): void {
+  if (kind === 'line') setLineFields(g, nodeId, id, patch);
+  else setOptionFields(g, nodeId, id, patch);
+}
+
+export function movePart(g: GraphDoc, nodeId: string, kind: PartKind, from: number, to: number): void {
+  if (kind === 'line') moveLine(g, nodeId, from, to);
+  else moveOption(g, nodeId, from, to);
+}
+
+export function removePart(g: GraphDoc, nodeId: string, kind: PartKind, id: string): void {
+  if (kind === 'line') removeLine(g, nodeId, id);
+  else removeOption(g, nodeId, id);
+}
+
+/** A new line or option at a place (the end by default); returns its id. */
+export function addPart(
+  g: GraphDoc,
+  nodeId: string,
+  kind: PartKind,
+  at?: number,
+  speaker?: string | null,
+): string | null {
+  if (kind === 'line') return addLine(g, nodeId, { speaker: speaker ?? null }, at);
+  const id = addOption(g, nodeId);
+  const n = storyNode(g, nodeId);
+  if (id && n?.options && at !== undefined) moveOption(g, nodeId, n.options.length - 1, at);
+  return id;
+}
+
+/** An option as a line (for the window and the scene): said by its speaker, else by `hero` (absent: nobody). */
+export function optionAsLine(o: ChoiceOption, hero: string | null): DialogueLine {
+  const line: DialogueLine = {
+    id: o.id,
+    speaker: o.speaker === undefined ? hero : o.speaker,
+    text: o.text,
+    condition: o.condition,
+    effects: o.effects,
+  };
+  for (const k of ['style', 'face', 'gesture', 'emote', 'auto', 'actions', 'note'] as const) {
+    if (o[k] !== undefined) (line as unknown as Record<string, unknown>)[k] = o[k];
+  }
+  return line;
+}
+
+/**
+ * A choice seen as a dialogue (for the scene): its options as lines, their marks on those lines. The node
+ * itself is not changed.
+ */
+export function choiceAsDialogue(n: StoryNode, hero: string | null): StoryNode {
+  return {
+    ...n,
+    lines: (n.options ?? []).map((o) => optionAsLine(o, hero)),
+    marks: (n.marks ?? []).map((m) =>
+      m.anchor.kind === 'option' ? { ...m, anchor: { kind: 'line', id: m.anchor.id } } : m,
+    ),
+  };
 }

@@ -202,20 +202,25 @@ test('a conversation for the game: name, palette, the look of words, cues, timer
 
   // A choice with a timer and a secret option; a condition asks the game.
   await pull(page, dialogue, '.cnode-port[data-port="out"]', 140, -40, 'Выбор');
-  await inspector.getByRole('button', { name: 'Добавить вариант' }).click();
-  await inspector.getByRole('button', { name: 'Добавить вариант' }).click();
-  await inspector.getByLabel('Текст варианта 1').fill('Отдать подношение');
   await inspector.getByLabel('Таймер, с').fill('10');
-  const option1 = inspector.locator('.ioption').nth(0);
-  const option2 = inspector.locator('.ioption').nth(1);
-  await option1.getByLabel('Показывать, если').fill('есть(корона)');
-  await expect(option1.getByRole('alert')).toHaveText('В базе данных нет предмета «корона».');
-  await option1.getByLabel('Показывать, если').fill('');
-  await option1.getByRole('switch', { name: 'Показать один раз' }).check({ force: true });
-  await option2.getByRole('switch', { name: 'Тайный вариант' }).check({ force: true });
-  await option2.getByRole('button', { name: 'Действие' }).click();
+  // Options are written in the window of a line (0.8.5): with the fields of the game, as lines are.
+  await inspector.getByRole('button', { name: 'Добавить вариант' }).click();
+  const optionWin = page.getByRole('dialog', { name: /^Вариант/ });
+  const option = optionWin.locator('.iline');
+  await option.getByRole('textbox', { name: 'Текст варианта 1', exact: true }).fill('Отдать подношение');
+  await option.getByLabel('Показывать, если').fill('есть(корона)');
+  await expect(option.getByRole('alert')).toHaveText('В базе данных нет предмета «корона».');
+  await option.getByLabel('Показывать, если').fill('');
+  await option.getByRole('switch', { name: 'Показать один раз' }).check({ force: true });
+  await pick(page, option.getByRole('combobox', { name: 'Стиль', exact: true }), 'Шёпот');
+  await optionWin.getByRole('button', { name: 'Добавить вариант' }).click();
+  await expect(page.getByRole('dialog', { name: /^Вариант 2 из 2/ })).toBeVisible();
+  await option.getByRole('switch', { name: 'Тайный вариант' }).check({ force: true });
+  await option.getByRole('button', { name: 'Действие' }).click();
   await page.getByRole('menuitem', { name: 'Событие' }).click();
-  await option2.getByLabel('ключ в игре').fill('skeleton_bored');
+  await option.getByLabel('ключ в игре').fill('skeleton_bored');
+  await page.keyboard.press('Escape');
+  await expect(optionWin).toHaveCount(0);
   const choice = page.locator('.cnode[data-kind="choice"]');
   await expect(choice.locator('.cchoice-timer')).toContainText('10');
 
@@ -256,7 +261,7 @@ test('a conversation for the game: name, palette, the look of words, cues, timer
   ]);
   const picked = graph.nodes.find((n) => n.kind === 'choice') as { timer: number; options: Record<string, unknown>[] };
   expect(picked.timer).toBe(10);
-  expect(picked.options[0]).toMatchObject({ once: true });
+  expect(picked.options[0]).toMatchObject({ once: true, style: 'whisper' });
   expect(picked.options[1]).toMatchObject({ secret: true, actions: [{ type: 'event', value: 'skeleton_bored' }] });
 
   // The task for Claude names the conversation and its file.

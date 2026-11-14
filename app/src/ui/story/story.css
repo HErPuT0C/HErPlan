@@ -660,19 +660,20 @@
   padding-top: 6px;
   white-space: normal;
 }
+/* 0.8.5: a line wraps into as many rows as the card was laid out for (story/kinds.ts), never more. */
 .cline {
   display: flex;
+  align-items: flex-start;
   gap: 6px;
   height: 22px;
   line-height: 22px;
   overflow: clip;
-  white-space: nowrap;
 }
 .cline-speaker {
   flex: none;
-  max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
   color: color-mix(in srgb, var(--node-color) 55%, #fff);
   font-weight: 600;
 }
@@ -682,9 +683,14 @@
   font-style: italic;
 }
 .cline-text {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
   /* clip, not hidden: nothing can scroll the line sideways (a click on a mark near the edge). */
   overflow: clip;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .cline-long .cline-text {
   text-decoration: underline wavy var(--warning);
@@ -765,7 +771,7 @@
   padding: 0 14px 0 10px;
   border-top: 1px solid var(--line);
   overflow: hidden;
-  white-space: nowrap;
+  line-height: 18px;
 }
 .coption-n {
   display: grid;
@@ -779,8 +785,11 @@
 .coption-text {
   flex: 1;
   min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
   overflow: clip;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .coption-mark {
   display: grid;

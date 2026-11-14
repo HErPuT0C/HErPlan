@@ -38,22 +38,18 @@ import { exportJson } from '../../story/export';
 import { graphKey } from '../../story/gameKey';
 import { graphTransfer } from '../../story/transfer';
 import { graphPath, graphTitle, refKey } from '../../story/flow';
-import { HEADER_H } from '../../canvas/model';
-import { CHOICE_PROMPT_H, FOLDED_LINES } from '../../story/kinds';
+import { cardRowAt } from '../../story/kinds';
 import { addMark, linkMark, plotSources } from '../../story/marks';
 import {
   allGraphs,
-  CHOICE_ROW_H,
-  DIALOGUE_LINE_H,
-  DIALOGUE_TOP,
   findNode,
   graphOf,
   asStory,
   OFF_FLOW,
   PLOT_DEVICES,
   storyRoot,
-  type MarkAnchor,
   type NodeRef,
+  type PartKind,
   type StoryNode,
 } from '../../story/model';
 import {
@@ -96,20 +92,7 @@ interface Pending {
 }
 
 /** The option or dialogue line at a height inside a card (see the card layout in story/kinds.ts). */
-function cardRow(node: StoryNode, y: number): { anchor: MarkAnchor; index: number } | null {
-  if (node.kind === 'choice') {
-    const i = Math.floor((y - HEADER_H - CHOICE_PROMPT_H) / CHOICE_ROW_H);
-    const o = node.options?.[i];
-    return o && i >= 0 ? { anchor: { kind: 'option', id: o.id }, index: i } : null;
-  }
-  if (node.kind === 'dialogue') {
-    const lines = node.lines ?? [];
-    const shown = node.expanded ? lines.length : Math.min(lines.length, FOLDED_LINES);
-    const i = Math.floor((y - HEADER_H - DIALOGUE_TOP) / DIALOGUE_LINE_H);
-    return i >= 0 && i < shown ? { anchor: { kind: 'line', id: lines[i].id }, index: i } : null;
-  }
-  return null;
-}
+const cardRow = (node: StoryNode, y: number) => cardRowAt(node, y);
 
 /** Plot links and problems by node, rebuilt shortly after the project changes; no checks when they are off. */
 function useStoryIndex(project: OpenProject, checks: boolean): void {
@@ -271,7 +254,13 @@ function StoryWorkspace({
    * The line open in the big window of a line (0.8.2), on the graph it was opened on; `field` — one of its
    * fields to put the caret in (a problem of the line leads there, 0.8.3).
    */
-  const [lineWin, setLineWin] = useState<{ graph: string; node: string; line: string; field?: string } | null>(null);
+  const [lineWin, setLineWin] = useState<{
+    graph: string;
+    node: string;
+    line: string;
+    kind: PartKind;
+    field?: string;
+  } | null>(null);
   /** Applies a pending selection once the canvas of its graph exists. */
   const settle = useCallback((e: CanvasEngine | null) => {
     const p = pending.current;
@@ -284,8 +273,11 @@ function StoryWorkspace({
     if (p.highlight) e.setHighlight(new Set(p.highlight), p.node ?? null);
     if (p.node && p.field) setFocus({ node: p.node, field: p.field, at: performance.now() });
     // A line is edited only in its window (0.8.3): what leads to a line opens it there.
-    const line = p.node && p.field ? /^line:([^:]+)/.exec(p.field) : null;
-    if (line && p.node) setLineWin({ graph: p.graph, node: p.node, line: line[1], field: p.field });
+    // (0.8.5: options too.)
+    const part = p.node && p.field ? /^(line|option):([^:]+)/.exec(p.field) : null;
+    if (part && p.node) {
+      setLineWin({ graph: p.graph, node: p.node, line: part[2], kind: part[1] as PartKind, field: p.field });
+    }
   }, []);
 
   const go = useCallback(
@@ -312,7 +304,7 @@ function StoryWorkspace({
       task: copyTask,
       check: runCheck,
       script: () => void exportScriptRef.current(),
-      openLine: (node, line) => setLineWin({ graph: current, node, line }),
+      openLine: (node, line, kind = 'line') => setLineWin({ graph: current, node, line, kind }),
       inspect: (nodeId, field) => {
         setSide('inspector');
         go({ graph: current, node: nodeId, field: field ?? 'title' });
@@ -748,8 +740,9 @@ function StoryWorkspace({
         <LineWindow
           nodeId={lineWin.node}
           lineId={lineWin.line}
+          kind={lineWin.kind}
           field={lineWin.field}
-          onLine={(line) => setLineWin({ graph: lineWin.graph, node: lineWin.node, line })}
+          onLine={(line) => setLineWin({ graph: lineWin.graph, node: lineWin.node, line, kind: lineWin.kind })}
           onClose={() => setLineWin(null)}
         />
       )}

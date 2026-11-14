@@ -10,6 +10,7 @@ import {
   DIALOGUE_TOP,
   GIVE_PORTS,
   plotMarks,
+  type MarkAnchor,
   type NodeMark,
   type PlotDevice,
   type StoryNode,
@@ -27,22 +28,154 @@ export const CHOICE_PROMPT_H = 40;
 /** Colours of the plot devices on the canvas (the same as --plot-* in tokens.css). */
 export const PLOT_COLORS: Record<PlotDevice, string> = { gun: '#e8b931', butterfly: '#e0609f' };
 
+// ---------- the rows of a card (0.8.5: long lines and options wrap on the card instead of being cut) ----------
+// The card is laid out here, not measured on the screen: its height, the exits of the options and of the
+// interrupted lines, and where marks leave it all come from the same numbers. Widths of the signs are
+// estimated for the editor's font at 13px, a little generously; a text the estimate got short is still cut
+// to its rows on the card (it never runs over the next one).
+
+/** The left and right margins of a card's body (.cnode-body). */
+const CARD_PAD = 10;
+/** The most rows one line or option takes on a card; longer is cut with "…". */
+export const MAX_CARD_ROWS = 4;
+/** The height of a row of an option's text, and the room around it. */
+export const OPTION_LINE_H = 18;
+const OPTION_PAD = 12;
+/** The parts of an option row around its text: the number, the gap, the margins (.coption). */
+const OPTION_SIDES = 10 + 18 + 6 + 14;
+/** A mark's icon in front of a text (a device over the whole line or option). */
+const MARK_ICON_W = 17;
+
+const NARROW = new Set([...'iljtfr.,:;\'!|()[]{}ІЇіїґ`"']);
+const WIDE = new Set([...'mwшщжюмыфМШЩЖЮЫФWMД@%']);
+
+/** About how wide a text is in the card's font (13px), in pixels. */
+export function textWidth(text: string): number {
+  let w = 0;
+  for (const ch of text) {
+    if (ch === ' ') w += 3.8;
+    else if (NARROW.has(ch)) w += 4;
+    else if (WIDE.has(ch)) w += 10.5;
+    else if (ch !== ch.toLowerCase()) w += 8.6;
+    else w += 7.2;
+  }
+  return w;
+}
+
+/** How many rows a text takes in a column `width` pixels wide, word by word (a word longer than a row breaks). */
+export function textRows(text: string, width: number): number {
+  const room = Math.max(24, width);
+  let rows = 1;
+  let x = 0;
+  for (const part of text.split(/(\s+)/)) {
+    if (!part) continue;
+    if (/^\s+$/.test(part)) {
+      if (part.includes('\n')) {
+        rows += part.split('\n').length - 1;
+        x = 0;
+      } else if (x > 0) x += textWidth(' ');
+      continue;
+    }
+    let w = textWidth(part);
+    if (x > 0 && x + w > room) {
+      rows++;
+      x = 0;
+    }
+    while (w > room) {
+      rows++;
+      w -= room;
+    }
+    x += w;
+  }
+  return rows;
+}
+
+/** The width of the speakers' column of a dialogue card (the same for every line of it). */
+export function speakerWidth(w: number): number {
+  return Math.round(Math.min(130, Math.max(64, (w - 2 * CARD_PAD) * 0.3)));
+}
+
+const sameAnchor = (a: MarkAnchor, b: MarkAnchor) =>
+  a.kind === b.kind && (a.kind === 'node' || (b.kind !== 'node' && a.id === b.id));
+const wholeMarks = (n: StoryNode, anchor: MarkAnchor) =>
+  plotMarks(n).filter((m) => sameAnchor(m.anchor, anchor) && !m.range).length;
+
+/** Rows of each line shown on a dialogue card, and whether a "more" row follows them. */
+export function dialogueRows(n: StoryNode): { rows: number[]; more: boolean } {
+  const lines = n.lines ?? [];
+  const shown = n.expanded ? lines : lines.slice(0, FOLDED_LINES);
+  const column = n.w - 2 * CARD_PAD - speakerWidth(n.w) - 6;
+  return {
+    rows: shown.map((l) =>
+      Math.min(
+        MAX_CARD_ROWS,
+        textRows(l.text || '…', column - wholeMarks(n, { kind: 'line', id: l.id }) * MARK_ICON_W),
+      ),
+    ),
+    more: !n.expanded && lines.length > FOLDED_LINES,
+  };
+}
+
+/** Rows of each option's text on a choice card, and the height of its row. */
+export function optionRows(n: StoryNode): { rows: number; h: number }[] {
+  return (n.options ?? []).map((o, i) => {
+    const marks =
+      wholeMarks(n, { kind: 'option', id: o.id }) + (o.secret ? 1 : 0) + (o.once ? 1 : 0) + (o.note?.trim() ? 1 : 0);
+    const rows = Math.min(MAX_CARD_ROWS, textRows(o.text || `${i + 1}…`, n.w - OPTION_SIDES - marks * MARK_ICON_W));
+    return { rows, h: Math.max(CHOICE_ROW_H, rows * OPTION_LINE_H + OPTION_PAD) };
+  });
+}
+
+/** Where an option's row starts on its card. */
+function optionTop(n: StoryNode, i: number): number {
+  const rows = optionRows(n);
+  let y = HEADER_H + CHOICE_PROMPT_H;
+  for (let k = 0; k < i && k < rows.length; k++) y += rows[k].h;
+  return y;
+}
+
 /** Where a mark's line leaves its card: level with its option or line (hidden lines: the "more" row). */
 export function markRowY(n: StoryNode, m: Pick<NodeMark, 'anchor'>): number | undefined {
   if (m.anchor.kind === 'option') {
     const id = m.anchor.id;
-    const i = (n.options ?? []).findIndex((o) => o.id === id);
-    return i < 0 ? undefined : HEADER_H + CHOICE_PROMPT_H + i * CHOICE_ROW_H + CHOICE_ROW_H / 2;
+    const options = n.options ?? [];
+    const i = options.findIndex((o) => o.id === id);
+    if (i < 0) return undefined;
+    return optionTop(n, i) + optionRows(n)[i].h / 2;
   }
   if (m.anchor.kind === 'line') {
     const id = m.anchor.id;
     const lines = n.lines ?? [];
     const i = lines.findIndex((l) => l.id === id);
     if (i < 0) return undefined;
-    const shown = n.expanded ? lines.length : Math.min(lines.length, FOLDED_LINES);
-    return HEADER_H + DIALOGUE_TOP + Math.min(i, shown) * DIALOGUE_LINE_H + DIALOGUE_LINE_H / 2;
+    const { rows } = dialogueRows(n);
+    const before = rows.slice(0, Math.min(i, rows.length)).reduce((a, b) => a + b, 0);
+    return HEADER_H + DIALOGUE_TOP + before * DIALOGUE_LINE_H + DIALOGUE_LINE_H / 2;
   }
   return undefined;
+}
+
+/** The option or dialogue line at a height inside a card (null: none there). */
+export function cardRowAt(n: StoryNode, y: number): { anchor: MarkAnchor; index: number } | null {
+  if (n.kind === 'choice') {
+    const rows = optionRows(n);
+    let top = HEADER_H + CHOICE_PROMPT_H;
+    for (let i = 0; i < rows.length; i++) {
+      if (y >= top && y < top + rows[i].h) return { anchor: { kind: 'option', id: n.options![i].id }, index: i };
+      top += rows[i].h;
+    }
+    return null;
+  }
+  if (n.kind === 'dialogue') {
+    const { rows } = dialogueRows(n);
+    let top = HEADER_H + DIALOGUE_TOP;
+    for (let i = 0; i < rows.length; i++) {
+      const h = rows[i] * DIALOGUE_LINE_H;
+      if (y >= top && y < top + h) return { anchor: { kind: 'line', id: n.lines![i].id }, index: i };
+      top += h;
+    }
+  }
+  return null;
 }
 
 /** Lines from plot devices: marks (with a trail, from their row) and gun or butterfly nodes of old. */
@@ -78,13 +211,17 @@ export function choicePorts(n: GraphNode): Port[] {
       side: 'out' as const,
       face: 'right' as const,
       x: n.w,
-      y: HEADER_H + CHOICE_PROMPT_H + i * CHOICE_ROW_H + CHOICE_ROW_H / 2,
+      // Level with the middle of the option's row, however many rows its text takes.
+      y: optionTop(asStory(n), i) + optionRows(asStory(n))[i].h / 2,
     })),
   ];
 }
 
-export function choiceHeight(optionCount: number): number {
-  return HEADER_H + CHOICE_PROMPT_H + Math.max(1, optionCount) * CHOICE_ROW_H + 10;
+/** The height of a choice card: the question, every option's rows (one empty row without options). */
+export function choiceHeight(n: StoryNode): number {
+  const rows = optionRows(n);
+  const body = rows.length ? rows.reduce((a, r) => a + r.h, 0) : CHOICE_ROW_H;
+  return HEADER_H + CHOICE_PROMPT_H + body + 10;
 }
 
 /** Condition: inputs on three sides, "yes" and "no" outputs on the right. */
@@ -142,10 +279,15 @@ function givePorts(n: GraphNode): Port[] {
   ];
 }
 
-export function dialogueHeight(lineCount: number, expanded: boolean): number {
-  const shown = expanded ? lineCount : Math.min(lineCount, FOLDED_LINES);
-  const more = !expanded && lineCount > FOLDED_LINES ? 1 : 0;
-  return Math.max(100, HEADER_H + 16 + (Math.max(1, shown) + more) * DIALOGUE_LINE_H);
+/** The height of a dialogue card: the rows of its lines shown, the "more" row. */
+export function dialogueHeight(n: StoryNode): number {
+  const { rows, more } = dialogueRows(n);
+  const total =
+    Math.max(
+      1,
+      rows.reduce((a, b) => a + b, 0),
+    ) + (more ? 1 : 0);
+  return Math.max(100, HEADER_H + 16 + total * DIALOGUE_LINE_H);
 }
 
 registerKind({
@@ -170,25 +312,25 @@ registerKind({
   id: 'dialogue',
   label: 'story.kind.dialogue',
   color: '#23917f',
-  size: { w: 300, h: dialogueHeight(0, false) },
+  size: { w: 300, h: Math.max(100, HEADER_H + 16 + DIALOGUE_LINE_H) },
   ports: dialoguePorts,
   graphs: LINE_GRAPHS,
   menu: { group: 'flow', order: 2 },
   fit: (n) => {
     const s = asStory(n);
-    n.h = dialogueHeight(s.lines?.length ?? 0, s.expanded === true);
+    n.h = dialogueHeight(s);
   },
 });
 registerKind({
   id: 'choice',
   label: 'story.kind.choice',
   color: '#b88a1e',
-  size: { w: 280, h: choiceHeight(0) },
+  size: { w: 280, h: HEADER_H + CHOICE_PROMPT_H + CHOICE_ROW_H + 10 },
   ports: choicePorts,
   graphs: STORY_GRAPHS,
   menu: { group: 'flow', order: 3 },
   fit: (n) => {
-    n.h = choiceHeight(asStory(n).options?.length ?? 0);
+    n.h = choiceHeight(asStory(n));
   },
 });
 registerKind({

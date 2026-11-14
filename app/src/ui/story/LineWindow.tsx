@@ -7,12 +7,13 @@
 // selected words — their look and the plot devices — and new lines are added here too.
 
 import { ChevronLeft, ChevronRight, ListVideo, Plus } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../../core/useStore';
 import { t } from '../../i18n';
-import { asStory, graphOf } from '../../story/model';
+import { keyOf } from '../../story/gameKey';
+import { asStory, graphOf, type PartKind } from '../../story/model';
 import { Button, Dialog, IconButton } from '../components';
-import { addLine } from '../../story/ops';
+import { addPart, choiceAsDialogue, optionAsLine, partsOf } from '../../story/ops';
 import { useStory } from './context';
 import { LineRow } from './LineEditor';
 import { participants } from './paletteItems';
@@ -21,12 +22,15 @@ import { LinePlayer } from './TypingPreview';
 export function LineWindow({
   nodeId,
   lineId,
+  kind = 'line',
   field,
   onLine,
   onClose,
 }: {
   nodeId: string;
   lineId: string;
+  /** A line of a dialogue, or (0.8.5) an option of a choice: edited and played as a line. */
+  kind?: PartKind;
   /** A field of the line to put the caret in (data-field), when something led here. */
   field?: string;
   /** Another line of the node is shown. */
@@ -39,7 +43,28 @@ export function LineWindow({
   const limits = useStore(project.store, (s) => s.meta.settings.dialogueLimits);
   const found = graph?.nodes.find((n) => n.id === nodeId);
   const node = found ? asStory(found) : null;
-  const lines = node?.lines ?? [];
+  const isOption = kind === 'option';
+  // Options are said by their speaker, by default the hero: the card with "hero" as its name in the game.
+  const hero = useMemo(() => Object.entries(entities).find(([, e]) => keyOf(e) === 'hero')?.[0] ?? null, [entities]);
+  const lines = useMemo(
+    () => (isOption ? (node?.options ?? []).map((o) => optionAsLine(o, hero)) : (node?.lines ?? [])),
+    [isOption, node, hero],
+  );
+  /** What the scene plays: the dialogue, or the choice as one (its options as lines). */
+  const played = useMemo(() => (node && isOption ? choiceAsDialogue(node, hero) : node), [node, isOption, hero]);
+  // Who an option is said to: the last one but the hero who spoke in a dialogue leading to the choice.
+  const listener = useStore(project.store, (s) => {
+    if (!isOption) return null;
+    const g = graphOf(s, graphId);
+    for (const e of g?.edges ?? []) {
+      if (e.to.node !== nodeId) continue;
+      const from = g?.nodes.find((n) => n.id === e.from.node);
+      const said = [...(asStory(from ?? ({ lines: [] } as never)).lines ?? [])].reverse();
+      const who = said.find((l) => l.speaker && l.speaker !== 'narrator' && l.speaker !== hero)?.speaker;
+      if (who) return who;
+    }
+    return null;
+  });
   const index = lines.findIndex((l) => l.id === lineId);
   const line = index >= 0 ? lines[index] : null;
   const people = participants((graph?.nodes ?? []).flatMap((n) => asStory(n).lines ?? []));
@@ -53,15 +78,15 @@ export function LineWindow({
       seen.current = index;
       return;
     }
-    const left = node?.lines ?? [];
+    const left = partsOf(node ?? undefined, kind);
     if (left.length) onLine(left[Math.min(seen.current, left.length - 1)].id);
-  }, [index, node, onLine]);
+  }, [index, node, kind, onLine]);
   const add = () => {
     let id: string | null = null;
-    // After this line, said by whoever spoke the line before it: dialogues alternate.
-    const speaker = index >= 1 ? lines[index - 1].speaker : null;
-    edit(t('story.step.lines'), (g) => {
-      id = addLine(g, nodeId, { speaker }, index + 1);
+    // After this line, said by whoever spoke the line before it: dialogues alternate (an option: the hero).
+    const speaker = !isOption && index >= 1 ? lines[index - 1].speaker : undefined;
+    edit(t(isOption ? 'story.step.options' : 'story.step.lines'), (g) => {
+      id = addPart(g, nodeId, kind, index + 1, speaker);
     });
     if (id) onLine(id);
   };
@@ -102,7 +127,11 @@ export function LineWindow({
       className="line-window"
       title={
         line && node
-          ? t('lineWindow.title', { n: index + 1, count: lines.length, title: node.title || t('story.untitled') })
+          ? t(isOption ? 'lineWindow.titleOption' : 'lineWindow.title', {
+              n: index + 1,
+              count: lines.length,
+              title: node.title || t('story.untitled'),
+            })
           : t('story.untitled')
       }
       actions={
@@ -130,7 +159,8 @@ export function LineWindow({
             <LinePlayer
               // Another line, or "whole node" switched: playing starts anew.
               key={`${line.id}-${whole}`}
-              node={node}
+              node={played!}
+              listener={listener}
               start={whole ? 0 : index}
               only={!whole}
               entities={entities}
@@ -157,11 +187,12 @@ export function LineWindow({
             entities={entities}
             people={people}
             readOnly={project.readOnly}
+            kind={kind}
           />
           {!project.readOnly && (
             <div className="line-window-foot">
               <Button size="sm" icon={<Plus size={14} />} onClick={add}>
-                {t('story.lines.add')}
+                {t(isOption ? 'story.options.add' : 'story.lines.add')}
               </Button>
             </div>
           )}

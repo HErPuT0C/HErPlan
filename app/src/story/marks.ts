@@ -15,6 +15,7 @@ import {
   toward,
   type CueProps,
   type NodeMark,
+  type PartKind,
   type MarkAnchor,
   type NodeRef,
   type PlotDevice,
@@ -67,8 +68,10 @@ export function addStyleMark(
   lineId: string,
   selection: { start: number; end: number },
   props: StyleProps,
+  /** A line of a dialogue, or (0.8.5) an option of a choice. */
+  kind: PartKind = 'line',
 ): TextMark | null {
-  const anchor: MarkAnchor = { kind: 'line', id: lineId };
+  const anchor: MarkAnchor = { kind, id: lineId };
   const text = anchorText(n, anchor);
   const range = text === undefined ? null : tightRange(text, selection.start, selection.end);
   if (!range) return null;
@@ -124,8 +127,14 @@ function dropStyles(n: StoryNode, anchor: MarkAnchor, text: string, piece: { sta
 }
 
 /** Puts a cue at a point of a line. */
-export function addCueMark(n: StoryNode, lineId: string, at: number, props: CueProps): TextMark | null {
-  const anchor: MarkAnchor = { kind: 'line', id: lineId };
+export function addCueMark(
+  n: StoryNode,
+  lineId: string,
+  at: number,
+  props: CueProps,
+  kind: PartKind = 'line',
+): TextMark | null {
+  const anchor: MarkAnchor = { kind, id: lineId };
   const text = anchorText(n, anchor);
   const clean = cleanProps(props);
   // Cues stand inside the text (0.8.1): what holds from the start is set in the line's fields.
@@ -179,7 +188,7 @@ const START_FIELDS = ['emote', 'gesture', 'face'] as const;
  */
 export function tidyNode(n: StoryNode): boolean {
   if (!n.marks?.length) return false;
-  const before = JSON.stringify(n.marks) + JSON.stringify(n.lines ?? []);
+  const before = JSON.stringify(n.marks) + JSON.stringify(n.lines ?? []) + JSON.stringify(n.options ?? []);
   const kept: NodeMark[] = [];
   for (const m of n.marks) {
     if (!isPlotMark(m)) {
@@ -218,19 +227,20 @@ export function tidyNode(n: StoryNode): boolean {
         ) {
           continue;
         }
-        if (at === 0 && m.anchor.kind === 'line' && liftStartCue(n, m.anchor.id, m.props)) continue;
+        if (at === 0 && m.anchor.kind !== 'node' && liftStartCue(n, m.anchor, m.props)) continue;
       }
     }
     kept.push(m);
   }
   // Untouched marks stay the same object (no change for the store to save).
   if (kept.length !== n.marks.length) n.marks = kept;
-  return JSON.stringify(n.marks) + JSON.stringify(n.lines ?? []) !== before;
+  return JSON.stringify(n.marks) + JSON.stringify(n.lines ?? []) + JSON.stringify(n.options ?? []) !== before;
 }
 
 /** Moves an emote, a gesture or a face from the start of a line into its empty field; false when it cannot. */
-function liftStartCue(n: StoryNode, lineId: string, props: CueProps): boolean {
-  const line = n.lines?.find((l) => l.id === lineId);
+function liftStartCue(n: StoryNode, anchor: Exclude<MarkAnchor, { kind: 'node' }>, props: CueProps): boolean {
+  const line =
+    anchor.kind === 'line' ? n.lines?.find((l) => l.id === anchor.id) : n.options?.find((o) => o.id === anchor.id);
   const kind = START_FIELDS.find((k) => props[k] !== undefined);
   if (!line || !kind || Object.keys(props).length !== 1 || line[kind]) return false;
   const value = toward(props[kind]);
@@ -264,8 +274,13 @@ export function tidyProject(d: ProjectData): number {
 /**
  * Bold on or off for the selected words: a bold mark exactly over them is removed, otherwise one is made.
  */
-export function toggleBold(n: StoryNode, lineId: string, selection: { start: number; end: number }): void {
-  const anchor: MarkAnchor = { kind: 'line', id: lineId };
+export function toggleBold(
+  n: StoryNode,
+  lineId: string,
+  selection: { start: number; end: number },
+  kind: PartKind = 'line',
+): void {
+  const anchor: MarkAnchor = { kind, id: lineId };
   const text = anchorText(n, anchor);
   const range = text === undefined ? null : tightRange(text, selection.start, selection.end);
   if (!range || text === undefined) return;
@@ -275,7 +290,7 @@ export function toggleBold(n: StoryNode, lineId: string, selection: { start: num
     return r?.start === range.start && r.end === range.end;
   });
   if (!same) {
-    addStyleMark(n, lineId, range, { bold: true });
+    addStyleMark(n, lineId, range, { bold: true }, kind);
   } else if (same.device === 'style' && Object.keys(same.props).some((k) => k !== 'bold')) {
     delete same.props.bold;
   } else {
@@ -287,8 +302,13 @@ export function toggleBold(n: StoryNode, lineId: string, selection: { start: num
  * "Clear the look" of a piece of a line (0.8.3, the toolbar over the selection): the looks over it lose that
  * piece — a look inside it goes, one around it is cut in two, one across its edge is cut short.
  */
-export function clearLooks(n: StoryNode, lineId: string, selection: { start: number; end: number }): void {
-  const anchor: MarkAnchor = { kind: 'line', id: lineId };
+export function clearLooks(
+  n: StoryNode,
+  lineId: string,
+  selection: { start: number; end: number },
+  kind: PartKind = 'line',
+): void {
+  const anchor: MarkAnchor = { kind, id: lineId };
   const text = anchorText(n, anchor);
   if (text === undefined) return;
   const s = Math.max(0, Math.min(selection.start, selection.end));

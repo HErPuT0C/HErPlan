@@ -44,21 +44,25 @@ import {
   CUE_KINDS,
   toward,
   type CueKind,
+  type ChoiceOption,
   type CueProps,
   type DialogueLine,
   type MarkAnchor,
+  type PartKind,
   type StoryNode,
   type StyleProps,
   type TextMark,
 } from '../../story/model';
 import {
   editActions,
-  moveLine,
-  removeLine,
+  movePart,
+  partOf,
+  removePart,
   setInterruptExit,
-  setLineFields,
+  setPartFields,
   storyNode,
-  updateLine,
+  updateOption,
+  updatePart,
 } from '../../story/ops';
 import { NARRATOR, paletteName, paletteSpeaker, type Palette } from '../../story/palette';
 import { translationsOf, type Translations } from '../../story/translation';
@@ -74,6 +78,7 @@ import { PaletteSelect, SoundButton } from './PaletteSelect';
 import { DeviceMenu, useAddDevice } from './plotTools';
 import { GameTextField } from './GameTextField';
 import { useGameFont } from './gameAssets';
+import { NoteField } from './NoteField';
 import { ButterflyIcon, GunIcon } from '../canvas/kindIcons';
 import { gameLine } from '../../story/gameLine';
 
@@ -94,13 +99,15 @@ function LinePreview({
   line,
   palette,
   nameOf,
+  kind,
 }: {
   node: StoryNode;
   line: DialogueLine;
   palette: Palette;
   nameOf: (id: string) => string;
+  kind: PartKind;
 }) {
-  const anchor: MarkAnchor = { kind: 'line', id: line.id };
+  const anchor: MarkAnchor = { kind, id: line.id };
   const { highlights, cues } = gameMarks(node, anchor, line.text, palette, true);
   if (!highlights.length && !cues.length) return null;
   const icons = (at: number) =>
@@ -152,6 +159,7 @@ export function LineRow({
   entities,
   people,
   readOnly,
+  kind = 'line',
 }: {
   line: DialogueLine;
   index: number;
@@ -162,8 +170,13 @@ export function LineRow({
   /** Who speaks in this conversation: whom an emote, a gesture or a face can belong to. */
   people: string[];
   readOnly: boolean;
+  /** A line of a dialogue, or (0.8.5) an option of a choice seen as one (optionAsLine). */
+  kind?: PartKind;
 }) {
   const { project, edit, task } = useStory();
+  const isOption = kind === 'option';
+  /** The node's option behind this line, for what only options have (once, secret). */
+  const option = isOption ? node.options?.find((o) => o.id === line.id) : undefined;
   const { palette, translations, dir } = useAtom(gameFiles);
   const font = useGameFont(dir, palette.preview?.font);
   const [fieldScale, setFieldScale] = useState(lastFieldScale);
@@ -178,7 +191,7 @@ export function LineRow({
   /** Where the caret was last: "+ mark" puts the mark there. */
   const caret = useRef(0);
   const nodeId = node.id;
-  const anchor: MarkAnchor = { kind: 'line', id: line.id };
+  const anchor: MarkAnchor = { kind, id: line.id };
   const addDevice = useAddDevice(node.id);
   const marks = textMarksOn(node, anchor);
   const hasMore =
@@ -200,8 +213,13 @@ export function LineRow({
       },
       mergeKey,
     );
-  const set = (patch: Partial<DialogueLine>, mergeKey?: string) =>
-    edit(t('story.step.lines'), (g) => setLineFields(g, nodeId, line.id, patch), mergeKey);
+  const set = (patch: Partial<DialogueLine> & Partial<ChoiceOption>, mergeKey?: string) =>
+    edit(t('story.step.lines'), (g) => setPartFields(g, nodeId, kind, line.id, patch), mergeKey);
+  /** Condition, effects, comment: an option keeps them as text even when blank (its fields are strings). */
+  const setText = (patch: { condition?: string; effects?: string; note?: string }, mergeKey?: string) =>
+    isOption
+      ? edit(t('story.step.options'), (g) => updateOption(g, nodeId, line.id, patch), mergeKey)
+      : set(patch, mergeKey);
   const nameOf = (id: string) => speakerName(entities, id);
   const others = people.filter((p) => p !== line.speaker);
   const faces = faceItems(palette, entities, line.speaker);
@@ -210,9 +228,9 @@ export function LineRow({
   const ask = (title: string, onSubmit: (v: string) => void) =>
     setPrompt({ title, label: t('line.valueId'), value: '', onSubmit: (v) => v.trim() && onSubmit(v.trim()) });
 
-  const bold = (sel: { start: number; end: number }) => change((n) => toggleBold(n, line.id, sel));
+  const bold = (sel: { start: number; end: number }) => change((n) => toggleBold(n, line.id, sel, kind));
   const styleWords = (sel: { start: number; end: number }, style: string) => {
-    change((n) => void addStyleMark(n, line.id, sel, { style }));
+    change((n) => void addStyleMark(n, line.id, sel, { style }, kind));
     setOpen(true);
   };
   /** "Style the words…": the palette's styles in their colours. */
@@ -233,31 +251,31 @@ export function LineRow({
   };
 
   /** Puts a cue of a kind at a place of the text, asking for its value first when it has one. */
-  const putCue = (kind: CueKind, at: number, x: number, y: number) => {
+  const putCue = (cue: CueKind, at: number, x: number, y: number) => {
     if (at <= 0) {
       // What holds from the start of the line is set in its fields.
-      if (FIELDS.includes(kind)) {
-        setOpenField(kind);
+      if (FIELDS.includes(cue)) {
+        setOpenField(cue);
         return;
       }
       toast({ kind: 'info', text: t('line.noStartCue') });
       return;
     }
-    if (kind === 'pause') return change((n) => void addCueMark(n, line.id, at, { pause: PAUSE }));
-    if (kind === 'shake') return change((n) => void addCueMark(n, line.id, at, { shake: 1 }));
+    if (cue === 'pause') return change((n) => void addCueMark(n, line.id, at, { pause: PAUSE }, kind));
+    if (cue === 'shake') return change((n) => void addCueMark(n, line.id, at, { shake: 1 }, kind));
     const put = (value: string) => {
-      change((n) => void addCueMark(n, line.id, at, { [kind]: value } as CueProps));
+      change((n) => void addCueMark(n, line.id, at, { [cue]: value } as CueProps, kind));
       setOpen(true);
     };
-    const items = kind === 'face' ? faces.items : listItems(palette, FIELD_LIST[kind]);
+    const items = cue === 'face' ? faces.items : listItems(palette, FIELD_LIST[cue]);
     if (noPalette || !items.length) {
-      if (kind === 'face' && faces.gray && !noPalette) return toast({ kind: 'info', text: faces.gray });
-      return ask(t(CUE_NAMES[kind]), put);
+      if (cue === 'face' && faces.gray && !noPalette) return toast({ kind: 'info', text: faces.gray });
+      return ask(t(CUE_NAMES[cue]), put);
     }
     setMenuAt({
       x,
       y,
-      label: t('line.cueHere', { what: t(CUE_NAMES[kind]) }),
+      label: t('line.cueHere', { what: t(CUE_NAMES[cue]) }),
       entries: items.map((it) => ({ id: it.id, label: it.name, icon: it.icon, onSelect: () => put(it.id) })),
     });
   };
@@ -330,7 +348,7 @@ export function LineRow({
     else if (digit && sel.end > sel.start && palette.styles[Number(digit[1]) - 1]) {
       styleWords(sel, palette.styles[Number(digit[1]) - 1].id);
     } else if (e.code === 'KeyP') {
-      if (sel.start > 0) change((n) => void addCueMark(n, line.id, sel.start, { pause: PAUSE }));
+      if (sel.start > 0) change((n) => void addCueMark(n, line.id, sel.start, { pause: PAUSE }, kind));
       else toast({ kind: 'info', text: t('line.noStartCue') });
     } else if (e.code === 'KeyM') cueMenu(sel.start, r.left, r.bottom + 4);
     else return;
@@ -347,15 +365,16 @@ export function LineRow({
     x: number,
     y: number,
   ) => {
-    const put = (v: string) => change((n) => void addStyleMark(n, line.id, sel, { [prop]: v }));
+    const put = (v: string) => change((n) => void addStyleMark(n, line.id, sel, { [prop]: v }, kind));
     if (noPalette || !palette[list].length) return ask(label, put);
     setMenuAt({
       x,
       y,
       label,
+      // What the game says of a value goes with it: "small" is still the usual size in the game (0.8.5).
       entries: listItems(palette, list).map((it) => ({
         id: it.id,
-        label: it.name,
+        label: list === 'effects' || !it.hint ? it.name : `${it.name} — ${it.hint}`,
         icon: it.icon,
         onSelect: () => put(it.id),
       })),
@@ -408,7 +427,7 @@ export function LineRow({
             entries: SPEEDS.map((v) => ({
               id: String(v),
               label: t('preview.speedX', { n: String(v).replace('.', ',') }),
-              onSelect: () => change((n) => void addStyleMark(n, line.id, sel, { speed: v })),
+              onSelect: () => change((n) => void addStyleMark(n, line.id, sel, { speed: v }, kind)),
             })),
           })
         }
@@ -450,7 +469,7 @@ export function LineRow({
         type="button"
         title={t('field.clear')}
         aria-label={t('field.clear')}
-        onClick={() => change((n) => clearLooks(n, line.id, sel))}
+        onClick={() => change((n) => clearLooks(n, line.id, sel, kind))}
       >
         <Eraser size={13} aria-hidden="true" />
       </button>
@@ -536,7 +555,7 @@ export function LineRow({
     <div
       className={['iline', !line.speaker && 'iline-nobody'].filter(Boolean).join(' ')}
       data-line={line.id}
-      data-field={`line:${line.id}`}
+      data-field={`${kind}:${line.id}`}
       style={gameSpeaker?.color ? { borderLeftColor: gameSpeaker.color } : undefined}
     >
       <div className="iline-head">
@@ -548,7 +567,9 @@ export function LineRow({
           unknownHint={unknownSpeaker}
           disabled={readOnly}
           className={['iline-speaker', !line.speaker && 'palette-unknown'].filter(Boolean).join(' ')}
-          onChange={(v) => edit(t('story.step.lines'), (g) => updateLine(g, nodeId, line.id, { speaker: v || null }))}
+          onChange={(v) =>
+            edit(t('story.step.lines'), (g) => updatePart(g, nodeId, kind, line.id, { speaker: v || null }))
+          }
         />
         <span
           className={['small', 'iline-count', chars > maxChars ? 'text-warning' : 'muted'].join(' ')}
@@ -572,21 +593,21 @@ export function LineRow({
               label={t('story.up')}
               icon={<ArrowUp size={14} />}
               disabled={index === 0}
-              onClick={() => edit(t('story.step.lines'), (g) => moveLine(g, nodeId, index, index - 1))}
+              onClick={() => edit(t('story.step.lines'), (g) => movePart(g, nodeId, kind, index, index - 1))}
             />
             <IconButton
               size="sm"
               label={t('story.down')}
               icon={<ArrowDown size={14} />}
               disabled={last}
-              onClick={() => edit(t('story.step.lines'), (g) => moveLine(g, nodeId, index, index + 1))}
+              onClick={() => edit(t('story.step.lines'), (g) => movePart(g, nodeId, kind, index, index + 1))}
             />
             <DeviceMenu onDevice={(device) => addDevice(device, anchor)} />
             <IconButton
               size="sm"
-              label={t('story.lines.remove')}
+              label={t(isOption ? 'story.options.remove' : 'story.lines.remove')}
               icon={<Trash size={14} />}
-              onClick={() => edit(t('story.step.lines'), (g) => removeLine(g, nodeId, line.id))}
+              onClick={() => edit(t('story.step.lines'), (g) => removePart(g, nodeId, kind, line.id))}
             />
           </span>
         )}
@@ -644,7 +665,7 @@ export function LineRow({
             cues={fieldCues}
             readOnly={readOnly}
             textarea={{
-              'aria-label': t('story.lines.text', { n: index + 1 }),
+              'aria-label': t(isOption ? 'story.options.text' : 'story.lines.text', { n: index + 1 }),
               onKeyDown,
               onSelect: (e) => {
                 textBox.current = e.currentTarget;
@@ -656,7 +677,7 @@ export function LineRow({
               onChange: (e) =>
                 edit(
                   t('story.step.lines'),
-                  (g) => updateLine(g, nodeId, line.id, { text: e.target.value }),
+                  (g) => updatePart(g, nodeId, kind, line.id, { text: e.target.value }),
                   `line:${line.id}`,
                 ),
             }}
@@ -673,7 +694,8 @@ export function LineRow({
             aria-hidden="true"
             onChange={(e) => {
               const sel = colorFor.current;
-              if (sel) change((n) => void addStyleMark(n, line.id, sel, { color: e.target.value }), `color:${line.id}`);
+              if (sel)
+                change((n) => void addStyleMark(n, line.id, sel, { color: e.target.value }, kind), `color:${line.id}`);
             }}
           />
         </>
@@ -687,7 +709,7 @@ export function LineRow({
           mirrorStyle={lineStyle ? { color: lineStyle } : undefined}
           rows={1}
           readOnly={readOnly}
-          aria-label={t('story.lines.text', { n: index + 1 })}
+          aria-label={t(isOption ? 'story.options.text' : 'story.lines.text', { n: index + 1 })}
           onContextMenu={menu.onContextMenu}
           onKeyDown={onKeyDown}
           onSelect={(e) => {
@@ -700,7 +722,7 @@ export function LineRow({
           onChange={(e) =>
             edit(
               t('story.step.lines'),
-              (g) => updateLine(g, nodeId, line.id, { text: e.target.value }),
+              (g) => updatePart(g, nodeId, kind, line.id, { text: e.target.value }),
               `line:${line.id}`,
             )
           }
@@ -708,7 +730,7 @@ export function LineRow({
       )}
       {menu.menu}
       <Translation translations={translations} id={line.id} edited={(line as { edited?: string }).edited} />
-      {!inGameFont && <LinePreview node={node} line={line} palette={palette} nameOf={nameOf} />}
+      {!inGameFont && <LinePreview node={node} line={line} palette={palette} nameOf={nameOf} kind={kind} />}
       <div className="iline-game">
         <PaletteInput
           palette={palette}
@@ -789,27 +811,45 @@ export function LineRow({
               disabled={readOnly}
               onChange={(auto) => set({ auto }, `auto:${line.id}`)}
             />
-            <NumberBlank
-              label={t('line.interrupt')}
-              value={line.interrupt}
-              placeholder={t('line.interruptBlank')}
-              disabled={readOnly}
-              onChange={(interrupt) => {
-                // Zero is a value here ("cannot be interrupted"), not "not set".
-                edit(
-                  t('story.step.lines'),
-                  (g) => {
-                    const l = storyNode(g, nodeId)?.lines?.find((x) => x.id === line.id);
-                    if (!l) return;
-                    if (interrupt === undefined) delete l.interrupt;
-                    else l.interrupt = interrupt;
-                  },
-                  `interrupt:${line.id}`,
-                );
-              }}
-            />
+            {!isOption && (
+              <NumberBlank
+                label={t('line.interrupt')}
+                value={line.interrupt}
+                placeholder={t('line.interruptBlank')}
+                disabled={readOnly}
+                onChange={(interrupt) => {
+                  // Zero is a value here ("cannot be interrupted"), not "not set".
+                  edit(
+                    t('story.step.lines'),
+                    (g) => {
+                      const l = storyNode(g, nodeId)?.lines?.find((x) => x.id === line.id);
+                      if (!l) return;
+                      if (interrupt === undefined) delete l.interrupt;
+                      else l.interrupt = interrupt;
+                    },
+                    `interrupt:${line.id}`,
+                  );
+                }}
+              />
+            )}
           </div>
-          {node.when === undefined && (
+          {option && (
+            <div className="ioption-flags">
+              <Switch
+                label={t('choice.once')}
+                checked={option.once === true}
+                disabled={readOnly}
+                onChange={(on) => set({ once: on })}
+              />
+              <Switch
+                label={t('choice.secret')}
+                checked={option.secret === true}
+                disabled={readOnly || (!option.secret && (node.options ?? []).some((x) => x.secret))}
+                onChange={(on) => set({ secret: on })}
+              />
+            </div>
+          )}
+          {!isOption && node.when === undefined && (
             <Switch
               label={t('line.interruptExit')}
               checked={line.interruptExit === true}
@@ -818,35 +858,50 @@ export function LineRow({
             />
           )}
           <ExpressionField
-            label={t('line.condition')}
+            label={t(isOption ? 'story.options.condition' : 'line.condition')}
             kind="condition"
-            field={`line:${line.id}:condition`}
+            field={`${kind}:${line.id}:condition`}
             value={line.condition ?? ''}
             readOnly={readOnly}
-            onChange={(condition) => set({ condition }, `lcond:${line.id}`)}
+            onChange={(condition) => setText({ condition }, `lcond:${line.id}`)}
           />
           <ExpressionField
-            label={t('line.effects')}
+            label={t(isOption ? 'story.options.effects' : 'line.effects')}
             kind="effects"
-            field={`line:${line.id}:effects`}
+            field={`${kind}:${line.id}:effects`}
             value={line.effects ?? ''}
             readOnly={readOnly}
-            onChange={(effects) => set({ effects }, `leff:${line.id}`)}
+            onChange={(effects) => setText({ effects }, `leff:${line.id}`)}
           />
-          <LineActions line={line} nodeId={nodeId} readOnly={readOnly} />
-          <label className="field">
-            <span className="field-label">{t('line.note')}</span>
-            <textarea
-              className="input textarea iline-note"
-              rows={1}
+          <LineActions line={line} nodeId={nodeId} readOnly={readOnly} kind={kind} />
+          {isOption ? (
+            // An option's comment counts the effects written in it, as it always did.
+            <NoteField
+              label={t('story.options.note')}
+              field={`option:${line.id}:note`}
               value={line.note ?? ''}
-              disabled={readOnly}
-              placeholder={t('line.notePlaceholder')}
-              onChange={(e) => set({ note: e.target.value }, `lnote:${line.id}`)}
+              rows={1}
+              onChange={(note) => setText({ note }, `lnote:${line.id}`)}
             />
-          </label>
-          <button type="button" className="entity-link small" onClick={() => task({ node: nodeId, line: line.id })}>
-            <ClipboardCopy size={12} /> {t('task.line')}
+          ) : (
+            <label className="field">
+              <span className="field-label">{t('line.note')}</span>
+              <textarea
+                className="input textarea iline-note"
+                rows={1}
+                value={line.note ?? ''}
+                disabled={readOnly}
+                placeholder={t('line.notePlaceholder')}
+                onChange={(e) => set({ note: e.target.value }, `lnote:${line.id}`)}
+              />
+            </label>
+          )}
+          <button
+            type="button"
+            className="entity-link small"
+            onClick={() => task(isOption ? { node: nodeId } : { node: nodeId, line: line.id })}
+          >
+            <ClipboardCopy size={12} /> {t(isOption ? 'task.node' : 'task.line')}
           </button>
         </div>
       )}
@@ -880,7 +935,17 @@ export function Translation({ translations, id, edited }: { translations: Transl
   );
 }
 
-function LineActions({ line, nodeId, readOnly }: { line: DialogueLine; nodeId: string; readOnly: boolean }) {
+function LineActions({
+  line,
+  nodeId,
+  readOnly,
+  kind,
+}: {
+  line: DialogueLine;
+  nodeId: string;
+  readOnly: boolean;
+  kind: PartKind;
+}) {
   const { project, edit } = useStory();
   const data = useStore(project.store, (s) => s);
   return (
@@ -890,10 +955,10 @@ function LineActions({ line, nodeId, readOnly }: { line: DialogueLine; nodeId: s
         actions={line.actions}
         data={data}
         disabled={readOnly}
-        field={`line:${line.id}:actions`}
+        field={`${kind}:${line.id}:actions`}
         onChange={(actions) =>
           edit(t('action.step'), (g) => {
-            const l = storyNode(g, nodeId)?.lines?.find((x) => x.id === line.id);
+            const l = partOf(storyNode(g, nodeId), kind, line.id);
             if (l) editActions(l, (list) => list.splice(0, list.length, ...actions));
           })
         }

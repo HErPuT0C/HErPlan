@@ -85,7 +85,11 @@ test('marked words on a card: click opens the mark, dragging links it to a node'
 
   // Drag from the words to another card: one more place where the gun fires.
   const bags = page.locator('.cnode', { hasText: 'Мешки' }).first();
-  const from = center((await rifle.boundingBox())!);
+  // The words may wrap on the card (0.8.5): take them by their first row.
+  const from = await rifle.evaluate((el) => {
+    const r = el.getClientRects()[0];
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
   const to = center((await bags.boundingBox())!);
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
@@ -126,8 +130,13 @@ test('selected words get a device from the text menu; options take a comment', a
   // A comment on an option, with a variable changed in it.
   await goTo(page, 'Что ответить Мире?');
   await page.locator('.cnode', { hasText: 'Что ответить Мире?' }).first().locator('.cnode-head').click();
-  await page.getByLabel('Комментарий к варианту').first().fill('Мира рада: {доверие += 1}');
-  await expect(page.locator('.mtext-mirror .hl-effect').first()).toHaveText('{доверие += 1}');
+  // Options are edited in the window of a line (0.8.5).
+  await page.getByRole('button', { name: 'Открыть вариант 1 в окне' }).click();
+  const optionWin = page.getByRole('dialog', { name: /^Вариант 1/ });
+  await optionWin.getByLabel('Комментарий к варианту').fill('Мира рада: {доверие += 1}');
+  await expect(optionWin.locator('[data-field^="option:"][data-field$=":note"] .mtext-mirror .hl-effect')).toHaveText(
+    '{доверие += 1}',
+  );
   await shot(page, 'option-note');
   expect(errors).toEqual([]);
 });

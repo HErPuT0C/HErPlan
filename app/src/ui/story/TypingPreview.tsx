@@ -75,6 +75,7 @@ export function LinePlayer({
   onEnd,
   scale = 2,
   extra,
+  listener,
 }: {
   node: StoryNode;
   start: number;
@@ -85,6 +86,8 @@ export function LinePlayer({
   scale?: number;
   /** More controls for the bar (the window's "whole node"). */
   extra?: ReactNode;
+  /** Who is spoken to when the lines do not tell (an option: the last one who spoke before the choice). */
+  listener?: string | null;
 }) {
   const { palette, dir } = useAtom(gameFiles);
   const font = useGameFont(dir, palette.preview?.font);
@@ -124,6 +127,7 @@ export function LinePlayer({
           sound={sound}
           onSound={(on) => setSoundState((lastSound = on))}
           extra={extra}
+          fallbackListener={listener ?? null}
         />
       ) : (
         <p className="muted">{t('story.card.noLines')}</p>
@@ -154,6 +158,7 @@ function TypedLine({
   sound,
   onSound,
   extra,
+  fallbackListener,
 }: {
   node: StoryNode;
   line: DialogueLine;
@@ -173,6 +178,7 @@ function TypedLine({
   sound: boolean;
   onSound: (on: boolean) => void;
   extra?: ReactNode;
+  fallbackListener: string | null;
 }) {
   const preview = palette.preview;
   const shakeTime = preview?.text.shake_time ?? DEFAULT_TEXT.shake_time;
@@ -190,8 +196,12 @@ function TypedLine({
   const { events, listenerId } = useMemo(() => {
     const lines = node.lines ?? [];
     const index = lines.findIndex((l) => l.id === line.id);
-    return { events: actorEvents(line, gl), listenerId: listenerOf(lines, index, gl) };
-  }, [node, line, gl]);
+    const found = listenerOf(lines, index, gl);
+    return {
+      events: actorEvents(line, gl),
+      listenerId: found ?? (fallbackListener !== line.speaker ? fallbackListener : null),
+    };
+  }, [node, line, gl, fallbackListener]);
   const listener = useMemo(
     () => (listenerId ? sceneSpeaker(palette, entities, listenerId) : null),
     [palette, entities, listenerId],
