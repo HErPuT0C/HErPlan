@@ -25,7 +25,8 @@ const problems = Object.entries(found)
 if (!/^\d+\.\d+\.\d+$/.test(version ?? '')) problems.push(`"${version}" is not MAJOR.MINOR.PATCH`);
 
 const tag = process.argv[2];
-if (tag && tag !== `v${version}`) {
+// "v0.8.5" or "0.8.5": the owner names releases either way (0.8.5).
+if (tag && tag.replace(/^v/, '') !== version) {
   problems.push(
     `release tag ${tag} does not match the app version ${version}: name the release v${version}, ` +
       `or bump the version in the files above first`,
