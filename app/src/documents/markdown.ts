@@ -63,6 +63,27 @@ export function setAssetResolver(f: (path: string) => Promise<string>): void {
   assetUrl = f;
 }
 
+/**
+ * Drawing on a picture of a document (0.9): what its "draw" button does, set by the open document; it gets the
+ * picture's path and a way to show another picture in its place (the copy drawn on). Null: no button.
+ */
+export interface ImageDrawer {
+  label: string;
+  draw: (src: string, replace: (src: string) => void) => void;
+}
+let imageDrawer: ImageDrawer | null = null;
+export function setImageDrawer(d: ImageDrawer | null): void {
+  imageDrawer = d;
+}
+const pictureListeners = new Set<(path: string) => void>();
+/** A picture was written again under its name: the documents showing it load it anew. */
+export function refreshPictures(path: string): void {
+  pictureListeners.forEach((f) => f(path));
+}
+
+const PENCIL =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/></svg>';
+
 /** An embed in the editor: its text follows the project as it changes. */
 function liveView(
   className: string,
@@ -385,11 +406,16 @@ const ProjectImage = Image.extend({
     return title ? `![${alt}](${where} "${title}")` : `![${alt}](${where})`;
   },
   addNodeView() {
-    return ({ node }) => {
+    return ({ node, getPos, editor }) => {
+      let current = node;
+      const wrap = document.createElement('span');
+      wrap.className = 'doc-image-wrap';
       const img = document.createElement('img');
       img.className = 'doc-image';
+      wrap.append(img);
       const show = (src: string, alt: string) => {
         img.alt = alt;
+        img.classList.remove('doc-image-missing');
         if (/^(https?:|data:|blob:)/.test(src)) img.src = src;
         else
           void assetUrl(src).then(
@@ -398,13 +424,50 @@ const ProjectImage = Image.extend({
           );
       };
       show(String(node.attrs.src ?? ''), String(node.attrs.alt ?? ''));
+      // 0.9: a picture of the project can be drawn on (a copy is drawn on, see ui/drawing/drawFile.ts).
+      const drawer = imageDrawer;
+      let button: HTMLButtonElement | null = null;
+      if (drawer && editor.isEditable && String(node.attrs.src ?? '').startsWith('assets/')) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'doc-image-draw';
+        b.title = drawer.label;
+        b.setAttribute('aria-label', drawer.label);
+        b.innerHTML = PENCIL;
+        b.addEventListener('mousedown', (e) => e.preventDefault());
+        b.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          drawer.draw(String(current.attrs.src ?? ''), (src) => {
+            const pos = getPos();
+            if (typeof pos !== 'number') return;
+            editor
+              .chain()
+              .command(({ tr }) => {
+                tr.setNodeMarkup(pos, undefined, { ...current.attrs, src });
+                return true;
+              })
+              .run();
+          });
+        });
+        wrap.append(b);
+        button = b;
+      }
+      const refresh = (path: string) => {
+        if (path === String(current.attrs.src ?? '')) show(path, String(current.attrs.alt ?? ''));
+      };
+      pictureListeners.add(refresh);
       return {
-        dom: img,
+        dom: wrap,
         update: (next) => {
           if (next.type !== node.type) return false;
+          current = next;
           show(String(next.attrs.src ?? ''), String(next.attrs.alt ?? ''));
           return true;
         },
+        stopEvent: (e) => !!button && e.target instanceof Element && button.contains(e.target),
+        ignoreMutation: () => true,
+        destroy: () => pictureListeners.delete(refresh),
       };
     };
   },

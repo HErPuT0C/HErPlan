@@ -30,7 +30,18 @@ export function isEmptySelection(s: Selection): boolean {
 
 export function createNode(kind: string, x: number, y: number, title: string): GraphNode {
   const def = kindOf(kind);
-  return { id: newId(), kind: def.id, title, x: snap(x), y: snap(y), w: def.size.w, h: def.size.h, text: '' };
+  const node: GraphNode = {
+    id: newId(),
+    kind: def.id,
+    title,
+    x: snap(x),
+    y: snap(y),
+    w: def.size.w,
+    h: def.size.h,
+    text: '',
+  };
+  def.init?.(node);
+  return node;
 }
 
 /** Node ids moved by moving these nodes and groups: a group carries its members along. */
@@ -187,14 +198,14 @@ export function minSize(item: GraphNode | GraphGroup, isGroup: boolean): { w: nu
   if (isGroup) return { w: GRID * 8, h: HEADER_H + GRID * 2 };
   const node = item as GraphNode;
   const kind = kindOf(node.kind);
-  let h = kind.sticker ? GRID * 3 : HEADER_H + GRID * 2;
+  let h = kind.min?.h ?? (kind.sticker ? GRID * 3 : HEADER_H + GRID * 2);
   // Nodes sized by their content (dialogue lines, choice options) keep their rows and ports inside.
   if (kind.fit) {
     const probe = { ...node };
     kind.fit(probe);
     h = Math.max(h, probe.h);
   }
-  return { w: GRID * 6, h };
+  return { w: kind.min?.w ?? GRID * 6, h };
 }
 
 /**

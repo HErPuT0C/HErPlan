@@ -553,6 +553,43 @@ pub fn write_asset(dir: &Path, dest_dir: &str, name: &str, data: &[u8]) -> Resul
     ))
 }
 
+/// The bytes of a file of the asset library (0.9: a picture to draw on in HErPlan's drawing window).
+/// Fails with `invalid-path` for anything that is not a file inside `assets/`.
+pub fn read_asset(dir: &Path, rel: &str) -> Result<Vec<u8>> {
+    let rel = validate_asset_path(rel, false)?;
+    require_project(dir)?;
+    require_within_assets(dir, &rel, true)?;
+    let target = dir.join(&rel);
+    let meta = fs::metadata(&target).map_err(|e| StorageError::io(&e, &target))?;
+    if !meta.is_file() {
+        return Err(StorageError::invalid_path(&to_slash(&rel)));
+    }
+    fs::read(&target).map_err(|e| StorageError::io(&e, &target))
+}
+
+/// Writes bytes over a file of the asset library, or creates it with its missing folders (0.9: a
+/// drawing saved again under its own name). The write is atomic: a failure leaves the old file.
+pub fn replace_asset(dir: &Path, rel: &str, data: &[u8]) -> Result<()> {
+    let rel = validate_asset_path(rel, false)?;
+    let name = rel
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| StorageError::invalid_path(&to_slash(&rel)))?;
+    if !is_valid_name(name) {
+        return Err(StorageError::invalid_path(name));
+    }
+    require_project(dir)?;
+    require_within_assets(dir, &rel, true)?;
+    let target = dir.join(&rel);
+    if target.is_dir() {
+        return Err(StorageError::invalid_path(&to_slash(&rel)));
+    }
+    if let Some(parent) = rel.parent() {
+        create_folder(dir, parent)?;
+    }
+    write_atomic(&target, data).at(&target)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -1269,5 +1306,38 @@ mod tests {
         );
         assert!(!dir.join("assets").exists());
         assert!(!dir.join("gone").exists());
+    }
+
+    #[test]
+    fn reads_and_replaces_files_of_the_library_only() {
+        let tmp = project();
+        put(tmp.path(), "assets/art/forest.png", b"one");
+        assert_eq!(
+            read_asset(tmp.path(), "assets/art/forest.png").unwrap(),
+            b"one"
+        );
+        replace_asset(tmp.path(), "assets/art/forest.png", b"two").unwrap();
+        assert_eq!(
+            read_asset(tmp.path(), "assets/art/forest.png").unwrap(),
+            b"two"
+        );
+        // A new file in a new folder.
+        replace_asset(tmp.path(), "assets/drawings/sketch.png", b"three").unwrap();
+        assert_eq!(
+            fs::read(tmp.path().join("assets/drawings/sketch.png")).unwrap(),
+            b"three"
+        );
+        for rel in [
+            "project.json",
+            "assets",
+            "assets/art",
+            "data/graphs/x.json",
+            "assets/../project.json",
+        ] {
+            assert!(read_asset(tmp.path(), rel).is_err(), "{rel}");
+        }
+        for rel in ["project.json", "assets", "assets/art", "assets/../x.png"] {
+            assert!(replace_asset(tmp.path(), rel, b"x").is_err(), "{rel}");
+        }
     }
 }

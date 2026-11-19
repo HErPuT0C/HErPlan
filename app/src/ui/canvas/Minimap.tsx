@@ -1,6 +1,7 @@
 import { useEffect, useRef, type PointerEvent } from 'react';
 import { toWorld } from '../../canvas/camera';
 import type { CanvasEngine } from '../../canvas/engine';
+import { INK_KIND, inkOf, inkWorldPoints } from '../../canvas/ink';
 import { kindOf } from '../../canvas/kinds';
 import { boundsOf, colorHex, type GraphDoc } from '../../canvas/model';
 import type { ProjectData } from '../../core/project/types';
@@ -60,7 +61,22 @@ export function Minimap({
       const ctx = bitmap.getContext('2d')!;
       ctx.scale(dpr, dpr);
       for (const n of graph.nodes) {
-        ctx.fillStyle = colorHex(n.color, kindOf(n.kind).color);
+        const kind = kindOf(n.kind);
+        const ink = n.kind === INK_KIND ? inkOf(n) : null;
+        if (ink) {
+          // A pen stroke is its line, not a box: a ring drawn around cards does not hide them.
+          const p = inkWorldPoints(n, ink);
+          ctx.strokeStyle = ink.color;
+          ctx.lineWidth = 1.5;
+          ctx.lineJoin = 'round';
+          ctx.beginPath();
+          for (let i = 0; i + 1 < p.length; i += 2) ctx.lineTo(ox + p[i] * scale, oy + p[i + 1] * scale);
+          ctx.stroke();
+          continue;
+        }
+        // A caption has no box of its own.
+        if (kind.shape === 'none') continue;
+        ctx.fillStyle = colorHex(n.color, kind.color);
         ctx.fillRect(ox + n.x * scale, oy + n.y * scale, Math.max(1.5, n.w * scale), Math.max(1.5, n.h * scale));
       }
       cache.current = {

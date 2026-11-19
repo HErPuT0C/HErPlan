@@ -115,6 +115,20 @@ export class TauriPlatform implements Platform {
     });
   }
 
+  async readAsset(dir: string, path: string): Promise<Uint8Array> {
+    // A raw response: the bytes come as an ArrayBuffer, not a JSON array of numbers.
+    return new Uint8Array(await invoke<ArrayBuffer>('asset_read', { dir, path }));
+  }
+
+  replaceAsset(dir: string, path: string, data: Uint8Array): Promise<void> {
+    return invoke('asset_replace', data, {
+      headers: {
+        'x-herplan-dir': encodeURIComponent(dir),
+        'x-herplan-path': encodeURIComponent(path),
+      },
+    });
+  }
+
   createBackup(dir: string, kind: BackupKind, label: string | null): Promise<BackupInfo> {
     return invoke('backup_create', { dir, kind, label });
   }

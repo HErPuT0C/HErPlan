@@ -541,3 +541,129 @@ textarea.cnode-edit {
 .create-palette-empty {
   padding: 12px 4px;
 }
+
+/* --- Figures of diagrams (0.9): the outline is drawn in SVG under the words, no card around --- */
+.cnode-shape {
+  border: 0;
+  background: none;
+  justify-content: center;
+}
+.cnode-shape.cnode-selected,
+.cnode-shape.cnode-found,
+.cnode-shape.cnode-current {
+  box-shadow: none;
+}
+.cshape {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.cshape path {
+  fill: color-mix(in srgb, var(--node-color) 30%, var(--surface));
+  stroke: var(--node-color);
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
+}
+.cnode-selected .cshape path {
+  stroke: var(--accent);
+  stroke-width: 2px;
+}
+.cnode-found .cshape path {
+  stroke: var(--warning);
+  stroke-width: 2px;
+}
+.cshape-text {
+  position: relative;
+  box-sizing: border-box;
+  max-height: 100%;
+  padding: 6px 14px;
+  overflow: hidden;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cnode-shape .cshape-text.cnode-edit {
+  height: 100%;
+  text-align: center;
+}
+/* Words in a diamond or a parallelogram keep clear of the slanted sides. */
+.cnode-shape[data-kind='shape-diamond'] .cshape-text {
+  padding: 6px 22%;
+}
+.cnode-shape[data-kind='shape-para'] .cshape-text {
+  padding: 6px 18%;
+}
+/* A caption: words only, a faint frame when it is picked or pointed at. */
+.cnode-shape-bare.cnode-selected {
+  outline: 1px dashed var(--accent);
+  outline-offset: 2px;
+}
+.cnode-shape-bare.cnode-hot:not(.cnode-selected) {
+  outline: 1px dashed var(--line);
+  outline-offset: 2px;
+}
+.clabel-shape {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: calc(var(--h) * 1px / var(--label-scale, 1));
+  text-align: center;
+}
+.clabel-shape > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+/* --- Pen strokes (0.9): only the line takes the pointer --- */
+.cnode-ink {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+.cnode-ink svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+.cnode-ink path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.cnode-ink-selected {
+  outline: 1px dashed var(--accent);
+  outline-offset: 2px;
+}
+.cnode-ink .chandle {
+  pointer-events: auto;
+}
+.canvas-ink-draft {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+.canvas-ink-draft path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* With the pen or the eraser the canvas draws instead of selecting. */
+.canvas[data-tool='pen'],
+.canvas[data-tool='pen'] .cnode,
+.canvas[data-tool='pen'] .cnode * {
+  cursor: crosshair;
+}
+.canvas[data-tool='eraser'],
+.canvas[data-tool='eraser'] .cnode,
+.canvas[data-tool='eraser'] .cnode * {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Ccircle cx='10' cy='10' r='7' fill='none' stroke='white' stroke-width='3'/%3E%3Ccircle cx='10' cy='10' r='7' fill='none' stroke='black' stroke-width='1'/%3E%3C/svg%3E")
+      10 10,
+    cell;
+}

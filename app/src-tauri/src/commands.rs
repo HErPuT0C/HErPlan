@@ -13,7 +13,7 @@ use herplan_storage::{
     ProjectSnapshot, StorageError,
 };
 use percent_encoding::percent_decode_str;
-use tauri::ipc::{InvokeBody, Request};
+use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
@@ -193,6 +193,26 @@ pub async fn asset_write(request: Request<'_>) -> CommandResult<String> {
     let dest_dir = header(&request, "x-herplan-dest-dir")?;
     let name = header(&request, "x-herplan-name")?;
     blocking(move || storage::write_asset(&dir, &dest_dir, &name, &data)).await
+}
+
+/// The bytes of a file of the asset library (0.9: a picture opened in the drawing window), as a raw
+/// response rather than a JSON array of numbers.
+#[tauri::command]
+pub async fn asset_read(dir: String, path: String) -> CommandResult<Response> {
+    let dir = absolute(&dir)?;
+    let data = blocking(move || storage::read_asset(&dir, &path)).await?;
+    Ok(Response::new(data))
+}
+
+/// Writes bytes over a file of the asset library (0.9: a drawing saved again). Raw body like
+/// `asset_write`.
+#[tauri::command]
+pub async fn asset_replace(request: Request<'_>) -> CommandResult<()> {
+    let data = body_bytes(request.body())
+        .ok_or_else(|| StorageError::new(ErrorCode::Io, "the file content is not bytes", None))?;
+    let dir = absolute(&header(&request, "x-herplan-dir")?)?;
+    let path = header(&request, "x-herplan-path")?;
+    blocking(move || storage::replace_asset(&dir, &path, &data)).await
 }
 
 /// The bytes of a request body. The postMessage fallback of the IPC (used when the webview blocks

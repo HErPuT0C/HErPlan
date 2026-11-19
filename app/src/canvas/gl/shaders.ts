@@ -19,13 +19,14 @@ in vec4 a_rect;      // x, y, w, h (world)
 in vec4 a_body;      // fill colour
 in vec4 a_head;      // header colour
 in vec4 a_border;    // border colour
-in vec4 a_shape;     // header height (world), corner radius (world), border width (px), unused
+in vec4 a_shape;     // header height (world), corner radius (world), border width (px), outline (SHAPE_CODE)
 out vec2 v_local;    // position relative to the box centre, CSS px
 out vec2 v_half;     // half size, CSS px
 out vec4 v_body;
 out vec4 v_head;
 out vec4 v_border;
 out vec3 v_shape;    // header height px, radius px, border px
+flat out int v_outline;
 void main() {
   float pad = 2.0;
   vec2 half_ = a_rect.zw * 0.5 * u_scale;
@@ -38,6 +39,7 @@ void main() {
   v_head = a_head;
   v_border = a_border;
   v_shape = vec3(a_shape.x * u_scale, min(a_shape.y * u_scale, min(half_.x, half_.y)), a_shape.z);
+  v_outline = int(a_shape.w + 0.5);
 }`;
 
 export const BOX_FS = `#version 300 es
@@ -48,13 +50,59 @@ in vec4 v_body;
 in vec4 v_head;
 in vec4 v_border;
 in vec3 v_shape;
+flat in int v_outline;
 out vec4 outColor;
 float roundBox(vec2 p, vec2 b, float r) {
   vec2 q = abs(p) - b + r;
   return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
+// Figures of diagrams (0.9): distances to an ellipse, a rhombus and a parallelogram filling the box, after
+// Inigo Quilez's well-known formulas (an approximation for the ellipse, close enough for a soft edge). They are
+// worked out at the scale of a unit box and scaled back: squares of pixel sizes would overflow medium precision.
+float ellipse(vec2 p, vec2 r) {
+  float s = max(r.x, r.y);
+  p /= s;
+  r /= s;
+  float k0 = length(p / r);
+  float k1 = max(length(p / (r * r)), 1e-4);
+  return k0 * (k0 - 1.0) / k1 * s;
+}
+float ndot(vec2 a, vec2 b) { return a.x * b.x - a.y * b.y; }
+float rhombus(vec2 p, vec2 b) {
+  float s = max(b.x, b.y);
+  p = abs(p) / s;
+  b /= s;
+  float h = clamp(ndot(b - 2.0 * p, b) / dot(b, b), -1.0, 1.0);
+  float d = length(p - 0.5 * b * vec2(1.0 - h, 1.0 + h));
+  return d * sign(p.x * b.y + p.y * b.x - b.x * b.y) * s;
+}
+// The top edge is shifted right by twice the skew (as in the shape menu); y grows downwards here.
+float parallelogram(vec2 p, vec2 b) {
+  float s = max(b.x, b.y);
+  p /= s;
+  b /= s;
+  float sk = min(0.4 * b.y, 0.3 * b.x);
+  float wi = b.x - sk;
+  float he = b.y;
+  p.y = -p.y;
+  vec2 e = vec2(sk, he);
+  p = (p.y < 0.0) ? -p : p;
+  vec2 w = p - e;
+  w.x -= clamp(w.x, -wi, wi);
+  vec2 d = vec2(dot(w, w), -w.y);
+  float c = p.x * e.y - p.y * e.x;
+  p = (c < 0.0) ? -p : p;
+  vec2 v = p - vec2(wi, 0.0);
+  v -= e * clamp(dot(v, e) / dot(e, e), -1.0, 1.0);
+  d = min(d, vec2(dot(v, v), wi * he - abs(c)));
+  return sqrt(d.x) * sign(-d.y) * s;
+}
 void main() {
-  float d = roundBox(v_local, v_half, v_shape.y);
+  float d;
+  if (v_outline == 1) d = ellipse(v_local, max(v_half, vec2(0.5)));
+  else if (v_outline == 2) d = rhombus(v_local, max(v_half, vec2(0.5)));
+  else if (v_outline == 3) d = parallelogram(v_local, max(v_half, vec2(0.5)));
+  else d = roundBox(v_local, v_half, v_shape.y);
   float coverage = clamp(0.5 - d, 0.0, 1.0);
   if (coverage <= 0.0) discard;
   bool inHeader = v_local.y + v_half.y < v_shape.x;
@@ -64,13 +112,17 @@ void main() {
   outColor = vec4(c.rgb, c.a * coverage);
 }`;
 
+/** Widths of segments from this value up are in world units (a_width − INK_WIDTH): they scale with the view. */
+export const INK_WIDTH = 1000;
+
 /** Thick line segments for edges, with soft edges; segments of one curve overlap slightly at joints. */
 export const SEG_VS = `#version 300 es
 ${CAMERA}
 in vec2 a_corner;    // x: 0..1 along, y: -1..1 across
 in vec4 a_seg;       // x0, y0, x1, y1 (world)
 in vec4 a_color;
-in float a_width;    // CSS px; negative: no overlap at the ends (translucent trails show no beads)
+in float a_width;    // CSS px; negative: no overlap at the ends (translucent trails show no beads);
+                     // from INK_WIDTH up: world units above it (pen strokes on the map, 0.9), at least 1 px
 out float v_across;
 out float v_half;
 out vec4 v_color;
@@ -82,6 +134,7 @@ void main() {
   vec2 dir = d / len;
   vec2 n = vec2(-dir.y, dir.x);
   float w = abs(a_width);
+  if (w >= 1000.0) w = max((w - 1000.0) * u_scale, 1.0);
   float half_ = w * 0.5 + 1.0;
   float cap = a_width < 0.0 ? 0.0 : half_ * 0.5;
   vec2 along = mix(p0 - dir * cap, p1 + dir * cap, a_corner.x);

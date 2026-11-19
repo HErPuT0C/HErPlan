@@ -1,6 +1,8 @@
 import { memo, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import type { CanvasEngine } from '../../canvas/engine';
+import { INK_KIND, inkOf, inkPath } from '../../canvas/ink';
 import { kindOf, portsOf } from '../../canvas/kinds';
+import { shapePath } from '../../canvas/shapes';
 import { colorHex, HEADER_H, type GraphDoc, type GraphGroup, type GraphNode } from '../../canvas/model';
 import { CORNER_DIRS, setNodeProps } from '../../canvas/ops';
 import type { ProjectData } from '../../core/project/types';
@@ -123,7 +125,8 @@ function MidLabels({
     <>
       {ids.map((id) => {
         const n = byId.get(id);
-        if (!n || kindOf(n.kind).sticker) return null;
+        const kind = n && kindOf(n.kind);
+        if (!n || !kind || kind.sticker || !n.title) return null;
         const moved = drag?.nodes.has(id);
         const x = n.x + (moved ? drag!.dx : 0);
         const y = n.y + (moved ? drag!.dy : 0);
@@ -132,7 +135,12 @@ function MidLabels({
           '--w': n.w,
           '--h': n.h,
         } as CSSProperties;
-        return (
+        // The words of a figure sit in its middle, as up close.
+        return kind.shape ? (
+          <div key={id} className="clabel clabel-shape" style={style}>
+            <span>{n.title}</span>
+          </div>
+        ) : (
           <div key={id} className="clabel" style={style}>
             {n.title}
           </div>
@@ -177,18 +185,23 @@ const NodeCard = memo(function NodeCard({
 }: CardProps) {
   const linked = new Set(connected.split(' '));
   const kind = kindOf(node.kind);
+  if (node.kind === INK_KIND)
+    return <InkCard node={node} x={x} y={y} w={w} h={h} selected={selected} readOnly={readOnly} />;
   const look = cardLook(node.kind);
   const Body = look?.body;
   const Extra = look?.headerExtra;
   const KindIcon = look?.icon;
   const color = colorHex(node.color, kind.color);
   const sticker = kind.sticker === true;
+  const shape = kind.shape;
   const style = { transform: `translate(${x}px, ${y}px)`, width: w, height: h, '--node-color': color } as CSSProperties;
   return (
     <div
       className={[
         'cnode',
         sticker && 'cnode-sticker',
+        shape && 'cnode-shape',
+        shape === 'none' && 'cnode-shape-bare',
         selected && 'cnode-selected',
         found && 'cnode-found',
         current && 'cnode-current',
@@ -200,7 +213,24 @@ const NodeCard = memo(function NodeCard({
       data-node={node.id}
       data-kind={node.kind}
     >
-      {!sticker && (
+      {shape && (
+        <>
+          {shape !== 'none' && (
+            <svg className="cshape" width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
+              <path d={shapePath(shape, w, h)} />
+            </svg>
+          )}
+          <Editable
+            className="cshape-text"
+            value={node.title}
+            placeholder={t(kind.label)}
+            multiline
+            readOnly={readOnly}
+            onCommit={(v) => onRename(node.id, v)}
+          />
+        </>
+      )}
+      {!sticker && !shape && (
         <div className="cnode-head" style={{ height: HEADER_H }}>
           {node.icon ? (
             <NodeIcon name={node.icon} />
@@ -228,7 +258,7 @@ const NodeCard = memo(function NodeCard({
           {node.comment && <span className="cnode-comment-dot" aria-label={t('canvas.hasComment')} />}
         </div>
       )}
-      {Body ? (
+      {shape ? null : Body ? (
         <Body node={node} w={w} h={h} readOnly={readOnly} onText={onText} />
       ) : (
         <Editable
@@ -268,6 +298,48 @@ const NodeCard = memo(function NodeCard({
   );
 });
 
+/**
+ * A pen stroke up close: its line only. The box lets the pointer through, so what is under its empty parts can
+ * be clicked and edited; the engine picks the stroke by its line (canvas/ink.ts).
+ */
+function InkCard({
+  node,
+  x,
+  y,
+  w,
+  h,
+  selected,
+  readOnly,
+}: {
+  node: GraphNode;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  selected: boolean;
+  readOnly: boolean;
+}) {
+  const ink = inkOf(node);
+  if (!ink) return null;
+  return (
+    <div
+      className={['cnode-ink', selected && 'cnode-ink-selected'].filter(Boolean).join(' ')}
+      style={{ transform: `translate(${x}px, ${y}px)`, width: w, height: h }}
+      data-node={node.id}
+      data-kind={node.kind}
+    >
+      <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
+        <path d={inkPath({ w, h }, ink)} stroke={ink.color} strokeWidth={ink.width} />
+      </svg>
+      {selected &&
+        !readOnly &&
+        CORNER_DIRS.map((dir) => (
+          <span key={dir} className={`chandle chandle-${dir}`} data-resize="node" data-id={node.id} data-dir={dir} />
+        ))}
+    </div>
+  );
+}
+
 interface EditableProps {
   value: string;
   placeholder: string;
@@ -277,6 +349,8 @@ interface EditableProps {
   onCommit: (value: string) => void;
   /** How the text looks when not being edited (highlights); the plain text by default. */
   display?: ReactNode;
+  /** A one-line text may be emptied (a cell of a table); otherwise an empty field keeps the old text. */
+  allowEmpty?: boolean;
 }
 
 /** Text that turns into a field on double click: Enter (Ctrl+Enter for several lines) saves, Escape cancels. */
@@ -288,6 +362,7 @@ export function Editable({
   readOnly,
   onCommit,
   display,
+  allowEmpty = false,
 }: EditableProps) {
   const [draft, setDraft] = useState<string | null>(null);
   // Escape and Enter finish editing; the blur that follows must not save a second time.
@@ -310,7 +385,7 @@ export function Editable({
   const finish = (save: boolean) => {
     if (finished.current) return;
     finished.current = true;
-    if (save && draft !== value) onCommit(multiline ? draft : draft.trim() || value);
+    if (save && draft !== value) onCommit(multiline ? draft : draft.trim() || (allowEmpty ? '' : value));
     setDraft(null);
   };
   const common = {

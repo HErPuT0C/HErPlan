@@ -1,5 +1,8 @@
 import {
   BookOpen,
+  Brush,
+  ChartColumn,
+  Circle,
   Clapperboard,
   CornerDownRight,
   Diamond,
@@ -9,10 +12,15 @@ import {
   MessageSquareQuote,
   MessagesSquare,
   Package,
+  PenLine,
   Play,
+  RectangleHorizontal,
   Split,
   Square,
+  Squircle,
   StickyNote,
+  Table,
+  Type,
   UserRound,
   Zap,
   type LucideProps,
@@ -89,6 +97,15 @@ export function PayoffIcon(props: LucideProps) {
   );
 }
 
+/** A parallelogram, the figure of flowcharts for what goes in and out (the icon set has none). */
+export function ParallelogramIcon(props: LucideProps) {
+  return (
+    <Svg {...props}>
+      <path d="M7 5h15l-5 14H2z" />
+    </Svg>
+  );
+}
+
 /** A device's own icon (where it is set up) and the icon of where it lands. */
 export function DeviceIcon({ device, size = 16 }: { device: 'gun' | 'butterfly'; size?: number }) {
   const Icon = device === 'gun' ? GunIcon : ButterflyIcon;
@@ -119,6 +136,16 @@ const ICONS: Record<string, ComponentType<LucideProps>> = {
   character: UserRound,
   location: MapPin,
   item: Package,
+  'shape-rect': RectangleHorizontal,
+  'shape-round': Squircle,
+  'shape-ellipse': Circle,
+  'shape-diamond': Diamond,
+  'shape-para': ParallelogramIcon,
+  'shape-text': Type,
+  table: Table,
+  chart: ChartColumn,
+  drawing: Brush,
+  ink: PenLine,
 };
 
 /** The icon of a node kind, for menus, card headers and panels. */

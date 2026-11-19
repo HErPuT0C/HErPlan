@@ -1,0 +1,128 @@
+/* The drawing window (0.9). */
+.drawing-dialog {
+  width: min(96vw, 1280px);
+  height: min(92vh, 900px);
+}
+.drawing-dialog .dialog-inner {
+  height: 100%;
+}
+.drawing-dialog .dialog-body {
+  flex: 1;
+  min-height: 0;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+}
+.draw-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.draw-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.draw-end {
+  margin-left: auto;
+}
+.draw-bar .icon-btn[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.draw-swatch {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.draw-swatch[aria-pressed='true'] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.draw-swatch-any {
+  display: inline-block;
+  overflow: hidden;
+  background: conic-gradient(#e03131, #f5d000, #2f9e44, #1c7ed6, #7048e8, #e03131);
+}
+.draw-swatch-any input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.draw-width {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.draw-width span {
+  border-radius: 50%;
+  background: var(--text);
+}
+.draw-width[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.draw-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+.draw-stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 260px;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+}
+.draw-sheet {
+  position: relative;
+  flex: none;
+  box-shadow: 0 2px 14px rgb(0 0 0 / 0.35);
+}
+.draw-canvas {
+  display: block;
+  touch-action: none;
+  cursor: crosshair;
+}
+.draw-canvas-select {
+  cursor: default;
+}
+.draw-canvas-text {
+  cursor: text;
+}
+.draw-text {
+  position: absolute;
+  min-width: 80px;
+  padding: 0;
+  border: 1px dashed #1c7ed6;
+  background: rgb(255 255 255 / 0.6);
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  white-space: pre;
+}
+.draw-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.draw-hint {
+  margin-right: auto;
+}

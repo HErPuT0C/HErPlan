@@ -1,4 +1,5 @@
 import type { MessageKey } from './ru';
+import { drawEn } from './draw.en';
 import { storyEn } from './story.en';
 import { dialogueEn } from './dialogue.en';
 import { docsEn } from './docs.en';
@@ -626,4 +627,5 @@ export const en: Record<MessageKey, string> = {
   ...worldEn,
   ...docsEn,
   ...dialogueEn,
+  ...drawEn,
 };

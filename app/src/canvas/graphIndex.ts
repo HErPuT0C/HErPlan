@@ -2,7 +2,7 @@
 // culling and hit testing. Built once per graph change (graphs are immutable between changes).
 
 import { curveBounds, curveDistance, edgeCurve, type Curve } from './geometry';
-import { portPosition, portsOf, type PortFace, type PortSide } from './kinds';
+import { kindOf, portPosition, portsOf, type PortFace, type PortSide } from './kinds';
 import { boundsOf, HEADER_H, PORT_R, type Bounds, type GraphDoc, type Rect } from './model';
 import { SpatialGrid } from './spatial';
 
@@ -86,10 +86,19 @@ export class GraphIndex {
     });
   }
 
-  /** Topmost node under a world point (later nodes are drawn above earlier ones). */
-  nodeAt(x: number, y: number): number {
-    const hits = this.nodesIn({ minX: x, minY: y, maxX: x, maxY: y });
-    return hits.length ? hits[hits.length - 1] : -1;
+  /**
+   * Topmost node under a world point (later nodes are drawn above earlier ones). Nodes that are mostly empty
+   * (pen strokes) take it only on their lines, `tolerance` world units around them counting.
+   */
+  nodeAt(x: number, y: number, tolerance = 4): number {
+    const near = { minX: x - tolerance, minY: y - tolerance, maxX: x + tolerance, maxY: y + tolerance };
+    const hits = this.nodesIn(near);
+    for (let k = hits.length - 1; k >= 0; k--) {
+      const n = this.graph.nodes[hits[k]];
+      const hit = kindOf(n.kind).hit;
+      if (hit ? hit(n, x, y, tolerance) : x >= n.x && x <= n.x + n.w && y >= n.y && y <= n.y + n.h) return hits[k];
+    }
+    return -1;
   }
 
   portAt(x: number, y: number, radius = PORT_R * 2): PortHit | null {

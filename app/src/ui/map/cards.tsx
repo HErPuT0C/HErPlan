@@ -8,13 +8,12 @@ import { useStore } from '../../core/useStore';
 import { asDocument } from '../../documents/model';
 import { t, type MessageKey } from '../../i18n';
 import { refLabel, refOf, REF_NODE, type MapRefKind } from '../../map/model';
-import { platform } from '../../platform';
 import type { OpenProject } from '../../state/project';
 import { asEntity } from '../../story/entities';
 import { graphOf } from '../../story/model';
 import { typesFile } from '../../world/schema';
 import { registerCard, type CardBodyProps } from '../canvas/cardRegistry';
-import { useAsync } from '../useAsync';
+import { useAssetUrl } from '../assetVersion';
 import { typeName } from '../world/typeNames';
 
 export const MapContext = createContext<OpenProject | null>(null);
@@ -32,7 +31,8 @@ export function RefIcon({ kind, size = 14 }: { kind: MapRefKind; size?: number }
 }
 
 function Picture({ project, path }: { project: OpenProject; path: string }) {
-  const url = useAsync(() => platform().assetUrl(project.dir, path), [project.dir, path], '');
+  // Kept fresh: a drawing saved again shows anew (0.9).
+  const url = useAssetUrl(project.dir, path);
   return url ? <img className="map-ref-picture" src={url} alt="" draggable={false} /> : null;
 }
 

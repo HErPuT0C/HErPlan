@@ -9,7 +9,11 @@ export default defineConfig({
     baseURL: 'http://localhost:4174/',
     viewport: { width: 1366, height: 768 },
     // The canvas needs WebGL 2; CI machines have no GPU, so Chromium renders it in software.
-    launchOptions: { args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] },
+    launchOptions: {
+      args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+      // A Chromium of another Playwright build, on a machine where the pinned one is not installed.
+      executablePath: process.env.HERPLAN_CHROMIUM || undefined,
+    },
   },
   webServer: {
     command: 'npm run build && npm run preview',

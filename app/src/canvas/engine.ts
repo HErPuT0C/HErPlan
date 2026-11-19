@@ -19,8 +19,10 @@ import {
   type Camera,
   type Lod,
 } from './camera';
+import { simplify } from '../drawing/model';
 import { edgeCurve } from './geometry';
 import { GraphIndex, type PortHit } from './graphIndex';
+import { INK_KIND, inkHit, makeInk } from './ink';
 import { canEnd, canStart, OPPOSITE_FACE, portsOf } from './kinds';
 import { GRID, snap, type Bounds, type GraphDoc, type GraphNode, type Rect } from './model';
 import {
@@ -50,6 +52,7 @@ import {
   buildEdges,
   buildLinks,
   buildGroups,
+  buildInk,
   buildNodes,
   hexToRgba,
   marqueeBatch,
@@ -64,7 +67,26 @@ import {
 export type HitTarget =
   { kind: 'node'; id: string } | { kind: 'edge'; id: string } | { kind: 'group'; id: string } | { kind: 'background' };
 
-export type StepKey = 'move' | 'create' | 'connect' | 'delete' | 'paste' | 'duplicate' | 'resize';
+export type StepKey = 'move' | 'create' | 'connect' | 'delete' | 'paste' | 'duplicate' | 'resize' | 'draw' | 'erase';
+
+/**
+ * The pen of a canvas (0.9): while it is on, the left button draws strokes (or erases them) instead of
+ * selecting; panning, zooming and the keys work as always. Escape puts it away.
+ */
+export interface PenTool {
+  mode: 'pen' | 'eraser';
+  /** "#rrggbb". */
+  color: string;
+  /** World units. */
+  width: number;
+}
+
+/** A stroke being drawn, in world points, for the host to show over everything. */
+export interface InkDraft {
+  points: number[];
+  color: string;
+  width: number;
+}
 
 /** An edge pulled out of a port: `reverse` when it was pulled from an input, so the port is its end. */
 export interface PulledEdge extends PortHit {
@@ -155,6 +177,8 @@ type Gesture =
       wy: number;
       moved: boolean;
     }
+  | { kind: 'ink'; points: number[]; sx: number; sy: number; pen: PenTool }
+  | { kind: 'erase'; key: string; x: number; y: number; gone: Set<string> }
   | {
       kind: 'resize';
       target: 'node' | 'group';
@@ -182,6 +206,10 @@ export class CanvasEngine {
   /** Node drag or resize in progress, for the DOM layer to follow without store writes. */
   readonly drag: Atom<DragOffset | null> = atom<DragOffset | null>(null);
   readonly resizing: Atom<Resizing | null> = atom<Resizing | null>(null);
+  /** The pen, when it is on (0.9). */
+  readonly pen: Atom<PenTool | null> = atom<PenTool | null>(null);
+  /** The stroke being drawn with it. */
+  readonly inkDraft: Atom<InkDraft | null> = atom<InkDraft | null>(null);
 
   private renderer: GraphRenderer;
   private camera: Camera = { x: 80, y: 80, scale: 1 };
@@ -372,6 +400,14 @@ export class CanvasEngine {
   setHighlight(ids: ReadonlySet<string>, current: string | null): void {
     this.highlight.set({ ids, current });
     this.requestRender();
+  }
+
+  /** Takes up the pen or the eraser, or puts it away (null). */
+  setPen(pen: PenTool | null): void {
+    if (this.gesture?.kind === 'ink' || this.gesture?.kind === 'erase') this.cancelGesture();
+    this.pen.set(pen);
+    if (pen) this.root.dataset.tool = pen.mode;
+    else delete this.root.dataset.tool;
   }
 
   // --- Commands used by menus and keys ---
@@ -573,7 +609,7 @@ export class CanvasEngine {
       const port = this.index.portAt(w.x, w.y, 9 / scale);
       if (port) return { kind: 'node', id: port.node, port };
     }
-    const node = this.index.nodeAt(w.x, w.y);
+    const node = this.index.nodeAt(w.x, w.y, 5 / scale);
     if (node >= 0) return { kind: 'node', id: this.graph.nodes[node].id };
     const group = this.index.groupHeaderAt(w.x, w.y);
     if (group >= 0) return { kind: 'group', id: this.graph.groups[group].id };
@@ -598,6 +634,21 @@ export class CanvasEngine {
     }
     if (e.button !== 0) return;
     const w = toWorld(this.camera, p.x, p.y);
+    const pen = this.pen.get();
+    if (pen && !this.callbacks.readOnly) {
+      // The pen draws over everything; the eraser takes away the strokes it touches.
+      e.preventDefault();
+      this.root.setPointerCapture(e.pointerId);
+      this.root.dataset.gesture = pen.mode;
+      if (pen.mode === 'pen') {
+        this.gesture = { kind: 'ink', points: [w.x, w.y], sx: p.x, sy: p.y, pen };
+        this.inkDraft.set({ points: [w.x, w.y], color: pen.color, width: pen.width });
+      } else {
+        this.gesture = { kind: 'erase', key: `erase:${performance.now()}`, x: w.x, y: w.y, gone: new Set() };
+        this.eraseAlong(this.gesture, w.x, w.y);
+      }
+      return;
+    }
     const handle = (e.target as Element | null)?.closest?.('[data-resize]');
     if (handle && !this.callbacks.readOnly) {
       const target = handle.getAttribute('data-resize') === 'group' ? 'group' : 'node';
@@ -764,8 +815,54 @@ export class CanvasEngine {
         this.requestRender();
         return;
       }
+      case 'ink': {
+        // A point every pixel and a half on screen is plenty; the line is simplified when it is done.
+        const events = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
+        for (const ev of events.length ? events : [e]) {
+          const q = this.local(ev);
+          if (Math.hypot(q.x - g.sx, q.y - g.sy) < 1.5) continue;
+          g.sx = q.x;
+          g.sy = q.y;
+          const wq = toWorld(this.camera, q.x, q.y);
+          g.points.push(wq.x, wq.y);
+        }
+        this.inkDraft.set({ points: g.points, color: g.pen.color, width: g.pen.width });
+        return;
+      }
+      case 'erase':
+        this.eraseAlong(g, w.x, w.y);
+        return;
     }
   };
+
+  /** Takes away the strokes the eraser touched on its way from the last point to (x, y): one undo step. */
+  private eraseAlong(g: Extract<Gesture, { kind: 'erase' }>, x: number, y: number): void {
+    const reach = 6 / this.camera.scale;
+    const steps = Math.max(1, Math.ceil(Math.hypot(x - g.x, y - g.y) / reach));
+    const hit = new Set<string>();
+    for (let k = 0; k <= steps; k++) {
+      const px = g.x + ((x - g.x) * k) / steps;
+      const py = g.y + ((y - g.y) * k) / steps;
+      const near = { minX: px - reach, minY: py - reach, maxX: px + reach, maxY: py + reach };
+      for (const i of this.index.nodesIn(near)) {
+        const n = this.index.graph.nodes[i];
+        if (n.kind === INK_KIND && !g.gone.has(n.id) && inkHit(n, px, py, reach)) hit.add(n.id);
+      }
+    }
+    g.x = x;
+    g.y = y;
+    if (!hit.size) return;
+    hit.forEach((id) => g.gone.add(id));
+    if (this.callbacks.readOnly) return;
+    this.store.dispatch(
+      this.callbacks.label('erase'),
+      (d) => {
+        const graph = d.graphs[this.graphId] as unknown as GraphDoc | undefined;
+        if (graph) deleteItems(graph, { nodes: hit, edges: new Set(), groups: new Set() });
+      },
+      { mergeKey: g.key, mergeWindowMs: 60_000 },
+    );
+  }
 
   private onPointerUp = (e: PointerEvent): void => {
     const g = this.gesture;
@@ -838,6 +935,18 @@ export class CanvasEngine {
         }
         return;
       }
+      case 'ink': {
+        this.inkDraft.set(null);
+        // Straightened to half a pixel of the view it was drawn at: fewer points, the same line.
+        const points = simplify(g.points, 0.5 / this.camera.scale);
+        const node = makeInk(points, g.pen.color, g.pen.width);
+        this.change('draw', (graph) => {
+          graph.nodes.push(node);
+        });
+        return;
+      }
+      case 'erase':
+        return;
     }
   };
 
@@ -900,7 +1009,7 @@ export class CanvasEngine {
   };
 
   private onDoubleClick = (e: MouseEvent): void => {
-    if (this.isEditable(e.target)) return;
+    if (this.isEditable(e.target) || this.pen.get()) return;
     const p = this.local(e);
     const hit = this.hitAt(p.x, p.y);
     if (hit.kind === 'background') {
@@ -967,6 +1076,7 @@ export class CanvasEngine {
     }
     if (key === 'Escape') {
       if (this.gesture) this.cancelGesture();
+      else if (this.pen.get()) this.setPen(null);
       else this.select(EMPTY_SELECTION);
       return handled();
     }
@@ -1006,6 +1116,7 @@ export class CanvasEngine {
 
   private cancelGesture(): void {
     this.gesture = null;
+    this.inkDraft.set(null);
     this.connectHover = null;
     this.hover.set(null);
     this.drag.set(null);
@@ -1083,6 +1194,10 @@ export class CanvasEngine {
       buildGroups(input),
     );
     const links = this.layer('links', [input.index, drag], () => buildLinks(input));
+    // Up close the DOM draws the strokes.
+    const ink = this.layer('ink', [input.index, drag, this.lod === 'near'], () =>
+      this.lod === 'near' ? EMPTY_BATCH : buildInk(input),
+    );
 
     let overlayBoxes = EMPTY_BATCH;
     let overlaySegs = EMPTY_BATCH;
@@ -1108,6 +1223,7 @@ export class CanvasEngine {
       links: links.links,
       linkArrows: links.arrows,
       nodes: nodes.nodes,
+      ink,
       ports: nodes.ports,
       overlayBoxes,
       overlaySegs,

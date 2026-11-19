@@ -54,8 +54,29 @@ export interface NodeKindDef {
   /** Not offered in create menus: kept so that older projects still open (gun and butterfly nodes). */
   hidden?: boolean;
   /** Order and grouping in the create menu. */
-  menu?: { group: 'basic' | 'flow' | 'logic' | 'plot' | 'world'; order: number };
+  menu?: { group: MenuGroup; order: number };
+  /**
+   * Drawn as a figure of a diagram (0.9) instead of a card: no header, the outline of the shape filled with the
+   * node's colour, its words (the title) in the middle. "none": nothing but the words (a caption, a pen stroke).
+   */
+  shape?: NodeShape;
+  /** The smallest size it can be made by resizing; a card with a header and two rows of the grid by default. */
+  min?: { w: number; h: number };
+  /**
+   * Whether a world point (x, y) is on the node, `tolerance` world units around it counting: for nodes that are
+   * mostly empty (a pen stroke), so clicks between their lines reach what is under them. Its box by default.
+   */
+  hit?: (node: GraphNode, x: number, y: number, tolerance: number) => boolean;
+  /** Fills in a node of this kind when it is made (the cells of a table, the data of a chart). */
+  init?: (node: GraphNode) => void;
 }
+
+export type MenuGroup = 'basic' | 'flow' | 'logic' | 'plot' | 'world' | 'diagram';
+export const MENU_GROUPS: readonly MenuGroup[] = ['basic', 'flow', 'logic', 'plot', 'world', 'diagram'];
+
+/** Shapes of diagram nodes, and their code in the box shader (a_shape.w). */
+export type NodeShape = 'rect' | 'round' | 'ellipse' | 'diamond' | 'para' | 'none';
+export const SHAPE_CODE: Record<NodeShape, number> = { rect: 0, round: 0, ellipse: 1, diamond: 2, para: 3, none: 4 };
 
 export const FACE_DIR: Record<PortFace, { x: number; y: number }> = {
   left: { x: -1, y: 0 },
@@ -122,7 +143,7 @@ export function kindOf(kind: string): NodeKindDef {
 
 /** Kinds offered when creating a node in a graph of this kind, in menu order. */
 export function creatableKinds(graphKind?: string): NodeKindDef[] {
-  const groups = ['basic', 'flow', 'logic', 'plot', 'world'];
+  const groups = MENU_GROUPS;
   return [...KINDS.values()]
     .filter((k) => !k.hidden && (!k.graphs || !graphKind || k.graphs.includes(graphKind)))
     .sort((a, b) => {

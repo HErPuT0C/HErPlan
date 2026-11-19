@@ -2,8 +2,17 @@
 // database, pictures) are dragged onto it from the list on the left, or added there with a click; notes,
 // frames and arrows come from the canvas itself. Double click on an object's card opens the object.
 
-import { Map as MapIcon } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  ArrowDownToLine,
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  ArrowUpToLine,
+  Brush,
+  ChartColumn,
+  Map as MapIcon,
+  Trash,
+} from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { searchKey } from '../../canvas/ops';
 import type { CanvasEngine } from '../../canvas/engine';
 import type { GraphDoc, GraphNode } from '../../canvas/model';
@@ -32,12 +41,32 @@ import { allGraphs } from '../../story/model';
 import { entitySearchText } from '../../world/mentions';
 import { typesFile } from '../../world/schema';
 import { CanvasView, type CanvasExtensions } from '../canvas/CanvasView';
-import { EmptyState, Spinner, toast } from '../components';
+import { EmptyState, Spinner, toast, type MenuEntry } from '../components';
 import { useAsync } from '../useAsync';
 import { useAssetDropTarget } from '../assetDrag';
 import { IMAGE_EXT } from '../world/ImageField';
 import { typeName } from '../world/typeNames';
 import { MapContext, RefIcon, REF_KIND_NAMES } from './cards';
+import {
+  addColumnAt,
+  addRowAt,
+  cellAt,
+  CHART_KIND,
+  chartOf,
+  chartText,
+  DRAWING_KIND,
+  drawingPath,
+  removeColumnAt,
+  removeRowAt,
+  TABLE_KIND,
+  tableCells,
+  tableText,
+} from '../../map/diagram';
+import { useDrawingWindow } from '../drawing/DrawingHost';
+import { drawingsFolder, newDrawing, openPicture } from '../drawing/drawFile';
+import { ChartDialog } from './ChartDialog';
+import { MapOpenNode } from './diagramCards';
+import { MapDrawTools } from './MapDrawTools';
 import './map.css';
 
 interface Item {
@@ -50,6 +79,8 @@ interface Item {
 
 /** What a card of the map is found by in the canvas search besides its title: the object as it is now. */
 function mapNodeText(node: GraphNode, data: ProjectData): string {
+  if (node.kind === TABLE_KIND) return tableText(node);
+  if (node.kind === CHART_KIND) return chartText(node);
   const ref = refOf(node);
   if (!ref) return '';
   const label = refLabel(data, ref) ?? '';
@@ -116,21 +147,143 @@ function MapWorkspace({ project, graphId }: { project: OpenProject; graphId: str
 
   const graph = () => store.getState().graphs[graphId] as unknown as GraphDoc | undefined;
   const nodeOf = (id: string) => graph()?.nodes.find((n) => n.id === id);
+  const drawing = useDrawingWindow();
+  const [chartFor, setChartFor] = useState<string | null>(null);
+
+  /** Changes one card of the map as one undo step. */
+  const changeNode = (id: string, label: string, recipe: (node: GraphNode) => void) => {
+    if (readOnly) return;
+    store.dispatch(label, (d) => {
+      const node = (mapGraph(d) as GraphDoc | undefined)?.nodes.find((n) => n.id === id);
+      if (node) recipe(node);
+    });
+  };
+
+  /**
+   * The drawing window for a canvas card: its drawing, or a new one in the drawings folder named after the card.
+   * A drawing shared with another card (the card was copied) is saved as a picture of its own.
+   */
+  const openDrawing = (id: string) => {
+    const node = nodeOf(id);
+    if (!node || readOnly) return;
+    const path = drawingPath(node);
+    const name = node.title.trim() || t('map.kind.drawing');
+    const shared = !!path && (graph()?.nodes ?? []).some((n) => n.id !== id && drawingPath(n) === path);
+    drawing.draw(
+      async () => {
+        const folder = await drawingsFolder(project);
+        if (path) {
+          try {
+            return await openPicture(project, path, shared ? { folder, name } : undefined);
+          } catch {
+            // The picture is gone: a new drawing in its place.
+          }
+        }
+        return newDrawing(project, folder, name);
+      },
+      (saved) => {
+        const now = nodeOf(id);
+        if (now && drawingPath(now) !== saved) changeNode(id, t('map.step.drawing'), (n) => (n.drawing = saved));
+      },
+    );
+  };
+
+  /** A double click on a card, or Enter: opens what it points at, its drawing, or the data of its chart. */
+  const openNode = (id: string): boolean => {
+    const node = nodeOf(id);
+    if (!node) return false;
+    if (node.kind === CHART_KIND) {
+      if (!readOnly) setChartFor(id);
+      return true;
+    }
+    if (node.kind === DRAWING_KIND) {
+      openDrawing(id);
+      return true;
+    }
+    const ref = refOf(node);
+    if (!ref) return false;
+    if (refLabel(store.getState(), ref) !== null) openRef(ref, project);
+    return true;
+  };
+
+  /** Entries at the top of a card's menu: rows and columns of a table where it was clicked, the chart's data… */
+  const menuEntries = (id: string, world: { x: number; y: number }): MenuEntry[] => {
+    const node = nodeOf(id);
+    if (!node || readOnly) return [];
+    if (node.kind === CHART_KIND) {
+      return [
+        { id: 'chart', label: t('map.chart.edit'), icon: <ChartColumn size={16} />, onSelect: () => setChartFor(id) },
+      ];
+    }
+    if (node.kind === DRAWING_KIND) {
+      return [{ id: 'draw', label: t('map.drawing.edit'), icon: <Brush size={16} />, onSelect: () => openDrawing(id) }];
+    }
+    if (node.kind !== TABLE_KIND) return [];
+    const cells = tableCells(node);
+    const cell = cellAt(node, world.x - node.x, world.y - node.y);
+    const row = cell?.row ?? cells.length - 1;
+    const col = cell?.col ?? cells[0].length - 1;
+    const step = (recipe: (n: GraphNode) => void) => () => changeNode(id, t('map.step.table'), recipe);
+    const entries: MenuEntry[] = [
+      {
+        id: 'row-above',
+        label: t('map.table.rowAbove'),
+        icon: <ArrowUpToLine size={16} />,
+        onSelect: step((n) => addRowAt(n, row)),
+      },
+      {
+        id: 'row-below',
+        label: t('map.table.rowBelow'),
+        icon: <ArrowDownToLine size={16} />,
+        onSelect: step((n) => addRowAt(n, row + 1)),
+      },
+      {
+        id: 'col-left',
+        label: t('map.table.colLeft'),
+        icon: <ArrowLeftToLine size={16} />,
+        onSelect: step((n) => addColumnAt(n, col)),
+      },
+      {
+        id: 'col-right',
+        label: t('map.table.colRight'),
+        icon: <ArrowRightToLine size={16} />,
+        onSelect: step((n) => addColumnAt(n, col + 1)),
+      },
+    ];
+    if (cell && cells.length > 1) {
+      entries.push({
+        id: 'row-del',
+        label: t('map.table.removeRow'),
+        icon: <Trash size={16} />,
+        onSelect: step((n) => removeRowAt(n, cell.row)),
+      });
+    }
+    if (cell && cells[0].length > 1) {
+      entries.push({
+        id: 'col-del',
+        label: t('map.table.removeColumn'),
+        icon: <Trash size={16} />,
+        onSelect: step((n) => removeColumnAt(n, cell.col)),
+      });
+    }
+    return entries;
+  };
+
+  // The canvas keeps the extensions it started with: they reach the handlers of the latest render through this.
+  const handlers = useRef({ openNode, menuEntries });
+  useLayoutEffect(() => {
+    handlers.current = { openNode, menuEntries };
+  });
 
   const ext: CanvasExtensions = useMemo(
     () => ({
-      onOpenNode: (id) => {
-        const node = graph()?.nodes.find((n) => n.id === id);
-        const ref = node && refOf(node);
-        if (!ref) return false;
-        if (refLabel(store.getState(), ref) !== null) openRef(ref, project);
-        return true;
-      },
+      onOpenNode: (id) => handlers.current.openNode(id),
+      menuEntries: (target, world) => (target.kind === 'node' ? handlers.current.menuEntries(target.id, world) : []),
       nodeText: mapNodeText,
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [graphId, project],
+    [],
   );
+  const chartNode = chartFor ? nodeOf(chartFor) : undefined;
 
   // "Show this card on the map" (a picture's "where used").
   const wanted = useAtom(mapRequest);
@@ -212,20 +365,32 @@ function MapWorkspace({ project, graphId }: { project: OpenProject; graphId: str
   });
 
   return (
-    <div className="map" data-tour="map">
-      <ObjectList project={project} onStart={startDrag} />
-      <div
-        ref={canvasBox}
-        className={['map-canvas', (drag?.over || assetOver) && 'map-canvas-over'].filter(Boolean).join(' ')}
-      >
-        <CanvasView project={project} graphId={graphId} cameraKey={`map:${graphId}`} ext={ext} onEngine={setEngine} />
-      </div>
-      {drag && (
-        <div className="map-drag-ghost" style={{ left: drag.x + 12, top: drag.y + 8 }}>
-          <RefIcon kind={drag.item.ref.kind} /> {drag.item.label}
+    <MapOpenNode.Provider value={(id) => void openNode(id)}>
+      <div className="map" data-tour="map">
+        <ObjectList project={project} onStart={startDrag} />
+        <div
+          ref={canvasBox}
+          className={['map-canvas', (drag?.over || assetOver) && 'map-canvas-over'].filter(Boolean).join(' ')}
+        >
+          <CanvasView project={project} graphId={graphId} cameraKey={`map:${graphId}`} ext={ext} onEngine={setEngine} />
+          {engine && !readOnly && <MapDrawTools engine={engine} />}
         </div>
+        {drag && (
+          <div className="map-drag-ghost" style={{ left: drag.x + 12, top: drag.y + 8 }}>
+            <RefIcon kind={drag.item.ref.kind} /> {drag.item.label}
+          </div>
+        )}
+      </div>
+      {drawing.window}
+      {chartNode && (
+        <ChartDialog
+          title={chartNode.title || t('map.kind.chart')}
+          data={chartOf(chartNode)}
+          onSave={(data) => changeNode(chartNode.id, t('map.step.chart'), (n) => (n.chart = data))}
+          onClose={() => setChartFor(null)}
+        />
       )}
-    </div>
+    </MapOpenNode.Provider>
   );
 }
 

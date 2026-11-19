@@ -6,6 +6,7 @@ import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/r
 import {
   AtSign,
   Bold,
+  Brush,
   Code,
   FileText,
   Heading1,
@@ -36,7 +37,16 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../../core/useStore';
-import { documentExtensions, parseMarkdown, TEXT_COLORS, writeMarkdown, type LinkKind } from '../../documents/markdown';
+import {
+  documentExtensions,
+  parseMarkdown,
+  refreshPictures,
+  setImageDrawer,
+  TEXT_COLORS,
+  writeMarkdown,
+  type ImageDrawer,
+  type LinkKind,
+} from '../../documents/markdown';
 import { documentsLinkingTo } from '../../documents/links';
 import { asDocument, docName, listDocuments, renameDocument, setBody } from '../../documents/model';
 import { searchKey } from '../../canvas/ops';
@@ -58,6 +68,17 @@ import { useFileDrop } from '../useFileDrop';
 import { attach, attachmentContent } from './attachments';
 import { SelectionHeading } from './editing';
 import { Pages } from './pages';
+import { useDrawingWindow } from '../drawing/DrawingHost';
+import { drawingsFolder, newDrawing, openPicture } from '../drawing/drawFile';
+
+// 0.9: pictures of documents get a "draw on it" button; a click goes to the open document's toolbar.
+let activeDraw: ImageDrawer['draw'] | null = null;
+setImageDrawer({
+  get label() {
+    return t('docs.drawOnImage');
+  },
+  draw: (src, replace) => activeDraw?.(src, replace),
+});
 import { useAssetDropTarget } from '../assetDrag';
 import { exportDocx, exportPdf } from './exportDocs';
 import { openLink, placeLabel } from './places';
@@ -490,6 +511,36 @@ function Toolbar({ project, editor, doc }: { project: OpenProject; editor: Edito
   });
   const [picker, setPicker] = useState(false);
   const [images, setImages] = useState(false);
+  // Drawing (0.9): a new drawing put into the text, or a picture of the text drawn on (a copy, see drawFile).
+  const drawing = useDrawingWindow();
+  const drawRef = useRef(drawing.draw);
+  useEffect(() => {
+    drawRef.current = drawing.draw;
+  });
+  useEffect(() => {
+    if (project.readOnly) return;
+    activeDraw = (src, replace) =>
+      drawRef.current(
+        () => openPicture(project, src),
+        (path) => (path === src ? refreshPictures(path) : replace(path)),
+      );
+    return () => {
+      activeDraw = null;
+    };
+  }, [project]);
+  const newDrawingHere = () =>
+    drawing.draw(
+      async () => newDrawing(project, await drawingsFolder(project), t('draw.newName')),
+      (path) => {
+        // The caret goes on below the drawing, so what is typed or put next does not replace it.
+        chain()
+          .insertContent([
+            { type: 'image', attrs: { src: path, alt: path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '') } },
+            { type: 'paragraph' },
+          ])
+          .run();
+      },
+    );
   const [prompt, setPrompt] = useState<PromptRequest | null>(null);
   const [tableMenu, setTableMenu] = useState<{ x: number; y: number } | null>(null);
   const [styleMenu, setStyleMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null);
@@ -607,6 +658,7 @@ function Toolbar({ project, editor, doc }: { project: OpenProject; editor: Edito
         }}
       />
       {button(t('docs.image'), <ImageIcon size={16} />, false, () => setImages(true))}
+      {button(t('docs.drawing'), <Brush size={16} />, false, newDrawingHere, project.readOnly)}
       <span className="doc-tool-sep" />
       {button(t('docs.insert.object'), <AtSign size={16} />, false, () => setPicker(true))}
 
@@ -657,6 +709,7 @@ function Toolbar({ project, editor, doc }: { project: OpenProject; editor: Edito
         />
       )}
       <PromptDialog request={prompt} onClose={() => setPrompt(null)} />
+      {drawing.window}
     </div>
   );
 }

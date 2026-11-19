@@ -1,16 +1,17 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import type { NodeKindDef } from '../../canvas/kinds';
+import type { MenuGroup, NodeKindDef } from '../../canvas/kinds';
 import { searchKey } from '../../canvas/ops';
 import { t, type MessageKey } from '../../i18n';
 import { KindIcon } from './kindIcons';
 
-const GROUPS: Record<NonNullable<NodeKindDef['menu']>['group'], MessageKey> = {
+const GROUPS: Record<MenuGroup, MessageKey> = {
   basic: 'canvas.group.basic',
   flow: 'canvas.group.flow',
   logic: 'canvas.group.logic',
   plot: 'canvas.group.plot',
   world: 'canvas.group.world',
+  diagram: 'canvas.group.diagram',
 };
 
 /**

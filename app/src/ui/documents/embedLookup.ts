@@ -10,12 +10,18 @@ import { t } from '../../i18n';
 import { platform } from '../../platform';
 import type { OpenProject } from '../../state/project';
 import { placeLabel } from './places';
+import { versioned } from '../assetVersion';
 
 /** Keeps the embeds of every open document in step with the project. */
 export function useEmbedLookup(project: OpenProject): void {
   useEffect(() => {
     const { store, dir } = project;
-    setAssetResolver((path) => platform().assetUrl(dir, path));
+    // With the file's version: a drawing saved again shows anew (0.9).
+    setAssetResolver((path) =>
+      platform()
+        .assetUrl(dir, path)
+        .then((url) => versioned(url, path)),
+    );
     let last: ProjectData | null = null;
     const sync = () => {
       const data = store.getState();

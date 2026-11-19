@@ -4,7 +4,9 @@
 import type { Lod } from './camera';
 import { curveBounds, curvePoint, endDirection, tessellate, SEGMENTS, edgeCurve, type Curve } from './geometry';
 import { portKey, type GraphIndex } from './graphIndex';
-import { kindOf, portsOf, portPosition, type KindLink, type PortFace } from './kinds';
+import { inkOf, inkWorldPoints, INK_KIND } from './ink';
+import { kindOf, portsOf, portPosition, SHAPE_CODE, type KindLink, type PortFace } from './kinds';
+import { SHAPE_RADIUS } from './shapes';
 import { colorHex, HEADER_H, type GraphNode } from './model';
 import type { Selection } from './ops';
 import {
@@ -17,6 +19,7 @@ import {
   type BatchRange,
   type Rgba,
 } from './gl/renderer';
+import { INK_WIDTH } from './gl/shaders';
 
 export interface Theme {
   bg: Rgba;
@@ -233,6 +236,30 @@ export function buildNodes(s: SceneInput): { nodes: Batch; ports: Batch } {
     const found = s.highlight.has(n.id);
     const border = selected ? theme.accent : found ? theme.warning : withAlpha(theme.line, far ? 0 : 1);
     const borderWidth = selected || found ? (s.current === n.id ? 3 : 2) : 1;
+    if (kind.shape) {
+      // A figure of a diagram (0.9): its outline in its colour; words only, or a pen stroke, show no box.
+      const bare = kind.shape === 'none';
+      const fill = bare ? withAlpha(theme.surface, 0) : mix(theme.surface, head, 0.3);
+      const outline = selected || found ? border : bare ? withAlpha(head, 0) : head;
+      nodes.set(
+        [
+          n.x,
+          n.y,
+          n.w,
+          n.h,
+          ...fill,
+          ...fill,
+          ...outline,
+          0,
+          SHAPE_RADIUS[kind.shape],
+          selected || found ? borderWidth : 1.5,
+          SHAPE_CODE[kind.shape],
+        ],
+        i * BOX_STRIDE,
+      );
+      if (!far) pushPorts(portList, n, index, theme);
+      return;
+    }
     nodes.set(
       [
         n.x,
@@ -249,18 +276,20 @@ export function buildNodes(s: SceneInput): { nodes: Batch; ports: Batch } {
       ],
       i * BOX_STRIDE,
     );
-    if (!far) {
-      // Side anchors appear only once connected (or on hover, see anchorBatch); typed outputs always.
-      for (const port of portsOf(n)) {
-        if (port.anchor && !index.connected.has(portKey(n.id, port.id))) continue;
-        pushPort(portList, n.x + port.x, n.y + port.y, theme);
-      }
-    }
+    if (!far) pushPorts(portList, n, index, theme);
   });
   return {
     nodes: { data: nodes, count: graph.nodes.length },
     ports: { data: Float32Array.from(portList), count: portList.length / DISC_STRIDE },
   };
+}
+
+/** Side anchors appear only once connected (or on hover, see anchorBatch); typed outputs always. */
+function pushPorts(list: number[], n: GraphNode, index: GraphIndex, theme: Theme): void {
+  for (const port of portsOf(n)) {
+    if (port.anchor && !index.connected.has(portKey(n.id, port.id))) continue;
+    pushPort(list, n.x + port.x, n.y + port.y, theme);
+  }
 }
 
 function pushPort(list: number[], x: number, y: number, theme: Theme, hot = false): void {
@@ -394,6 +423,26 @@ export function buildLinks(s: SceneInput): { links: Batch; arrows: Batch } {
     links: { data: Float32Array.from(segs), count: segs.length / SEG_STRIDE },
     arrows: { data: Float32Array.from(arrows), count: arrows.length / ARROW_STRIDE },
   };
+}
+
+/**
+ * Pen strokes (0.9) from afar: their lines in world widths over the boxes of the nodes (up close the DOM draws
+ * them). A stroke being resized comes in the patched index at its new size (see the engine's render).
+ */
+export function buildInk(s: SceneInput): Batch {
+  const { index, drag } = s;
+  const segs: number[] = [];
+  for (const raw of index.graph.nodes) {
+    if (raw.kind !== INK_KIND) continue;
+    const ink = inkOf(raw);
+    if (!ink) continue;
+    const p = inkWorldPoints(placed(raw, drag), ink);
+    const color = hexToRgba(ink.color);
+    const width = INK_WIDTH + ink.width;
+    if (p.length === 2) segs.push(p[0], p[1], p[0] + 0.01, p[1], ...color, width);
+    for (let i = 0; i + 3 < p.length; i += 2) segs.push(p[i], p[i + 1], p[i + 2], p[i + 3], ...color, width);
+  }
+  return { data: Float32Array.from(segs), count: segs.length / SEG_STRIDE };
 }
 
 /** Rectangle being dragged out to select (world coordinates). */

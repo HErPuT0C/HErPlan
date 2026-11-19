@@ -267,8 +267,43 @@
   max-width: 100%;
   border-radius: var(--radius-md);
 }
-.doc-image.ProseMirror-selectednode {
+.doc-image.ProseMirror-selectednode,
+.ProseMirror-selectednode > .doc-image {
   outline: 2px solid var(--accent);
+}
+/* 0.9: a picture with a "draw on it" button, shown when the pointer is over it. */
+.doc-image-wrap {
+  position: relative;
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+}
+.doc-image-draw {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-popup);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.doc-image-wrap:hover .doc-image-draw,
+.doc-image-draw:focus-visible,
+.ProseMirror-selectednode > .doc-image-draw {
+  opacity: 1;
+}
+.doc-image-draw:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .doc-image-missing {
   min-height: 40px;

@@ -17,7 +17,14 @@ import {
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { Camera } from '../../canvas/camera';
-import { CanvasEngine, type GraphHooks, type HitTarget, type PulledEdge, type StepKey } from '../../canvas/engine';
+import {
+  CanvasEngine,
+  type GraphHooks,
+  type HitTarget,
+  type InkDraft,
+  type PulledEdge,
+  type StepKey,
+} from '../../canvas/engine';
 import { creatableKinds, kindOf } from '../../canvas/kinds';
 import type { GraphDoc, GraphNode } from '../../canvas/model';
 import type { ProjectData } from '../../core/project/types';
@@ -48,6 +55,8 @@ const STEP_LABELS: Record<StepKey, MessageKey> = {
   paste: 'canvas.step.paste',
   duplicate: 'canvas.step.duplicate',
   resize: 'canvas.step.resize',
+  draw: 'canvas.step.draw',
+  erase: 'canvas.step.erase',
 };
 
 /** No WebGL2 at all (a very old driver, some remote desktops): say so instead of showing a blank area. */
@@ -175,7 +184,9 @@ export function CanvasView({
 
   const createAt = (kind: string, world: { x: number; y: number }, from: PulledEdge | null = null) => {
     if (!engine) return;
-    const title = kind === 'sticker' ? '' : t(kindOf(kind).label);
+    // Notes and figures start empty: their words are what they show.
+    const def = kindOf(kind);
+    const title = def.sticker || def.shape ? '' : t(def.label);
     engine.createNodeAt(kind, world, title, from);
   };
 
@@ -555,6 +566,7 @@ export function CanvasView({
         <div ref={dom} className="canvas-dom">
           {engine && <NodeLayer engine={engine} store={project.store} graphId={graphId} readOnly={readOnly} />}
         </div>
+        {engine && <InkDraftLayer engine={engine} />}
         {engine && (
           <>
             <CanvasToolbar
@@ -612,5 +624,26 @@ export function CanvasView({
       <PromptDialog request={prompt} onClose={() => setPrompt(null)} />
       <SwatchPopover request={swatch} onClose={() => setSwatch(null)} />
     </>
+  );
+}
+
+/** The stroke being drawn with the pen (0.9), over the cards, until it becomes a node of its own. */
+function InkDraftLayer({ engine }: { engine: CanvasEngine }) {
+  const draft = useAtom(engine.inkDraft);
+  return draft ? <InkDraftPath engine={engine} draft={draft} /> : null;
+}
+
+function InkDraftPath({ engine, draft }: { engine: CanvasEngine; draft: InkDraft }) {
+  const { camera, width, height } = useAtom(engine.view);
+  const p = draft.points;
+  let d = '';
+  for (let i = 0; i + 1 < p.length; i += 2) {
+    d += `${i ? 'L' : 'M'}${(p[i] * camera.scale + camera.x).toFixed(1)} ${(p[i + 1] * camera.scale + camera.y).toFixed(1)}`;
+  }
+  if (p.length === 2) d += 'h0.01';
+  return (
+    <svg className="canvas-ink-draft" width={width} height={height} aria-hidden="true">
+      <path d={d} stroke={draft.color} strokeWidth={Math.max(1, draft.width * camera.scale)} />
+    </svg>
   );
 }

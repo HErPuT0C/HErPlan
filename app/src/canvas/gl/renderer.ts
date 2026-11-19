@@ -46,6 +46,8 @@ export interface Frame {
   links: Batch;
   linkArrows: Batch;
   nodes: Batch;
+  /** Pen strokes drawn on the canvas (0.9), over the nodes. */
+  ink: Batch;
   ports: Batch;
   /** Selection rectangle, edge being dragged, ports of the hovered node: small, rebuilt as needed. */
   overlayBoxes: Batch;
@@ -186,6 +188,7 @@ export class GraphRenderer {
     layer('overlayBoxes', this.box, quad, boxAttrs);
     layer('edges', this.seg, segQuad, segAttrs);
     layer('links', this.seg, segQuad, segAttrs);
+    layer('ink', this.seg, segQuad, segAttrs);
     layer('overlaySegs', this.seg, segQuad, segAttrs);
     layer('ports', this.disc, quad, [
       ['a_disc', 4],
@@ -308,6 +311,7 @@ export class GraphRenderer {
     this.drawLayer('links', f.links, this.seg, f.camera, 4, strip);
     this.drawLayer('linkArrows', f.linkArrows, this.arrow, f.camera, 3, gl.TRIANGLES);
     this.drawLayer('nodes', f.nodes, this.box, f.camera, 4, strip);
+    this.drawLayer('ink', f.ink, this.seg, f.camera, 4, strip);
     this.drawLayer('ports', f.ports, this.disc, f.camera, 4, strip);
     this.drawLayer('overlayDiscs', f.overlayDiscs, this.disc, f.camera, 4, strip);
     this.drawLayer('overlaySegs', f.overlaySegs, this.seg, f.camera, 4, strip);

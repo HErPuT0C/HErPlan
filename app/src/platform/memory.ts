@@ -101,6 +101,16 @@ function byteSize(content: string): number {
   return Math.floor((base64.length * 3) / 4) - padding;
 }
 
+/** The bytes of a stored file: a base64 data URL is decoded, text is encoded as UTF-8. */
+function fromStored(content: string): Uint8Array {
+  const header = /^data:[^,]*;base64,/.exec(content);
+  if (!header) return new TextEncoder().encode(content);
+  const binary = atob(content.slice(header[0].length));
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
 function toDataUrl(name: string, data: Uint8Array): string {
   const dot = name.lastIndexOf('.');
   const type = (dot > 0 && MIME_TYPES[name.slice(dot + 1).toLowerCase()]) || 'application/octet-stream';
@@ -486,6 +496,27 @@ export class MemoryPlatform implements Platform {
     this.fs.files[target] = toDataUrl(name, data);
     this.save();
     return target.slice(join(dir).length + 1);
+  }
+
+  async readAsset(dir: string, path: string): Promise<Uint8Array> {
+    const full = this.assetPath(dir, path);
+    this.requireProject(dir);
+    const content = this.fs.files[full];
+    if (content === undefined) fail('not-found', 'no such file', path);
+    return fromStored(content);
+  }
+
+  async replaceAsset(dir: string, path: string, data: Uint8Array): Promise<void> {
+    const full = this.assetPath(dir, path);
+    const name = full.slice(full.lastIndexOf('/') + 1);
+    if (!isValidName(name)) fail('invalid-path', 'the name is not allowed', name);
+    this.requireProject(dir);
+    if (this.fs.dirs.includes(full)) fail('invalid-path', 'a folder has that name', path);
+    const parent = full.slice(0, full.lastIndexOf('/'));
+    this.requireFolderPath(dir, parent);
+    this.mkdir(parent);
+    this.fs.files[full] = toDataUrl(name, data);
+    this.save();
   }
 
   async createBackup(dir: string, kind: BackupKind, label: string | null): Promise<BackupInfo> {

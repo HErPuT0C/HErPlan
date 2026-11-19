@@ -26,7 +26,8 @@ mod write;
 
 pub use archive::{export_bytes, export_files, export_text, export_zip, import_folder, import_zip};
 pub use assets::{
-    asset_delete, asset_mkdir, asset_move, asset_open_path, import_assets, list_assets, write_asset,
+    asset_delete, asset_mkdir, asset_move, asset_open_path, import_assets, list_assets, read_asset,
+    replace_asset, write_asset,
 };
 pub use atomic::{
     read_file, remove_stale_temp_files, remove_stale_temp_files_recursive, write_atomic,

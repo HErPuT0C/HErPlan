@@ -130,6 +130,13 @@ export interface Platform {
    * `destDir`, renamed like importAssets on a clash; returns its relative path. `name` must be a valid file name.
    */
   writeAsset(dir: string, destDir: string, name: string, data: Uint8Array): Promise<string>;
+  /** The bytes of a file of the asset library (0.9: a picture to draw on); fails for anything else. */
+  readAsset(dir: string, path: string): Promise<Uint8Array>;
+  /**
+   * Writes bytes over a file of the asset library, or creates it with missing folders (0.9: a drawing saved
+   * again under its own name). Atomic: a failed write leaves the old file.
+   */
+  replaceAsset(dir: string, path: string, data: Uint8Array): Promise<void>;
 
   createBackup(dir: string, kind: BackupKind, label: string | null): Promise<BackupInfo>;
   listBackups(dir: string): Promise<BackupInfo[]>;
