@@ -5,6 +5,7 @@
 // (documents, the map, exports, other programs) and HErPlan can open it for drawing again.
 
 import { newId } from '../core/ids';
+import { textBounds } from './text';
 
 export type Tool = 'select' | 'pen' | 'marker' | 'eraser' | 'line' | 'arrow' | 'rect' | 'ellipse' | 'text';
 
@@ -45,16 +46,49 @@ export interface BoxItem {
   fill?: boolean;
 }
 
+/** Families of letters a text can have (0.9.1): their fonts are the system's, see FONT_STACKS. */
+export type TextFont = 'sans' | 'serif' | 'mono' | 'hand';
+export const TEXT_FONTS: readonly TextFont[] = ['sans', 'serif', 'mono', 'hand'];
+
+/**
+ * What goes around the letters of a text (0.9.1): a contour (thin or thick), a shadow, a glow, or a plate
+ * under them — in its own colour.
+ */
+export interface TextLook {
+  kind: 'outline' | 'shadow' | 'glow' | 'plate';
+  color: string;
+  /** A thick contour (outline only). */
+  thick?: boolean;
+}
+export const LOOK_KINDS: readonly TextLook['kind'][] = ['outline', 'shadow', 'glow', 'plate'];
+
+/** A part of a text with a colour and a look of its own (a word coloured apart from the rest). */
+export interface TextRun {
+  text: string;
+  color: string;
+  look?: TextLook;
+}
+
 export interface TextItem {
   kind: 'text';
   id: string;
   /** The top-left corner of the text. */
   x: number;
   y: number;
+  /** All of the text; lines are split by "\n". */
   text: string;
+  /** The colour of the text (of all of it when it has no parts). */
   color: string;
   /** Font size in pixels of the drawing. */
   size: number;
+  /** Absent: "sans". */
+  font?: TextFont;
+  bold?: boolean;
+  italic?: boolean;
+  /** What goes around the letters (of all of them when the text has no parts); absent: nothing. */
+  look?: TextLook;
+  /** Parts with colours and looks of their own; their texts make up `text`. Absent: one colour and look. */
+  runs?: TextRun[];
 }
 
 export type DrawItem = StrokeItem | LineItem | BoxItem | TextItem;
@@ -121,6 +155,15 @@ const COLOR = /^#[0-9a-f]{6}$/i;
 const color = (v: unknown): string => (typeof v === 'string' && COLOR.test(v) ? v.toLowerCase() : '#1f1f1f');
 const width = (v: unknown): number => (num(v) && v > 0 ? Math.min(v, 200) : 2);
 
+function textLook(raw: unknown): TextLook | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const o = raw as Record<string, unknown>;
+  if (!LOOK_KINDS.includes(o.kind as TextLook['kind'])) return undefined;
+  const look: TextLook = { kind: o.kind as TextLook['kind'], color: color(o.color) };
+  if (look.kind === 'outline' && o.thick === true) look.thick = true;
+  return look;
+}
+
 function item(raw: unknown): DrawItem | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
@@ -172,7 +215,7 @@ function item(raw: unknown): DrawItem | null {
     }
     case 'text': {
       if (![o.x, o.y].every(num) || typeof o.text !== 'string' || !o.text) return null;
-      return {
+      const text: TextItem = {
         kind: 'text',
         id,
         x: o.x as number,
@@ -181,6 +224,27 @@ function item(raw: unknown): DrawItem | null {
         color: color(o.color),
         size: num(o.size) && o.size > 0 ? Math.min(o.size, 400) : 24,
       };
+      if (TEXT_FONTS.includes(o.font as TextFont) && o.font !== 'sans') text.font = o.font as TextFont;
+      if (o.bold === true) text.bold = true;
+      if (o.italic === true) text.italic = true;
+      const look = textLook(o.look);
+      if (look) text.look = look;
+      // Parts are kept only when they make up the text exactly.
+      if (Array.isArray(o.runs)) {
+        const runs = o.runs
+          .slice(0, 2000)
+          .map((r): TextRun | null => {
+            const x = (r ?? {}) as Record<string, unknown>;
+            if (typeof x.text !== 'string' || !x.text) return null;
+            const run: TextRun = { text: x.text, color: color(x.color) };
+            const l = textLook(x.look);
+            if (l) run.look = l;
+            return run;
+          })
+          .filter((r): r is TextRun => !!r);
+        if (runs.length && runs.map((r) => r.text).join('') === text.text) text.runs = runs;
+      }
+      return text;
     }
     default:
       return null;
@@ -257,11 +321,12 @@ export interface Box {
   h: number;
 }
 
-/** About how wide a text is drawn (for picking it and for its frame): the average sign is 0.58 em. */
+/**
+ * The rectangle a text covers (for picking it and for its frame): measured in its font where the window can
+ * measure (drawing/text.ts), else about 0.58 em a sign; with room for what goes around its letters.
+ */
 export function textBox(t: TextItem): Box {
-  const lines = t.text.split('\n');
-  const longest = Math.max(...lines.map((l) => l.length), 1);
-  return { x: t.x, y: t.y, w: longest * t.size * 0.58, h: lines.length * t.size * 1.25 };
+  return textBounds(t);
 }
 
 /** The rectangle an item covers (its line width included). */

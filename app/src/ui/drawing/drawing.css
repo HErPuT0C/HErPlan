@@ -106,16 +106,106 @@
 .draw-canvas-text {
   cursor: text;
 }
+/* The field over a text being typed (0.9.1): see-through — the sheet draws the letters with their colours
+   and looks right under it; only the caret and the selection show. Laid out like the sheet's text: no
+   padding or border (the frame is an outline, outside the box). */
 .draw-text {
   position: absolute;
-  min-width: 80px;
+  box-sizing: content-box;
+  min-width: 2em;
+  margin: 0;
   padding: 0;
-  border: 1px dashed #1c7ed6;
-  background: rgb(255 255 255 / 0.6);
-  outline: none;
+  border: 0;
+  outline: 1px dashed #1c7ed6;
+  outline-offset: 3px;
+  background: transparent;
+  color: transparent;
+  caret-color: #1c7ed6;
   resize: none;
   overflow: hidden;
   white-space: pre;
+  letter-spacing: normal;
+  font-kerning: normal;
+}
+/* Its frame is the dashed outline, not the ring of a focused field. */
+.draw-text:focus,
+.draw-text:focus-visible {
+  outline: 1px dashed #1c7ed6;
+  outline-offset: 3px;
+  box-shadow: none;
+}
+.draw-text::selection {
+  background: rgb(28 126 214 / 0.3);
+  color: transparent;
+}
+
+/* The bar of text: font, size, bold, italic, what goes around the letters and its colour. */
+.draw-textbar {
+  padding: 4px 6px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+.draw-font {
+  width: 150px;
+}
+.draw-size {
+  width: 76px;
+}
+.draw-look {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  background: #e9ecef;
+  cursor: pointer;
+}
+.draw-look[aria-pressed='true'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.draw-look span::before {
+  content: 'A';
+}
+.draw-look span {
+  color: #e03131;
+  font:
+    bold 17px/1 'Segoe UI',
+    system-ui,
+    sans-serif;
+}
+.draw-look-outline span {
+  -webkit-text-stroke: 1.5px #1f1f1f;
+  paint-order: stroke fill;
+}
+.draw-look-thick span {
+  -webkit-text-stroke: 3.5px #1f1f1f;
+  paint-order: stroke fill;
+}
+.draw-look-shadow span {
+  text-shadow: 2px 2px 0 #1f1f1f;
+}
+.draw-look-glow span {
+  text-shadow:
+    0 0 4px #f5d000,
+    0 0 6px #f5d000;
+}
+.draw-look-plate span {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #1f1f1f;
+}
+.draw-swatch-small {
+  width: 16px;
+  height: 16px;
+}
+.draw-textbar .draw-group > .muted {
+  margin-right: 4px;
+}
+.draw-texthint {
+  margin-left: auto;
 }
 .draw-foot {
   display: flex;

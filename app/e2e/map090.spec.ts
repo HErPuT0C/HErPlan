@@ -131,6 +131,8 @@ test('figures joined by an arrow, a table, a chart and a canvas on the map (0.9)
   await expect(table.locator('.map-cell')).toHaveCount(8);
   await shot(page, 'm1-figures-table');
 
+  // Saved now, not in a few seconds (the autosave waits 5 s: as long as a poll).
+  await page.keyboard.press('Control+S');
   await expect
     .poll(async () => {
       const g = await storedMap(page);
@@ -195,6 +197,7 @@ test('figures joined by an arrow, a table, a chart and a canvas on the map (0.9)
   await again.getByRole('button', { name: 'Сохранить' }).click();
   await expect(again).toHaveCount(0);
   await expect.poll(async () => (await stored(page, '/assets/Рисунки/Холст (2).png')).length).toBe(1);
+  await page.keyboard.press('Control+S');
   await expect
     .poll(async () => (await storedMap(page))?.nodes.filter((n) => n.kind === 'drawing').map((n) => n.drawing))
     .toEqual(['assets/Рисунки/Холст.png', 'assets/Рисунки/Холст (2).png']);
@@ -244,6 +247,7 @@ test('the pen draws on the map, the eraser takes strokes away, undo brings them 
   }
   await expect(page.locator('.cnode-ink')).toHaveCount(0);
   await shot(page, 'm5-far');
+  await page.keyboard.press('Control+S');
   await expect.poll(async () => (await storedMap(page))?.nodes.filter((n) => n.kind === 'ink').length).toBe(2);
   expect(errors).toEqual([]);
 });

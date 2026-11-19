@@ -69,12 +69,22 @@ export function Menu({ entries, x, y, label, onClose, anchor }: MenuProps) {
       }
       onClose();
     };
+    // Escape closes the menu, wherever the focus is: right after the menu opens it is still on the button
+    // that opened it (the first item takes it a frame later), and the window around would close instead.
+    const escape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    };
     window.addEventListener('pointerdown', close, true);
+    window.addEventListener('keydown', escape, true);
     window.addEventListener('blur', close);
     window.addEventListener('resize', close);
     window.addEventListener('wheel', close, { passive: true });
     return () => {
       window.removeEventListener('pointerdown', close, true);
+      window.removeEventListener('keydown', escape, true);
       window.removeEventListener('blur', close);
       window.removeEventListener('resize', close);
       window.removeEventListener('wheel', close);

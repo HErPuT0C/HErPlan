@@ -3,9 +3,18 @@
 // while drawing, the cards of the map and the PNG that is saved.
 
 import { withDrawing } from './png';
-import { FILL_ALPHA, MARKER_ALPHA, normBox, strokeWidth, type DrawItem, type Drawing, type StrokeItem } from './model';
-
-export const TEXT_FONT = '"Segoe UI", system-ui, sans-serif';
+import {
+  FILL_ALPHA,
+  MARKER_ALPHA,
+  normBox,
+  strokeWidth,
+  type DrawItem,
+  type Drawing,
+  type StrokeItem,
+  type TextItem,
+  type TextLook,
+} from './model';
+import { canvasMeasure, fontCss, layoutText, outlineWidth } from './text';
 
 function strokePath(ctx: CanvasRenderingContext2D, p: readonly number[]): void {
   ctx.beginPath();
@@ -92,16 +101,86 @@ export function drawItem(ctx: CanvasRenderingContext2D, it: DrawItem): void {
       ctx.restore();
       return;
     }
-    case 'text': {
-      ctx.save();
-      ctx.fillStyle = it.color;
-      ctx.font = `${it.size}px ${TEXT_FONT}`;
-      ctx.textBaseline = 'top';
-      it.text.split('\n').forEach((line, i) => ctx.fillText(line, it.x, it.y + i * it.size * 1.25));
-      ctx.restore();
+    case 'text':
+      drawText(ctx, it);
       return;
-    }
   }
+}
+
+/**
+ * A text (0.9.1), in passes over all of its parts so that no look covers the letters of a neighbour: plates
+ * under everything, then glows, shadows, contours, and the letters on top.
+ */
+function drawText(ctx: CanvasRenderingContext2D, it: TextItem): void {
+  ctx.save();
+  const layout = layoutText(it, canvasMeasure(ctx));
+  ctx.font = fontCss(it);
+  ctx.textBaseline = 'alphabetic';
+  // Shadow blurs are in pixels of the canvas, not of the drawing.
+  const m = ctx.getTransform();
+  const k = Math.hypot(m.a, m.b) || 1;
+  const parts = layout.lines.flatMap((line) => line.segments.map((s) => ({ ...s, base: line.base })));
+  const looks = (kind: TextLook['kind']) => parts.filter((s) => s.run.look?.kind === kind);
+
+  // Plates: one rounded box under the neighbouring parts of a line that share its colour.
+  for (const line of layout.lines) {
+    let from = -1;
+    let to = 0;
+    let color = '';
+    const plate = () => {
+      if (from < 0) return;
+      const pad = it.size * 0.12;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(from - pad, line.top, to - from + 2 * pad, layout.lineH, it.size * 0.15);
+      } else {
+        ctx.rect(from - pad, line.top, to - from + 2 * pad, layout.lineH);
+      }
+      ctx.fill();
+      from = -1;
+    };
+    for (const s of line.segments) {
+      const c = s.run.look?.kind === 'plate' ? s.run.look.color : '';
+      if (c && from >= 0 && c === color && Math.abs(s.x - to) < 0.5) {
+        to = s.x + s.w;
+        continue;
+      }
+      plate();
+      if (c) {
+        from = s.x;
+        to = s.x + s.w;
+        color = c;
+      }
+    }
+    plate();
+  }
+  for (const s of looks('glow')) {
+    ctx.shadowColor = s.run.look!.color;
+    ctx.shadowBlur = it.size * 0.35 * k;
+    ctx.fillStyle = s.run.look!.color;
+    ctx.fillText(s.text, s.x, s.base);
+    ctx.fillText(s.text, s.x, s.base);
+  }
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = 'transparent';
+  const drop = Math.max(1, it.size * 0.06);
+  for (const s of looks('shadow')) {
+    ctx.fillStyle = s.run.look!.color;
+    ctx.fillText(s.text, s.x + drop, s.base + drop);
+  }
+  ctx.lineJoin = 'round';
+  ctx.miterLimit = 2;
+  for (const s of looks('outline')) {
+    ctx.strokeStyle = s.run.look!.color;
+    ctx.lineWidth = 2 * outlineWidth(it.size, s.run.look!.thick);
+    ctx.strokeText(s.text, s.x, s.base);
+  }
+  for (const s of parts) {
+    ctx.fillStyle = s.run.color;
+    ctx.fillText(s.text, s.x, s.base);
+  }
+  ctx.restore();
 }
 
 /** A canvas of a size: an offscreen one where the browser has it, else an element. */

@@ -5,9 +5,11 @@
 
 import {
   ArrowUpRight,
+  Bold,
   Circle,
   Eraser,
   Highlighter,
+  Italic,
   MousePointer2,
   Pencil,
   Redo2,
@@ -17,7 +19,14 @@ import {
   Type,
   Undo2,
 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { atom } from '../../core/atom';
 import { newId } from '../../core/ids';
 import { t, type MessageKey } from '../../i18n';
@@ -28,12 +37,31 @@ import {
   PALETTE,
   simplify,
   snapAngle,
+  TEXT_FONTS,
   WIDTHS,
   type DrawItem,
   type Drawing,
+  type TextFont,
+  type TextItem,
+  type TextLook,
+  type TextRun,
   type Tool,
 } from '../../drawing/model';
-import { renderDrawing, TEXT_FONT } from '../../drawing/render';
+import { renderDrawing } from '../../drawing/render';
+import {
+  canvasMeasure,
+  defaultLook,
+  FONT_STACKS,
+  layoutText,
+  LINE_HEIGHT,
+  mapRange,
+  retype,
+  runsOf,
+  runsText,
+  setTextMeasure,
+  styleOf,
+  withRuns,
+} from '../../drawing/text';
 import { Button, Dialog, IconButton } from '../components';
 import './drawing.css';
 
@@ -48,17 +76,88 @@ const TOOLS: { id: Tool; icon: typeof Pencil; label: MessageKey; key: string }[]
   { id: 'ellipse', icon: Circle, label: 'draw.tool.ellipse', key: 'O' },
   { id: 'text', icon: Type, label: 'draw.tool.text', key: 'T' },
 ];
-/** Text sizes for the four widths. */
-const TEXT_SIZES = [18, 28, 42, 64];
+/** Sizes of text offered (pixels of the drawing). */
+const TEXT_SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 56, 64, 72, 96, 128];
 const HISTORY = 100;
 
-// The habits of the last drawing: the tool, the colour, the width.
-const remembered = atom<{ tool: Tool; color: string; width: number; fill: boolean }>({
+const FONT_NAMES: Record<TextFont, MessageKey> = {
+  sans: 'draw.font.sans',
+  serif: 'draw.font.serif',
+  mono: 'draw.font.mono',
+  hand: 'draw.font.hand',
+};
+
+/** What can go around letters, as the buttons of the text bar offer it. */
+type LookChoice = 'none' | 'outline' | 'thick' | 'shadow' | 'glow' | 'plate';
+const LOOK_CHOICES: { id: LookChoice; label: MessageKey }[] = [
+  { id: 'none', label: 'draw.look.none' },
+  { id: 'outline', label: 'draw.look.outline' },
+  { id: 'thick', label: 'draw.look.thick' },
+  { id: 'shadow', label: 'draw.look.shadow' },
+  { id: 'glow', label: 'draw.look.glow' },
+  { id: 'plate', label: 'draw.look.plate' },
+];
+const choiceOf = (look?: TextLook): LookChoice =>
+  !look ? 'none' : look.kind === 'outline' && look.thick ? 'thick' : look.kind;
+
+/** Settings of text: the font of a new text, and the colours picked for each look. */
+interface TextHabits {
+  font: TextFont;
+  size: number;
+  bold: boolean;
+  italic: boolean;
+  lookColors: Partial<Record<TextLook['kind'], string>>;
+}
+
+// The habits of the last drawing: the tool, the colour, the width, the text.
+const remembered = atom<{ tool: Tool; color: string; width: number; fill: boolean; text: TextHabits }>({
   tool: 'pen',
   color: PALETTE[2],
   width: WIDTHS[1],
   fill: false,
+  text: { font: 'sans', size: 28, bold: false, italic: false, lookColors: {} },
 });
+
+/** A text being typed or changed in the window. */
+interface TextEdit {
+  /** The text being changed; null: a new one. */
+  id: string | null;
+  x: number;
+  y: number;
+  runs: TextRun[];
+  font: TextFont;
+  size: number;
+  bold: boolean;
+  italic: boolean;
+  /** The style the first letters of an empty text take. */
+  style: Omit<TextRun, 'text'>;
+}
+
+/** The text as an item of the drawing; null while it is empty. */
+function editedItem(e: TextEdit): TextItem | null {
+  const base: TextItem = {
+    kind: 'text',
+    id: e.id ?? '',
+    x: e.x,
+    y: e.y,
+    text: '',
+    color: e.style.color,
+    size: e.size,
+  };
+  if (e.font !== 'sans') base.font = e.font;
+  if (e.bold) base.bold = true;
+  if (e.italic) base.italic = true;
+  const item = withRuns(base, e.runs.length ? e.runs : []);
+  // A text of spaces and empty lines is no text.
+  return item.text.trim() ? item : null;
+}
+
+/** The items with the text put in (a new one at the end, a changed one in its place, an emptied one gone). */
+function withEdit(items: DrawItem[], e: TextEdit): DrawItem[] {
+  const item = editedItem(e);
+  if (!e.id) return item ? [...items, { ...item, id: newId() }] : items;
+  return item ? items.map((x) => (x.id === e.id ? item : x)) : items.filter((x) => x.id !== e.id);
+}
 
 export function DrawingEditor({
   title,
@@ -85,8 +184,15 @@ export function DrawingEditor({
   const [color, setColorState] = useState(() => remembered.get().color);
   const [width, setWidthState] = useState(() => remembered.get().width);
   const [fill, setFillState] = useState(() => remembered.get().fill);
+  const [habits, setHabits] = useState<TextHabits>(() => remembered.get().text);
+  /** The look the next text gets (picked in the bar before typing). */
+  const [nextLook, setNextLook] = useState<TextLook | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [text, setText] = useState<{ x: number; y: number; value: string } | null>(null);
+  const [edit, setEdit] = useState<TextEdit | null>(null);
+  /** The text field over the sheet while a text is typed, and what was selected in it last. */
+  const field = useRef<HTMLTextAreaElement>(null);
+  /** The selection in the text field: the bar shows the style of what is selected. */
+  const [picked, setPicked] = useState({ start: 0, end: 0 });
   const [saving, setSaving] = useState(false);
   const [asking, setAsking] = useState(false);
   const [scale, setScale] = useState(1);
@@ -108,6 +214,10 @@ export function DrawingEditor({
   const setColor = (v: string) => {
     setColorState(v);
     remembered.set((r) => ({ ...r, color: v }));
+    // The text being typed (its selected words) or the picked item takes the colour too.
+    if (edit) styleText({ color: v });
+    else if (selectedItem && selectedItem.kind !== 'stroke') recolor(selectedItem, v);
+    else if (selectedItem?.kind === 'stroke' && selectedItem.mode !== 'erase') recolor(selectedItem, v);
   };
   const setWidth = (v: number) => {
     setWidthState(v);
@@ -141,6 +251,143 @@ export function DrawingEditor({
     change(items.filter((x) => x.id !== id));
     setSelected(null);
   };
+  const selectedItem = items.find((x) => x.id === selected);
+
+  /** A picked item in another colour: all of a text, its looks kept. */
+  const recolor = (it: DrawItem, c: string) => {
+    if (it.kind === 'text') return restyleItem(it, (r) => ({ ...r, color: c }));
+    change(items.map((x) => (x.id === it.id ? { ...x, color: c } : x)));
+  };
+  const restyleItem = (it: TextItem, fn: (r: TextRun) => TextRun) => {
+    const runs = runsOf(it);
+    const next = withRuns(it, mapRange(runs, 0, runsText(runs).length, fn));
+    if (JSON.stringify(next) !== JSON.stringify(it)) change(items.map((x) => (x.id === it.id ? next : x)));
+  };
+  const setItemFont = (it: TextItem, props: Partial<Pick<TextItem, 'font' | 'size' | 'bold' | 'italic'>>) => {
+    const next: TextItem = { ...it, ...props };
+    if (next.font === 'sans') delete next.font;
+    if (!next.bold) delete next.bold;
+    if (!next.italic) delete next.italic;
+    change(items.map((x) => (x.id === it.id ? next : x)));
+  };
+
+  // ---------- text ----------
+
+  /**
+   * Where the text field's selection is: what a colour or a look applies to (all of the text when nothing is
+   * selected). Read from the field itself in handlers, from the last selection seen while drawing the bar.
+   */
+  const textRange = (e: TextEdit, sel: { start: number; end: number }) => {
+    const { start, end } = sel;
+    return (start < end ? [start, end, true] : [0, runsText(e.runs).length, false]) as [number, number, boolean];
+  };
+  const liveRange = (e: TextEdit) => {
+    const f = field.current;
+    return textRange(e, f ? { start: f.selectionStart, end: f.selectionEnd } : picked);
+  };
+
+  /** The style shown in the bar: of the selected letters, the letter before the caret, or the new text. */
+  const textStyle = (): Omit<TextRun, 'text'> => {
+    if (edit) {
+      const some = picked.start < picked.end;
+      return (some ? styleOf(edit.runs, picked.start) : styleOf(edit.runs, picked.end - 1)) ?? edit.style;
+    }
+    if (selectedItem?.kind === 'text') return styleOf(runsOf(selectedItem), 0) ?? { color: selectedItem.color };
+    return nextLook ? { color, look: nextLook } : { color };
+  };
+
+  /** Gives the selected letters (or all of the text) a colour and/or a look. */
+  const styleText = (patch: { color?: string; look?: TextLook | null }, keepLookKind = false) => {
+    if (!edit) return;
+    const [start, end, some] = liveRange(edit);
+    const apply = (r: Omit<TextRun, 'text'>): Omit<TextRun, 'text'> => {
+      const color = patch.color ?? r.color;
+      let look = patch.look === undefined ? r.look : (patch.look ?? undefined);
+      // A colour of a look keeps each part's own kind of look.
+      if (keepLookKind && patch.look) look = r.look ? { ...r.look, color: patch.look.color } : undefined;
+      return look ? { color, look } : { color };
+    };
+    const runs = mapRange(edit.runs, start, end, (r) => ({ text: r.text, ...apply(r) }));
+    // The field keeps its focus and selection (the bar's buttons do not take them), to go on colouring.
+    setEdit({ ...edit, runs, style: some ? edit.style : apply(edit.style) });
+  };
+
+  /** Starts typing a new text at a point, or changing a text of the drawing. */
+  const startText = (p: { x: number; y: number }, it?: TextItem) => {
+    if (it) {
+      setSelected(null);
+      setEdit({
+        id: it.id,
+        x: it.x,
+        y: it.y,
+        runs: runsOf(it),
+        font: it.font ?? 'sans',
+        size: it.size,
+        bold: !!it.bold,
+        italic: !!it.italic,
+        style: it.look ? { color: it.color, look: it.look } : { color: it.color },
+      });
+      return;
+    }
+    setEdit({
+      id: null,
+      x: p.x,
+      y: p.y,
+      runs: [],
+      font: habits.font,
+      size: habits.size,
+      bold: habits.bold,
+      italic: habits.italic,
+      style: nextLook ? { color, look: nextLook } : { color },
+    });
+  };
+  const finishText = () => {
+    if (!edit) return;
+    const next = withEdit(items, edit);
+    if (JSON.stringify(next) !== JSON.stringify(items)) change(next);
+    setEdit(null);
+  };
+
+  /** A look from the bar: on the selected letters while typing, on a picked text, or for the texts to come. */
+  const pickLook = (choice: LookChoice) => {
+    const base = textStyle();
+    const kind: TextLook['kind'] | null = choice === 'none' ? null : choice === 'thick' ? 'outline' : choice;
+    const look: TextLook | null = kind
+      ? {
+          kind,
+          color: habits.lookColors[kind] ?? defaultLook(kind, base.color).color,
+          ...(choice === 'thick' ? { thick: true } : {}),
+        }
+      : null;
+    if (edit) styleText({ look });
+    else if (selectedItem?.kind === 'text') {
+      restyleItem(selectedItem, (r) => (look ? { ...r, look } : { text: r.text, color: r.color }));
+    } else setNextLook(look);
+  };
+  /** The colour of the look of the selected letters (each keeps its own kind of look). */
+  const pickLookColor = (c: string) => {
+    const base = textStyle();
+    if (base.look) rememberHabits({ lookColors: { ...habits.lookColors, [base.look.kind]: c } });
+    if (edit) styleText({ look: { kind: 'outline', color: c } }, true);
+    else if (selectedItem?.kind === 'text') {
+      restyleItem(selectedItem, (r) => (r.look ? { ...r, look: { ...r.look, color: c } } : r));
+    } else if (nextLook) setNextLook({ ...nextLook, color: c });
+  };
+
+  const rememberHabits = (patch: Partial<TextHabits>) => {
+    const next = { ...habits, ...patch };
+    setHabits(next);
+    remembered.set((r) => ({ ...r, text: next }));
+  };
+  /** Font, size, bold, italic: of the text being typed, of a picked text, or of the texts to come. */
+  const setTextFont = (props: Partial<Pick<TextHabits, 'font' | 'size' | 'bold' | 'italic'>>) => {
+    rememberHabits(props);
+    if (edit) {
+      setEdit({ ...edit, ...props });
+      // Back to typing after a list of the bar (the field remembers its selection).
+      field.current?.focus();
+    } else if (selectedItem?.kind === 'text') setItemFont(selectedItem, props);
+  };
 
   // The sheet as large as fits the window.
   useLayoutEffect(() => {
@@ -172,7 +419,13 @@ export function DrawingEditor({
     }
     layer.current ??= document.createElement('canvas');
     const m = moving.current;
-    const shown = m ? items.map((it) => (it.id === m.id ? movedItem(it, m.dx, m.dy) : it)) : items;
+    let shown = m ? items.map((it) => (it.id === m.id ? movedItem(it, m.dx, m.dy) : it)) : items;
+    // A text being typed is drawn as it will be, in its place (under the see-through text field).
+    if (edit) {
+      const typing = editedItem(edit);
+      shown = edit.id ? shown.flatMap((it) => (it.id !== edit.id ? [it] : typing ? [typing] : [])) : shown;
+      if (!edit.id && typing) shown = [...shown, typing];
+    }
     renderDrawing(ctx, { ...drawing, items: shown }, background, k, draft.current, layer.current);
     const pick = shown.find((x) => x.id === selected);
     if (pick) {
@@ -198,32 +451,14 @@ export function DrawingEditor({
     return { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale };
   };
 
-  /** The text being typed as an item (null when nothing is typed). */
-  const typed = (): DrawItem | null => {
-    const value = text?.value.replace(/\s+$/, '') ?? '';
-    if (!text || !value) return null;
-    return {
-      kind: 'text',
-      id: newId(),
-      x: text.x,
-      y: text.y,
-      text: value,
-      color,
-      size: TEXT_SIZES[Math.max(0, WIDTHS.indexOf(width))] ?? 28,
-    };
-  };
-  const commitText = () => {
-    const item = typed();
-    if (item) change([...items, item]);
-    setText(null);
-  };
-
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0 || saving) return;
+    // No mouse events after this one: their default would take the focus from a text field just opened.
+    e.preventDefault();
     const p = at(e);
     e.currentTarget.setPointerCapture(e.pointerId);
-    if (text) {
-      commitText();
+    if (edit) {
+      finishText();
       return;
     }
     switch (tool) {
@@ -273,11 +508,22 @@ export function DrawingEditor({
           ...(fill ? { fill: true } : {}),
         };
         break;
-      case 'text':
-        setText({ x: p.x, y: p.y, value: '' });
+      case 'text': {
+        // On a text: change it; elsewhere: a new one.
+        const hit = itemAt(current, p.x, p.y, 4 / scale);
+        startText(p, hit?.kind === 'text' ? hit : undefined);
         return;
+      }
     }
     paintRef.current();
+  };
+
+  /** A double click on a text with the arrow changes it. */
+  const onDoubleClick = (e: { clientX: number; clientY: number }) => {
+    if (tool !== 'select' || edit) return;
+    const p = at(e);
+    const hit = itemAt(current, p.x, p.y, 4 / scale);
+    if (hit?.kind === 'text') startText(p, hit);
   };
 
   const onPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -340,7 +586,7 @@ export function DrawingEditor({
   // Keys of the window: tools by letter, Ctrl+Z / Ctrl+Y, Delete for the picked item.
   const keysRef = useRef<(e: KeyboardEvent) => void>(() => undefined);
   const keys = (e: KeyboardEvent) => {
-    if ((e.target as HTMLElement).closest('input, textarea')) return;
+    if ((e.target as HTMLElement).closest('input, textarea, select')) return;
     const ctrl = e.ctrlKey || e.metaKey;
     if (ctrl && e.code === 'KeyZ' && !e.shiftKey) stepBack();
     else if (ctrl && (e.code === 'KeyY' || (e.code === 'KeyZ' && e.shiftKey))) stepForward();
@@ -361,25 +607,55 @@ export function DrawingEditor({
     return () => window.removeEventListener('keydown', key);
   }, []);
 
+  // Texts are measured in the window's fonts: their frames and picking follow the real letters.
+  useEffect(() => {
+    const ctx = document.createElement('canvas').getContext('2d');
+    if (ctx) setTextMeasure(canvasMeasure(ctx));
+  }, []);
+  // A text opened for changing starts with the caret at its end.
+  useEffect(() => {
+    const f = field.current;
+    if (!f || !edit) return;
+    f.focus();
+    f.setSelectionRange(f.value.length, f.value.length);
+    // Only when a text is opened, not on every letter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edit?.id, edit?.x, edit?.y, !!edit]);
+
   const save = async () => {
     // A text still being typed goes into the drawing too.
-    const pending = typed();
-    if (text) commitText();
+    const next = edit ? withEdit(items, edit) : items;
+    if (edit) finishText();
     setSaving(true);
     try {
-      await onSave({ ...drawing, items: pending ? [...items, pending] : items });
+      await onSave({ ...drawing, items: next });
     } finally {
       setSaving(false);
     }
   };
   const close = () => {
-    if (text) return setText(null);
+    if (edit) return finishText();
     if (dirty && !asking) return setAsking(true);
     onClose();
   };
 
   const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
-  const textSize = TEXT_SIZES[Math.max(0, WIDTHS.indexOf(width))] ?? 28;
+  const typing = edit ? editedItem(edit) : null;
+  const typingLayout = edit
+    ? layoutText(typing ?? { kind: 'text', id: '', x: edit.x, y: edit.y, text: ' ', color: '#000', size: edit.size })
+    : null;
+  const textBar = tool === 'text' || !!edit || selectedItem?.kind === 'text';
+  const fontOf: Pick<TextItem, 'font' | 'size' | 'bold' | 'italic'> = edit
+    ? edit
+    : selectedItem?.kind === 'text'
+      ? selectedItem
+      : habits;
+  const shownStyle = textBar ? textStyle() : null;
+  const shownColor = (edit || selectedItem?.kind === 'text') && shownStyle ? shownStyle.color : color;
+  /** Buttons of the bar keep the focus in the text field, so its selection stays. */
+  const keep = (e: { preventDefault: () => void }) => {
+    if (edit) e.preventDefault();
+  };
   return (
     <Dialog open onClose={close} title={title} size="xl" className="drawing-dialog">
       <div className="draw-bar" role="toolbar" aria-label={t('draw.tools')}>
@@ -403,14 +679,15 @@ export function DrawingEditor({
               className="draw-swatch"
               style={{ background: c }}
               aria-label={c}
-              aria-pressed={color === c}
+              aria-pressed={shownColor === c}
+              onMouseDown={keep}
               onClick={() => setColor(c)}
             />
           ))}
           <label className="draw-swatch draw-swatch-any" title={t('draw.colorAny')}>
             <input
               type="color"
-              value={color}
+              value={shownColor}
               aria-label={t('draw.colorAny')}
               onChange={(e) => setColor(e.target.value)}
             />
@@ -458,6 +735,96 @@ export function DrawingEditor({
           />
         </div>
       </div>
+      {textBar && shownStyle && (
+        <div className="draw-bar draw-textbar" role="toolbar" aria-label={t('draw.textTools')}>
+          <select
+            className="input draw-font"
+            aria-label={t('draw.font')}
+            value={fontOf.font ?? 'sans'}
+            onChange={(e) => setTextFont({ font: e.target.value as TextFont })}
+          >
+            {TEXT_FONTS.map((f) => (
+              <option key={f} value={f} style={{ fontFamily: FONT_STACKS[f] }}>
+                {t(FONT_NAMES[f])}
+              </option>
+            ))}
+          </select>
+          <select
+            className="input draw-size"
+            aria-label={t('draw.size')}
+            value={fontOf.size}
+            onChange={(e) => setTextFont({ size: Number(e.target.value) })}
+          >
+            {[...new Set([...TEXT_SIZES, fontOf.size])]
+              .sort((a, b) => a - b)
+              .map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+          </select>
+          <div className="draw-group">
+            <IconButton
+              size="sm"
+              label={t('draw.bold')}
+              icon={<Bold size={16} />}
+              pressed={!!fontOf.bold}
+              onMouseDown={keep}
+              onClick={() => setTextFont({ bold: !fontOf.bold })}
+            />
+            <IconButton
+              size="sm"
+              label={t('draw.italic')}
+              icon={<Italic size={16} />}
+              pressed={!!fontOf.italic}
+              onMouseDown={keep}
+              onClick={() => setTextFont({ italic: !fontOf.italic })}
+            />
+          </div>
+          <div className="draw-group" role="group" aria-label={t('draw.look')}>
+            {LOOK_CHOICES.map((x) => (
+              <button
+                key={x.id}
+                type="button"
+                className={`draw-look draw-look-${x.id}`}
+                aria-label={t(x.label)}
+                title={t(x.label)}
+                aria-pressed={choiceOf(shownStyle.look) === x.id}
+                onMouseDown={keep}
+                onClick={() => pickLook(x.id)}
+              >
+                <span aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+          {shownStyle.look && (
+            <div className="draw-group" role="group" aria-label={t('draw.lookColor')}>
+              <span className="muted small">{t('draw.lookColor')}</span>
+              {PALETTE.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className="draw-swatch draw-swatch-small"
+                  style={{ background: c }}
+                  aria-label={c}
+                  aria-pressed={shownStyle.look?.color === c}
+                  onMouseDown={keep}
+                  onClick={() => pickLookColor(c)}
+                />
+              ))}
+              <label className="draw-swatch draw-swatch-small draw-swatch-any" title={t('draw.colorAny')}>
+                <input
+                  type="color"
+                  value={shownStyle.look.color}
+                  aria-label={t('draw.lookColorAny')}
+                  onChange={(e) => pickLookColor(e.target.value)}
+                />
+              </label>
+            </div>
+          )}
+          <span className="muted small draw-texthint">{t(edit ? 'draw.textHintTyping' : 'draw.textHint')}</span>
+        </div>
+      )}
       <div ref={stage} className="draw-stage">
         <div className="draw-sheet" style={{ width: drawing.w * scale, height: drawing.h * scale }}>
           <canvas
@@ -473,30 +840,46 @@ export function DrawingEditor({
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
+            onDoubleClick={onDoubleClick}
           />
-          {text && (
+          {edit && typingLayout && (
+            // The letters are drawn on the sheet; the field over them is see-through: its caret and selection show.
             <textarea
+              ref={field}
               className="draw-text"
               autoFocus
+              spellCheck={false}
+              wrap="off"
               aria-label={t('draw.textField')}
-              value={text.value}
-              style={{
-                left: text.x * scale,
-                top: text.y * scale,
-                color,
-                font: `${textSize * scale}px ${TEXT_FONT}`,
-                lineHeight: 1.25,
-              }}
-              rows={Math.max(1, text.value.split('\n').length)}
-              onChange={(e) => setText({ ...text, value: e.target.value })}
+              value={runsText(edit.runs)}
+              style={
+                {
+                  left: edit.x * scale,
+                  top: edit.y * scale,
+                  width: (typingLayout.w + edit.size) * scale,
+                  height: typingLayout.h * scale,
+                  fontFamily: FONT_STACKS[edit.font],
+                  fontSize: edit.size * scale,
+                  fontWeight: edit.bold ? 'bold' : 'normal',
+                  fontStyle: edit.italic ? 'italic' : 'normal',
+                  lineHeight: `${edit.size * LINE_HEIGHT * scale}px`,
+                } as CSSProperties
+              }
+              onChange={(e) => setEdit({ ...edit, runs: retype(edit.runs, e.target.value, edit.style) })}
+              onSelect={(e) => setPicked({ start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd })}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  commitText();
-                } else if (e.key === 'Escape') {
+                const ctrl = e.ctrlKey || e.metaKey;
+                if (e.key === 'Escape' || (ctrl && e.key === 'Enter')) {
+                  // Escape keeps what was typed: the text is done.
                   e.preventDefault();
                   e.stopPropagation();
-                  setText(null);
+                  finishText();
+                } else if (ctrl && e.code === 'KeyB') {
+                  e.preventDefault();
+                  setTextFont({ bold: !edit.bold });
+                } else if (ctrl && e.code === 'KeyI') {
+                  e.preventDefault();
+                  setTextFont({ italic: !edit.italic });
                 }
               }}
             />

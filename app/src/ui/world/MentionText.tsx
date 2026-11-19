@@ -4,7 +4,7 @@
 // 0.7.4: "@" in the text box offers the cards and tags, fewer with each letter typed; Enter, Tab or a click
 // puts the whole name in place of "@…".
 
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { useStore } from '../../core/useStore';
 import { t } from '../../i18n';
 import { openCatalog, openEntity } from '../../state/navigation';
@@ -96,7 +96,9 @@ export function MentionText({
     [value, index, selfKey],
   );
 
-  useEffect(() => {
+  // Before the window paints, not after: letters typed right after the click would land before a caret
+  // put back where the click was (a fast typist, a busy machine).
+  useLayoutEffect(() => {
     const el = box.current;
     if (!editing || !el) return;
     el.focus();
